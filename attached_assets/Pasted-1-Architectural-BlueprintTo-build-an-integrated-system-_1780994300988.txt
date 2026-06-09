@@ -1,0 +1,102 @@
+1. Architectural BlueprintTo build an integrated system for LHC Cafe, you must synchronize three core layers: the Cashier POS / Admin Dashboard, the Digital Menu Board, and the Hardware Peripheral Layer.  +-----------------------------------------------------------+
+
+  |              React/Next.js Cashier Dashboard              |
+  +-----------------------------+-----------------------------+
+
+                                | REST API / WebSockets
+                                v
+  +-----------------------------------------------------------+
+  |               Node.js / Express Backend Server            |
+  +-----------------------------+-----------------------------+
+
+                                | 
+        +-----------------------+-----------------------+
+        | Database Operations                           | Hardware & API Routing
+        v                                               v
+  +-----+-----------------------+                 +-----+-----------------------+
+
+  | PostgreSQL DB (ACID Inventory)|                 | ESC/POS Thermal Printer     |
+  +-----------------------------+                 +-----------------------------+
+
+  | Redis (Real-time Menu Cache)|                 | eSewa / Khalti / Nabil API  |
+  +-----------------------------+                 +-----------------------------+
+2. Core Database Schema SetupYou must use a relational database to ensure exact ingredient tracking. A customer ordering an "Iced Americano" must automatically deduct coffee beans and water from your stocks.sql-- 1. Inventory Items (Raw ingredients)
+CREATE TABLE inventory_items (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    current_stock NUMERIC(10, 2) NOT NULL,
+    unit VARCHAR(20) NOT NULL -- 'grams', 'ml', 'pieces'
+);
+
+-- 2. Menu Items (What the customer sees)
+CREATE TABLE menu_items (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    price NUMERIC(10, 2) NOT NULL,
+    is_available BOOLEAN DEFAULT TRUE
+);
+
+-- 3. Recipe Link Table (The Bridge)
+CREATE TABLE recipes (
+    menu_item_id INT REFERENCES menu_items(id),
+    inventory_item_id INT REFERENCES inventory_items(id),
+    quantity_required NUMERIC(10, 2) NOT NULL,
+    PRIMARY KEY (menu_item_id, inventory_item_id)
+);
+
+-- 4. Orders Table
+CREATE TABLE orders (
+    id SERIAL PRIMARY KEY,
+    total_amount NUMERIC(10, 2) NOT NULL,
+    payment_method VARCHAR(50) NOT NULL, -- 'eSewa', 'Khalti', 'Nabil_QR', 'Cash'
+    payment_status VARCHAR(20) DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+Use code with caution.3. Step-by-Step Implementation ProceduresStep 1: Set Up the Express & PostgreSQL Backend EngineInitialize a Node.js project using npm init -y and install required dependencies: npm install express pg cors dotenv jsonwebtoken websockets.Configure a centralized pool connection to your PostgreSQL database.Build an inventory update utility script that handles ingredient deduction securely using database transactions.Step 2: Implement the Real-Time Stock Deduction CodeWhen an order is successfully processed at LHC Cafe, your backend must atomicly decrease stock levels. Write a database transaction to prevent inventory errors if multiple orders happen simultaneously.javascriptconst { Pool } = require('pg');
+const pool = new Pool();
+
+async function processLHCOrder(orderId, menuItemId, quantityOrdered) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN'); // Start transaction
+
+        // 1. Fetch ingredients required for this menu item
+        const recipeRes = await client.query(
+            'SELECT inventory_item_id, quantity_required FROM recipes WHERE menu_item_id = $1',
+            [menuItemId]
+        );
+
+        // 2. Loop and deduct from inventory
+        for (let row of recipeRes.rows) {
+            const deduction = row.quantity_required * quantityOrdered;
+            
+            // Check stock availability first
+            const stockCheck = await client.query(
+                'SELECT current_stock, name FROM inventory_items WHERE id = $1',
+                [row.inventory_item_id]
+            );
+            
+            if (stockCheck.rows[0].current_stock < deduction) {
+                throw new Error(`Insufficient stock for ${stockCheck.rows[0].name}`);
+            }
+
+            // Deduct inventory
+            await client.query(
+                'UPDATE inventory_items SET current_stock = current_stock - $1 WHERE id = $2',
+                [deduction, row.inventory_item_id]
+            );
+        }
+
+        // 3. Update order status to completed
+        await client.query('UPDATE orders SET payment_status = $1 WHERE id = $2', ['Completed', orderId]);
+        
+        await client.query('COMMIT');
+        return { success: true };
+    } catch (error) {
+        await client.query('ROLLBACK'); // Cancel everything if stock runs out
+        return { success: false, error: error.message };
+    } finally {
+        client.release();
+    }
+}
+Use code with caution.S...

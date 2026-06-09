@@ -1,0 +1,2 @@
+- [LHC Cafe auth setup](lhc-cafe-auth.md) — JWT in localStorage `lhc_token`; custom-fetch injects it automatically; never use deep imports from api-client-react
+- [LHC Cafe DB seeding](lhc-cafe-seeding.md) — bcrypt hashes must be generated via api-server node_modules, not code_execution sandbox; admin=admin123 staff1=staff123

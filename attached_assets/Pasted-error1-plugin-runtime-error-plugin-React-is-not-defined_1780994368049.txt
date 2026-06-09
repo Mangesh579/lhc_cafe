@@ -1,0 +1,42 @@
+error1:
+[plugin:runtime-error-plugin] React is not defined
+/home/runner/workspace/artifacts/lhc-cafe/src/pages/orders.tsx:87:20
+85 | <TableBody>
+86 | {orders?.map((order: any) => (
+87 | <React.Fragment key={order.id}>
+| ^
+88 | <TableRow className={cursor-pointer ${expandedRows.has(order.id) ? 'bg-muted/50' : ''}} onClick={() => toggleRow(order.id)}>
+89 | <TableCell>
+at /home/runner/workspace/artifacts/lhc-cafe/src/pages/orders.tsx:87:20
+at Array.map (<anonymous>)
+at Orders /home/runner/workspace/artifacts/lhc-cafe/src/pages/orders.tsx:86:26
+error2:
+[plugin:runtime-error-plugin] Failed to construct 'WebSocket': An insecure WebSocket connection may not be initiated from a page loaded over HTTPS.
+/home/runner/workspace/artifacts/lhc-cafe/src/pages/menu-board.tsx:20:16
+18 | useEffect(() => {
+19 | const wsUrl = ws://${window.location.host}/api/ws;
+20 | const ws = new WebSocket(wsUrl);
+| ^
+21 |
+22 | ws.onmessage = (event) => {
+at /home/runner/workspace/artifacts/lhc-cafe/src/pages/menu-board.tsx:20:16
+error3:
+{"code":"ES104","message":"Invalid payload signature."}
+https://rc-epay.esewa.com.np/api/epay/main/v2/form
+error4:
+{"detail":"Authentication credentials were not provided.","status_code":401}
+https://a.khalti.com/api/v2/epayment/initiate/?test=true&amount=890&order=9
+error5:
+while selecting payment method nabil QR then the Rs is always 0 instead of the items price
+also just remove other payment methods just keep nabil QR and cash and let me know in which directory should I upload the QR.
+question1:
+shouldn't there be qrs in every table to just scan the qr and select the items
+which is updated in current orders
+question 2:
+are all of Pasted-1-order-....txt integrated?
+also should it be integrated? If yes then integrate it
+question3:
+is there a login for admin?
+admin should have much more functionality than for staff
+also to change password/pin as well
+also admin should have all the logs of sales login inventory and every changes/updates made
