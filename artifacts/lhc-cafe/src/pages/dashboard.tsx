@@ -6,8 +6,8 @@ import { format } from "date-fns";
 
 export default function Dashboard() {
   const { data: stats } = useGetDashboardStats();
-  const { data: activityItems } = useGetDashboardActivity({ query: { limit: 10 } });
-  const { data: salesByDay } = useGetSalesByDay({ query: { days: 7 } });
+  const { data: activityItems } = useGetDashboardActivity({ limit: 10 });
+  const { data: salesByDay } = useGetSalesByDay({ days: 7 });
   const { data: topItems } = useGetTopMenuItems();
 
   const formatCurrency = (val: number) => `Rs. ${val.toLocaleString()}`;

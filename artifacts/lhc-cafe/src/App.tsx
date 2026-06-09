@@ -15,6 +15,7 @@ import Inventory from "@/pages/inventory";
 import Tables from "@/pages/tables";
 import Loyalty from "@/pages/loyalty";
 import Settings from "@/pages/settings";
+import Users from "@/pages/users";
 import Login from "@/pages/login";
 import PublicOrder from "@/pages/public-order";
 
@@ -73,6 +74,7 @@ function Router() {
         <Route path="/inventory" component={Inventory} />
         <Route path="/tables" component={Tables} />
         <Route path="/loyalty" component={Loyalty} />
+        <Route path="/users" component={Users} />
         <Route path="/settings" component={Settings} />
         <Route path="/" component={Dashboard} />
         <Route component={NotFound} />

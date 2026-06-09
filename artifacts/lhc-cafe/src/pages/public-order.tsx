@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 export default function PublicOrder({ params }: { params: { tableId: string } }) {
   const tableId = parseInt(params.tableId);
-  const { data: menuData, isLoading } = useGetPublicMenu({ query: { tableId } });
+  const { data: menuData, isLoading } = useGetPublicMenu({ tableId });
   const placeOrder = usePlaceTableOrder();
 
   const [cart, setCart] = useState<{id: number, name: string, price: number, quantity: number}[]>([]);

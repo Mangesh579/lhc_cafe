@@ -8,6 +8,8 @@ import tablesRouter from "./tables";
 import loyaltyRouter from "./loyalty";
 import dashboardRouter from "./dashboard";
 import publicRouter from "./public";
+import equipmentRouter from "./equipment";
+import wasteRouter from "./waste";
 
 const router: IRouter = Router();
 
@@ -20,5 +22,7 @@ router.use(tablesRouter);
 router.use(loyaltyRouter);
 router.use(dashboardRouter);
 router.use(publicRouter);
+router.use(equipmentRouter);
+router.use(wasteRouter);
 
 export default router;

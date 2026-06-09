@@ -6,3 +6,6 @@ export * from "./recipes";
 export * from "./orders";
 export * from "./tables";
 export * from "./loyalty";
+export * from "./equipment";
+export * from "./waste";
+export * from "./menu-changelog";

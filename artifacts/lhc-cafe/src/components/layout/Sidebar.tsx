@@ -9,6 +9,7 @@ import {
   PackageSearch, 
   Grid2X2, 
   Users, 
+  UserCog,
   Settings, 
   LogOut 
 } from "lucide-react";
@@ -25,6 +26,7 @@ const navItems = [
   { href: "/inventory", label: "Inventory", icon: PackageSearch, roles: ["admin", "staff"] },
   { href: "/tables", label: "Tables", icon: Grid2X2, roles: ["admin"] },
   { href: "/loyalty", label: "Loyalty", icon: Users, roles: ["admin", "staff"] },
+  { href: "/users", label: "Users", icon: UserCog, roles: ["admin"] },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["admin", "staff"] },
 ];
 

@@ -87,7 +87,6 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(ordersTable.createdAt));
 
-  // Fetch items for each order
   const ordersWithItems = await Promise.all(
     ordersList.map(async (order) => {
       const items = await db
@@ -114,7 +113,6 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
   const { tableId, paymentMethod, loyaltyCustomerId, notes, items } = req.body;
   if (!items?.length) { res.status(400).json({ error: "Order must have at least one item" }); return; }
 
-  // Compute total
   let totalAmount = 0;
   const resolvedItems: Array<{ menuItemId: number; quantity: number; unitPrice: number; subtotal: number; notes?: string }> = [];
   for (const item of items) {
@@ -126,7 +124,6 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
     resolvedItems.push({ menuItemId: item.menuItemId, quantity: item.quantity, unitPrice, subtotal, notes: item.notes });
   }
 
-  // Create order
   const [order] = await db.insert(ordersTable).values({
     tableId: tableId ?? null,
     totalAmount: String(totalAmount),
@@ -137,7 +134,6 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
     notes: notes ?? null,
   }).returning();
 
-  // Insert order items
   for (const item of resolvedItems) {
     await db.insert(orderItemsTable).values({ orderId: order.id, ...item, unitPrice: String(item.unitPrice), subtotal: String(item.subtotal) });
   }
@@ -152,11 +148,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
         const stockBefore = parseFloat(String(inv.currentStock));
         const stockAfter = Math.max(0, stockBefore - needed);
         await db.update(inventoryItemsTable).set({ currentStock: String(stockAfter) }).where(eq(inventoryItemsTable.id, inv.id));
-        await db.insert(inventoryLogsTable).values({
-          inventoryItemId: inv.id, changeAmount: String(-needed),
-          stockBefore: String(stockBefore), stockAfter: String(stockAfter),
-          reason: `Order #${order.id}`, orderId: order.id,
-        });
+        await db.insert(inventoryLogsTable).values({ inventoryItemId: inv.id, changeAmount: String(-needed), stockBefore: String(stockBefore), stockAfter: String(stockAfter), reason: `Order #${order.id}`, orderId: order.id });
       }
     }
   }
@@ -176,9 +168,19 @@ router.patch("/orders/:id/status", authenticate, async (req, res): Promise<void>
   const id = parseId(req.params.id);
   const { status } = req.body;
   if (!status) { res.status(400).json({ error: "status required" }); return; }
-  const [order] = await db.update(ordersTable).set({ orderStatus: status }).where(eq(ordersTable.id, id)).returning();
-  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+
+  // Block completion if payment is still pending
+  if (status === "completed") {
+    const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+    if (order && order.paymentStatus === "pending") {
+      res.status(400).json({ error: "Cannot complete order: payment is still pending. Please process payment first." });
+      return;
+    }
+  }
+
+  await db.update(ordersTable).set({ orderStatus: status }).where(eq(ordersTable.id, id));
   const result = await getOrderWithItems(id);
+  if (!result) { res.status(404).json({ error: "Order not found" }); return; }
   res.json(result);
 });
 
@@ -189,7 +191,6 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   if (paymentMethod) updateData.paymentMethod = paymentMethod;
   if (paymentStatus) updateData.paymentStatus = paymentStatus;
 
-  // Award loyalty points when paid
   if (paymentStatus === "paid") {
     const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
     if (order) {
@@ -198,7 +199,6 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
         const points = Math.floor(parseFloat(String(order.totalAmount)) / 10);
         updateData.loyaltyPointsEarned = points;
         updateData.loyaltyCustomerId = customerId;
-        // Update loyalty customer
         const [customer] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, customerId));
         if (customer) {
           await db.update(loyaltyCustomersTable).set({
@@ -207,10 +207,6 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
             totalSpent: String(parseFloat(String(customer.totalSpent)) + parseFloat(String(order.totalAmount))),
           }).where(eq(loyaltyCustomersTable.id, customerId));
         }
-      }
-      // Auto-complete order status if paid
-      if (paymentStatus === "paid" && order.orderStatus !== "cancelled") {
-        updateData.orderStatus = "completed";
       }
     }
   }
@@ -223,9 +219,9 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
 
 router.patch("/orders/:id/cancel", authenticate, async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
-  const [order] = await db.update(ordersTable).set({ orderStatus: "cancelled", paymentStatus: "cancelled" }).where(eq(ordersTable.id, id)).returning();
-  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+  await db.update(ordersTable).set({ orderStatus: "cancelled", paymentStatus: "cancelled" }).where(eq(ordersTable.id, id));
   const result = await getOrderWithItems(id);
+  if (!result) { res.status(404).json({ error: "Order not found" }); return; }
   res.json(result);
 });
 
