@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useListOrders,
   useUpdateOrderStatus,
@@ -17,16 +17,34 @@ import { format } from "date-fns";
 import { ChevronDown, ChevronUp, Clock, Printer, CreditCard, AlertCircle, RefreshCw } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
+const POLL_INTERVAL = 30_000;
+
 export default function Orders() {
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const [paymentModalOrder, setPaymentModalOrder] = useState<any>(null);
   const [paymentMethod, setPaymentMethod] = useState<string>("cash");
+  const [secondsToRefresh, setSecondsToRefresh] = useState(POLL_INTERVAL / 1000);
 
-  const { data: orders, isLoading, refetch } = useListOrders();
+  const { data: orders, isLoading, refetch, dataUpdatedAt } = useListOrders(
+    {},
+    { query: { queryKey: getListOrdersQueryKey(), refetchInterval: POLL_INTERVAL } }
+  );
   const updateStatus = useUpdateOrderStatus();
   const updatePayment = useUpdateOrderPayment();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  // Countdown timer synced to the polling cycle
+  useEffect(() => {
+    setSecondsToRefresh(POLL_INTERVAL / 1000);
+    const interval = setInterval(() => {
+      setSecondsToRefresh(s => {
+        if (s <= 1) return POLL_INTERVAL / 1000;
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [dataUpdatedAt]);
 
   const toggleExpand = (id: number) => {
     setExpandedOrders(prev => {
@@ -104,7 +122,13 @@ export default function Orders() {
         <h1 className="text-3xl font-serif font-bold">Active Orders</h1>
         <div className="flex items-center gap-3">
           <Badge variant="outline" className="text-base px-4 py-1">{activeOrders.length} Active</Badge>
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2"><RefreshCw className="w-4 h-4" /> Refresh</Button>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <RefreshCw className="w-3.5 h-3.5 animate-pulse text-primary" />
+            <span>Auto-refresh in <span className="font-semibold text-foreground tabular-nums">{secondsToRefresh}s</span></span>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => { refetch(); setSecondsToRefresh(POLL_INTERVAL / 1000); }} className="gap-2">
+            <RefreshCw className="w-4 h-4" /> Refresh Now
+          </Button>
         </div>
       </div>
 

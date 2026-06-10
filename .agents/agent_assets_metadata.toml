@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "8hMrgDfUBh1f2Yot5yg88"
+uri = "file://LHC_CAFE_DEPLOYMENT_GUIDE.md"
+type = "text"
+title = "LHC Cafe — Local & Public Hosting Guide"
