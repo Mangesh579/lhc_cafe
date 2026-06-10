@@ -157,17 +157,19 @@ function WasteDialog({ inventory, menuItems, open, onClose, onSaved }: { invento
   const { toast } = useToast();
 
   const handleInvChange = (id: string) => {
-    setInvItemId(id); setMenuItemId("");
-    if (id) {
-      const inv = inventory.find(i => i.id.toString() === id);
+    const val = id === "none" ? "" : id;
+    setInvItemId(val); setMenuItemId("");
+    if (val) {
+      const inv = inventory.find(i => i.id.toString() === val);
       if (inv) { setItemName(inv.name); setUnit(inv.unit); }
     } else { setItemName(""); setUnit(""); }
   };
 
   const handleMenuChange = (id: string) => {
-    setMenuItemId(id); setInvItemId("");
-    if (id) {
-      const m = menuItems.find(i => i.id.toString() === id);
+    const val = id === "none" ? "" : id;
+    setMenuItemId(val); setInvItemId("");
+    if (val) {
+      const m = menuItems.find(i => i.id.toString() === val);
       if (m) { setItemName(m.name); setUnit("serving"); }
     } else { setItemName(""); setUnit(""); }
   };
@@ -196,20 +198,20 @@ function WasteDialog({ inventory, menuItems, open, onClose, onSaved }: { invento
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label>Linked Ingredient</Label>
-              <Select value={invItemId} onValueChange={handleInvChange}>
+              <Select value={invItemId || "none"} onValueChange={handleInvChange}>
                 <SelectTrigger><SelectValue placeholder="Select ingredient" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {inventory.map(i => <SelectItem key={i.id} value={String(i.id)}>{i.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1">
               <Label>Or Linked Menu Item</Label>
-              <Select value={menuItemId} onValueChange={handleMenuChange}>
+              <Select value={menuItemId || "none"} onValueChange={handleMenuChange}>
                 <SelectTrigger><SelectValue placeholder="Select item" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {menuItems.map(i => <SelectItem key={i.id} value={String(i.id)}>{i.name}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -253,8 +255,8 @@ export default function Inventory() {
   const [invLogs, setInvLogs] = useState<any[]>([]);
   const [logsLoaded, setLogsLoaded] = useState<string | null>(null);
 
-  const loadTab = async (tab: string) => {
-    if (logsLoaded === tab) return;
+  const loadTab = async (tab: string, force = false) => {
+    if (!force && logsLoaded === tab) return;
     try {
       if (tab === "equipment") { const d = await APIJSON("/equipment"); setEquipment(Array.isArray(d) ? d : []); }
       if (tab === "equipment-logs") { const d = await APIJSON("/equipment/logs"); setEqLogs(Array.isArray(d) ? d : []); }
@@ -285,7 +287,8 @@ export default function Inventory() {
   const handleDeleteEquipment = async (id: number) => {
     if (!confirm("Delete this equipment?")) return;
     try {
-      await fetch(`/api/equipment/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      const r = await fetch(`/api/equipment/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      if (!r.ok) throw new Error("Failed");
       setEquipment(prev => prev.filter(e => e.id !== id)); toast({ title: "Equipment removed" });
     } catch { toast({ title: "Failed to delete", variant: "destructive" }); }
   };
@@ -432,7 +435,7 @@ export default function Inventory() {
         {/* ── Waste Log Tab ───────────────────────────────────────────────── */}
         <TabsContent value="waste" className="space-y-4 mt-4">
           <div className="flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => loadTab("waste")} className="gap-2"><RefreshCw className="w-4 h-4" /> Refresh</Button>
+            <Button variant="outline" size="sm" onClick={() => loadTab("waste", true)} className="gap-2"><RefreshCw className="w-4 h-4" /> Refresh</Button>
             <Button onClick={() => setWasteDialog(true)} className="gap-2"><PackageX className="w-4 h-4" /> Log Waste</Button>
           </div>
           <Card>
@@ -470,7 +473,7 @@ export default function Inventory() {
         {/* ── Stock Log Tab ────────────────────────────────────────────────── */}
         <TabsContent value="inv-log" className="space-y-4 mt-4">
           <div className="flex justify-end">
-            <Button variant="outline" size="sm" onClick={() => { setLogsLoaded(null); loadTab("inv-log"); }} className="gap-2"><RefreshCw className="w-4 h-4" /> Refresh</Button>
+            <Button variant="outline" size="sm" onClick={() => loadTab("inv-log", true)} className="gap-2"><RefreshCw className="w-4 h-4" /> Refresh</Button>
           </div>
           <Card>
             <CardContent className="p-0">
@@ -536,8 +539,8 @@ export default function Inventory() {
 
       {/* Dialogs */}
       <IngredientDialog item={ingDialog.item} open={ingDialog.open} onClose={() => setIngDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); }} />
-      <EquipmentDialog eq={eqDialog.eq} open={eqDialog.open} onClose={() => setEqDialog({ open: false })} onSaved={() => { setLogsLoaded(null); loadTab("equipment"); }} />
-      <WasteDialog inventory={inventory as any[]} menuItems={menuItems as any[]} open={wasteDialog} onClose={() => setWasteDialog(false)} onSaved={() => { setLogsLoaded(null); loadTab("waste"); }} />
+      <EquipmentDialog eq={eqDialog.eq} open={eqDialog.open} onClose={() => setEqDialog({ open: false })} onSaved={() => loadTab("equipment", true)} />
+      <WasteDialog inventory={inventory as any[]} menuItems={menuItems as any[]} open={wasteDialog} onClose={() => setWasteDialog(false)} onSaved={() => loadTab("waste", true)} />
     </div>
   );
 }

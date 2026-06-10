@@ -76,12 +76,11 @@ function ResetPasswordDialog({ user, open, onClose }: { user: any; open: boolean
     if (!newPassword || newPassword.length < 6) { toast({ title: "Password must be at least 6 characters", variant: "destructive" }); return; }
     setLoading(true);
     try {
-      // Admin directly updates via PATCH (reuses user update, but we don't have a dedicated reset endpoint)
-      // We'll use the PATCH endpoint to update password — need backend support
-      await fetch(`/api/auth/users/${user.id}/reset-password`, {
+      const r = await fetch(`/api/auth/users/${user.id}/reset-password`, {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
         body: JSON.stringify({ newPassword })
       });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d?.error ?? "Failed"); }
       toast({ title: "Password reset successfully" }); setNewPassword(""); onClose();
     } catch { toast({ title: "Failed to reset password", variant: "destructive" }); }
     finally { setLoading(false); }

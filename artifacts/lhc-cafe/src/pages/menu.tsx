@@ -80,10 +80,10 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
           </div>
           <div className="space-y-1">
             <Label>Category</Label>
-            <Select value={categoryId} onValueChange={setCategoryId}>
+            <Select value={categoryId || "none"} onValueChange={v => setCategoryId(v === "none" ? "" : v)}>
               <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">No Category</SelectItem>
+                <SelectItem value="none">No Category</SelectItem>
                 {categories.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
               </SelectContent>
             </Select>
@@ -150,9 +150,8 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
   const handleDelete = async (ingredientId: number) => {
     setLoading(true);
     try {
-      await API(`/menu-items/${item.id}/recipes/${ingredientId}`).then(r => r.ok ? r : Promise.reject());
-      // Actually do DELETE
-      await fetch(`/api/menu-items/${item.id}/recipes/${ingredientId}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      const r = await fetch(`/api/menu-items/${item.id}/recipes/${ingredientId}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      if (!r.ok) throw new Error("Failed");
       toast({ title: "Ingredient removed" }); await loadRecipes();
     } catch { toast({ title: "Failed to remove", variant: "destructive" }); }
     finally { setLoading(false); }

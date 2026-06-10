@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { useListOrders } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -150,8 +150,8 @@ export default function OrderLog() {
                 ) : filteredOrders.length === 0 ? (
                   <tr><td colSpan={7} className="px-5 py-8 text-center text-muted-foreground">No orders found.</td></tr>
                 ) : filteredOrders.map(order => (
-                  <>
-                    <tr key={order.id} className="hover:bg-muted/20 cursor-pointer" onClick={() => toggleExpand(order.id)}>
+                  <Fragment key={order.id}>
+                    <tr className="hover:bg-muted/20 cursor-pointer" onClick={() => toggleExpand(order.id)}>
                       <td className="px-5 py-3">
                         {expandedOrders.has(order.id) ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
                       </td>
@@ -189,7 +189,7 @@ export default function OrderLog() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
