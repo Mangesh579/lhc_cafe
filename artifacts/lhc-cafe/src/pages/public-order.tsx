@@ -37,6 +37,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [isSuccess, setIsSuccess] = useState(false);
   const [orderId, setOrderId] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lastCart, setLastCart] = useState<typeof cart>([]);
 
   useEffect(() => {
     const fetchMenu = async () => {
@@ -90,6 +91,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       const result = await res.json();
       setOrderId(result.id);
       setIsSuccess(true);
+      setLastCart(cart);
       setCart([]);
     } catch {
       alert("Failed to place order. Please try again.");
@@ -117,25 +119,50 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   }
 
   if (isSuccess) {
-    return (
-      <div className="min-h-screen bg-[#fdfaf6] flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6">
-          <CheckCircle2 className="w-10 h-10" />
+  return (
+    <div className="min-h-screen bg-[#fdfaf6] p-6">
+      <div className="max-w-sm mx-auto space-y-6 pt-8">
+        <div className="text-center">
+          <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-4 mx-auto">
+            <CheckCircle2 className="w-10 h-10" />
+          </div>
+          <h1 className="text-3xl font-serif font-bold text-amber-950 mb-1">Order Placed!</h1>
+          <p className="text-amber-800/70">Table {menuData?.tableNumber} — Order #{orderId}</p>
         </div>
-        <h1 className="text-3xl font-serif font-bold text-amber-950 mb-2">Order Received!</h1>
-        <p className="text-amber-800/70 mb-8 max-w-xs mx-auto">We're preparing your order. It will be brought to your table shortly.</p>
-        <Card className="w-full max-w-sm bg-white border-amber-200">
-          <CardContent className="p-6">
-            <p className="text-sm text-amber-900/60 uppercase tracking-wider font-semibold mb-1">Order Number</p>
-            <p className="text-4xl font-mono font-bold text-amber-950">#{orderId}</p>
+
+        <Card className="bg-white border-amber-200 shadow-sm">
+          <CardContent className="p-5 space-y-4">
+            <h2 className="font-semibold text-amber-950 text-lg border-b border-amber-100 pb-2">Your Order</h2>
+            <div className="space-y-2">
+              {lastCart.map(item => (
+                <div key={item.id} className="flex justify-between text-sm">
+                  <span className="text-amber-900">
+                    <span className="font-medium">{item.quantity}×</span> {item.name}
+                  </span>
+                  <span className="font-medium text-amber-700">
+                    Rs. {(item.price * item.quantity).toFixed(0)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-amber-100 pt-3 flex justify-between font-bold text-amber-950">
+              <span>Total</span>
+              <span>Rs. {lastCart.reduce((sum, i) => sum + i.price * i.quantity, 0).toFixed(0)}</span>
+            </div>
           </CardContent>
         </Card>
-        <Button className="mt-6 bg-amber-600 hover:bg-amber-700 text-white rounded-xl" onClick={() => setIsSuccess(false)}>
+
+        <p className="text-center text-amber-800/60 text-sm">
+          Your order is being prepared. We'll bring it to your table shortly.
+        </p>
+
+        <Button className="w-full bg-amber-600 hover:bg-amber-700 text-white rounded-xl" onClick={() => { setIsSuccess(false); setLastCart([]); }}>
           Order More
         </Button>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   return (
     <div className="min-h-screen bg-[#fdfaf6] pb-32">
