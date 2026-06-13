@@ -193,7 +193,7 @@ export default function POS() {
           <h2 className="text-xl font-serif font-bold">Current Order</h2>
         </div>
 
-        <ScrollArea className="flex-1 px-4">
+        <ScrollArea className="h-48 px-4">
           {cart.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground pt-12 space-y-4">
               <ShoppingBag className="w-12 h-12 opacity-20" />
