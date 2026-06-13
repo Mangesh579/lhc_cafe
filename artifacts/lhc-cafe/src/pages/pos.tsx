@@ -188,12 +188,12 @@ export default function POS() {
       </div>
 
       {/* Right Side: Cart */}
-      <div className="w-96 flex flex-col gap-0 bg-card border rounded-lg shadow-sm overflow-hidden">
+      <div className="w-96 flex flex-col bg-card border rounded-lg shadow-sm overflow-hidden h-full">
         <div className="p-4 border-b bg-sidebar text-sidebar-foreground">
           <h2 className="text-xl font-serif font-bold">Current Order</h2>
         </div>
 
-        <ScrollArea className="h-48 px-4">
+        <ScrollArea className="flex-1 min-h-0 px-4">
           {cart.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground pt-12 space-y-4">
               <ShoppingBag className="w-12 h-12 opacity-20" />
@@ -228,7 +228,7 @@ export default function POS() {
           )}
         </ScrollArea>
 
-        <div className="p-4 border-t space-y-3 bg-muted/10">
+        <div className="p-4 border-t space-y-2 bg-muted/10 overflow-y-auto max-h-72 shrink-0">
           {/* Table number */}
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -264,9 +264,9 @@ export default function POS() {
                 <TabsTrigger value="cash">Cash</TabsTrigger>
                 <TabsTrigger value="nabil_qr">Nabil QR</TabsTrigger>
               </TabsList>
-              <TabsContent value="nabil_qr" className="mt-2">
-                <div className="flex justify-center p-3 bg-white rounded-md border h-40">
-                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=NabilBankLHCCafe" alt="Nabil QR" className="w-32 h-32" />
+              <TabsContent value="nabil_qr" className="mt-1">
+                <div className="flex justify-center p-2 bg-white rounded-md border">
+                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=NabilBankLHCCafe" alt="Nabil QR" className="w-24 h-24" />
                 </div>
               </TabsContent>
             </Tabs>
