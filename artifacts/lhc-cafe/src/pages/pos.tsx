@@ -264,8 +264,10 @@ export default function POS() {
                 <TabsTrigger value="cash">Cash</TabsTrigger>
                 <TabsTrigger value="nabil_qr">Nabil QR</TabsTrigger>
               </TabsList>
-              <TabsContent value="nabil_qr" className="mt-2 flex justify-center p-3 bg-white rounded-md border">
-                <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=NabilBankLHCCafe" alt="Nabil QR" className="w-32 h-32" />
+              <TabsContent value="nabil_qr" className="mt-2">
+                <div className="flex justify-center p-3 bg-white rounded-md border h-40">
+                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=NabilBankLHCCafe" alt="Nabil QR" className="w-32 h-32" />
+                </div>
               </TabsContent>
             </Tabs>
           </div>
@@ -306,9 +308,14 @@ export default function POS() {
               </div>
               <div className="border-t border-b border-dashed border-gray-400 py-2 mb-3 space-y-1">
                 {lastOrderDetails.cartItems.map((item: any) => (
-                  <div key={item.id} className="flex justify-between text-xs">
-                    <span>{item.cartQuantity}x {item.name}</span>
-                    <span>Rs. {(parseFloat(String(item.price)) * item.cartQuantity).toFixed(0)}</span>
+                  <div key={item.id} className="text-xs">
+                    <div className="flex justify-between">
+                      <span>{item.cartQuantity}x {item.name}</span>
+                      <span>Rs. {(parseFloat(String(item.price)) * item.cartQuantity).toFixed(0)}</span>
+                    </div>
+                    {item.cartNotes && (
+                      <p className="text-gray-500 ml-4 italic">↳ {item.cartNotes}</p>
+                    )}
                   </div>
                 ))}
               </div>
