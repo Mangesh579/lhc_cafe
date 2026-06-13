@@ -262,7 +262,7 @@ export default function Orders() {
             </div>
 
             {/* Order items summary */}
-            <div className="bg-muted/30 rounded-md p-3 space-y-1 max-h-36 overflow-y-auto">
+            <div className="bg-muted/30 rounded-md p-3 space-y-1 max-h-36 overflow-y-auto" id="order-receipt-preview">
               {paymentModalOrder?.items?.map((item: any) => (
                 <div key={item.id} className="flex justify-between text-sm">
                   <span>{item.quantity}× {item.menuItemName}</span>
@@ -271,10 +271,25 @@ export default function Orders() {
               ))}
             </div>
           </div>
-          <DialogFooter className="gap-2">
+          <DialogFooter className="gap-2 flex-wrap">
             <Button variant="outline" onClick={() => setPaymentModalOrder(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => {
+              const receipt = document.getElementById("order-receipt-preview");
+              if (!receipt) return;
+              const iframe = document.createElement("iframe");
+              iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+              document.body.appendChild(iframe);
+              const doc = iframe.contentWindow?.document;
+              if (!doc) return;
+              doc.open();
+              doc.write(`<!DOCTYPE html><html><head><style>body{font-family:monospace;font-size:12px;padding:20px;color:black;background:white;}p{margin:2px 0;}.row{display:flex;justify-content:space-between;}</style></head><body>${receipt.innerHTML}</body></html>`);
+              doc.close();
+              setTimeout(() => { iframe.contentWindow?.print(); setTimeout(() => document.body.removeChild(iframe), 1000); }, 500);
+            }} className="gap-2" disabled={!paymentModalOrder}>
+              <Printer className="w-4 h-4" /> Print Bill
+            </Button>
             <Button onClick={handlePayment} disabled={updatePayment.isPending} className="gap-2">
-              <Printer className="w-4 h-4" /> Mark Paid & Print
+              Mark Paid
             </Button>
           </DialogFooter>
         </DialogContent>
