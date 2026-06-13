@@ -47,7 +47,7 @@ function Router() {
   if (location.startsWith("/order/")) {
     return (
       <Switch>
-        <Route path="/order/:tableId" component={PublicOrder} />
+        <Route path="/order/:token" component={PublicOrder} />
       </Switch>
     );
   }

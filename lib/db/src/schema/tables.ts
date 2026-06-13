@@ -6,10 +6,11 @@ export const cafeTablesTable = pgTable("cafe_tables", {
   id: serial("id").primaryKey(),
   tableNumber: integer("table_number").notNull().unique(),
   qrCode: text("qr_code"),
+  token: text("token").notNull().unique(),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const insertCafeTableSchema = createInsertSchema(cafeTablesTable).omit({ id: true, createdAt: true });
+export const insertCafeTableSchema = createInsertSchema(cafeTablesTable).omit({ id: true, createdAt: true, token: true });
 export type InsertCafeTable = z.infer<typeof insertCafeTableSchema>;
 export type CafeTable = typeof cafeTablesTable.$inferSelect;

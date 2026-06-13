@@ -5,13 +5,11 @@ import { eq, and } from "drizzle-orm";
 const router = Router();
 
 router.get("/public/menu", async (req, res): Promise<void> => {
-  const { tableId } = req.query;
+  const { token } = req.query;
+  if (!token) { res.status(400).json({ error: "token required" }); return; }
 
-  let tableNumber: number | null = null;
-  if (tableId) {
-    const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.tableNumber, parseInt(tableId as string, 10)));
-    tableNumber = table?.tableNumber ?? null;
-  }
+  const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.token, token as string));
+  if (!table) { res.status(404).json({ error: "Invalid table token" }); return; }
 
   const categories = await db.select().from(menuCategoriesTable).orderBy(menuCategoriesTable.displayOrder);
   const availableItems = await db
@@ -32,7 +30,6 @@ router.get("/public/menu", async (req, res): Promise<void> => {
     .where(eq(menuItemsTable.isAvailable, true))
     .orderBy(menuCategoriesTable.displayOrder, menuItemsTable.name);
 
-  // Group by category
   const categoryMap = new Map<number | null, typeof availableItems>();
   for (const item of availableItems) {
     const catId = item.categoryId;
@@ -43,26 +40,20 @@ router.get("/public/menu", async (req, res): Promise<void> => {
   const result = [];
   for (const cat of categories) {
     const items = categoryMap.get(cat.id) ?? [];
-    if (items.length > 0) {
-      result.push({ id: cat.id, name: cat.name, items });
-    }
+    if (items.length > 0) result.push({ id: cat.id, name: cat.name, items });
   }
-  // Uncategorized items
   const uncategorized = categoryMap.get(null) ?? [];
-  if (uncategorized.length > 0) {
-    result.push({ id: 0, name: "Other", items: uncategorized });
-  }
+  if (uncategorized.length > 0) result.push({ id: 0, name: "Other", items: uncategorized });
 
-  res.json({ tableNumber, categories: result });
+  res.json({ tableNumber: table.tableNumber, tableId: table.id, categories: result });
 });
 
 router.post("/public/orders", async (req, res): Promise<void> => {
-  const { tableId, customerName, notes, items } = req.body;
-  if (!tableId || !items?.length) { res.status(400).json({ error: "tableId and items required" }); return; }
+  const { token, customerName, notes, items } = req.body;
+  if (!token || !items?.length) { res.status(400).json({ error: "token and items required" }); return; }
 
-  // Verify table exists
-  const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.tableNumber, parseInt(String(tableId), 10)));
-  if (!table) { res.status(400).json({ error: "Table not found" }); return; }
+  const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.token, token as string));
+  if (!table) { res.status(404).json({ error: "Invalid table token" }); return; }
 
   let totalAmount = 0;
   const resolvedItems: Array<{ menuItemId: number; quantity: number; unitPrice: number; subtotal: number; notes?: string }> = [];
@@ -88,7 +79,6 @@ router.post("/public/orders", async (req, res): Promise<void> => {
     await db.insert(orderItemsTable).values({ orderId: order.id, ...item, unitPrice: String(item.unitPrice), subtotal: String(item.subtotal) });
   }
 
-  // Deduct inventory
   for (const item of resolvedItems) {
     const recipes = await db.select().from(recipesTable).where(eq(recipesTable.menuItemId, item.menuItemId));
     for (const recipe of recipes) {
@@ -98,32 +88,12 @@ router.post("/public/orders", async (req, res): Promise<void> => {
         const stockBefore = parseFloat(String(inv.currentStock));
         const stockAfter = Math.max(0, stockBefore - needed);
         await db.update(inventoryItemsTable).set({ currentStock: String(stockAfter) }).where(eq(inventoryItemsTable.id, inv.id));
-        await db.insert(inventoryLogsTable).values({
-          inventoryItemId: inv.id, changeAmount: String(-needed),
-          stockBefore: String(stockBefore), stockAfter: String(stockAfter),
-          reason: `Table order #${order.id}`, orderId: order.id,
-        });
+        await db.insert(inventoryLogsTable).values({ inventoryItemId: inv.id, changeAmount: String(-needed), stockBefore: String(stockBefore), stockAfter: String(stockAfter), reason: `Table order #${order.id}`, orderId: order.id });
       }
     }
   }
 
-  // Return full order
-  const orderWithItems = {
-    ...order,
-    tableNumber: table.tableNumber,
-    loyaltyCustomerName: null,
-    items: resolvedItems.map((item, idx) => ({
-      id: idx + 1,
-      menuItemId: item.menuItemId,
-      menuItemName: "",
-      quantity: item.quantity,
-      unitPrice: String(item.unitPrice),
-      subtotal: String(item.subtotal),
-      notes: item.notes ?? null,
-    })),
-  };
-
-  res.status(201).json(orderWithItems);
+  res.status(201).json({ id: order.id, tableNumber: table.tableNumber });
 });
 
 export default router;
