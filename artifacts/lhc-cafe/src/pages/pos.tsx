@@ -75,6 +75,7 @@ export default function POS() {
   const [lastOrderDetails, setLastOrderDetails] = useState<any>(null);
   const [infoItemId, setInfoItemId] = useState<number | null>(null);
   const [tableNumber, setTableNumber] = useState("");
+  const [redeemDiscount, setRedeemDiscount] = useState(false);
 
   const { data: menuItems } = useListMenuItems({ available: true });
   const { data: categories } = useListMenuCategories();
@@ -85,6 +86,15 @@ export default function POS() {
   const { toast } = useToast();
 
   const currentCustomer = loyaltyCustomers?.find(c => c.phone === phone);
+
+  const getDiscountTier = (points: number) => {
+    if (points >= 2000) return { pct: 25, pointsNeeded: 2000 };
+    if (points >= 1500) return { pct: 20, pointsNeeded: 1500 };
+    if (points >= 1000) return { pct: 15, pointsNeeded: 1000 };
+    if (points >= 500) return { pct: 10, pointsNeeded: 500 };
+    return null;
+  };
+
 
   const filteredItems = useMemo(() => {
     if (!menuItems) return [];
@@ -115,14 +125,18 @@ export default function POS() {
   const removeFromCart = (id: number) => setCart(prev => prev.filter(i => i.id !== id));
 
   const subtotal = cart.reduce((sum, item) => sum + parseFloat(String(item.price)) * item.cartQuantity, 0);
-
+  const discountTier = currentCustomer ? getDiscountTier(currentCustomer.totalPoints) : null;
+  const discountAmount = redeemDiscount && discountTier ? subtotal * (discountTier.pct / 100) : 0;
+  const finalTotal = subtotal - discountAmount;
+  
   const handlePlaceOrder = async () => {
     if (cart.length === 0) return;
     try {
       const orderData: any = {
         paymentMethod,
         loyaltyCustomerId: currentCustomer?.id,
-        notes: orderNotes || undefined,
+        notes: [orderNotes, redeemDiscount && discountTier ? `Loyalty discount applied: ${discountTier.pct}% off` : ""].filter(Boolean).join(" | ") || undefined,
+        discountAmount: discountAmount > 0 ? discountAmount : undefined,
         items: cart.map(item => ({ menuItemId: item.id, quantity: item.cartQuantity, notes: item.cartNotes }))
       };
       if (tableNumber) {
@@ -133,7 +147,7 @@ export default function POS() {
       const result = await createOrder.mutateAsync({ data: orderData });
       setLastOrderDetails({ ...result, cartItems: [...cart], subtotal, customer: currentCustomer });
       toast({ title: "Order Placed", description: `Order #${result.id} created successfully.` });
-      setCart([]); setPhone(""); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
+      setCart([]); setPhone(""); setRedeemDiscount(false); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
       setIsReceiptOpen(true);
       queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
     } catch (err: any) {
@@ -244,9 +258,29 @@ export default function POS() {
             </div>
           </div>
           {currentCustomer && (
-            <div className="text-sm bg-primary/10 text-primary p-2 rounded-md flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-              <span>{currentCustomer.name} — {currentCustomer.totalPoints} pts</span>
+            <div className="space-y-2">
+              <div className="text-sm bg-primary/10 text-primary p-2 rounded-md flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{currentCustomer.name} — {currentCustomer.totalPoints} pts</span>
+              </div>
+              {discountTier && (
+                <button
+                  onClick={() => setRedeemDiscount(r => !r)}
+                  className={`w-full text-sm p-2 rounded-md border-2 transition-all text-left flex justify-between items-center ${
+                    redeemDiscount
+                      ? "border-green-500 bg-green-50 text-green-700"
+                      : "border-dashed border-amber-300 bg-amber-50 text-amber-700"
+                  }`}
+                >
+                  <span>
+                    {redeemDiscount ? "✓ " : ""}Redeem {discountTier.pct}% discount
+                    <span className="block text-xs opacity-70">Uses {discountTier.pointsNeeded} points</span>
+                  </span>
+                  {redeemDiscount && discountAmount > 0 && (
+                    <span className="font-bold">-Rs. {discountAmount.toFixed(0)}</span>
+                  )}
+                </button>
+              )}
             </div>
           )}
 
@@ -275,7 +309,12 @@ export default function POS() {
           <div className="pt-2 border-t">
             <div className="flex justify-between items-center mb-3">
               <span className="font-bold text-lg">Total</span>
-              <span className="font-bold text-2xl text-primary">Rs. {subtotal.toFixed(0)}</span>
+              <div className="text-right">
+                {discountAmount > 0 && (
+                  <p className="text-xs text-muted-foreground line-through">Rs. {subtotal.toFixed(0)}</p>
+                )}
+                <span className="font-bold text-2xl text-primary">Rs. {finalTotal.toFixed(0)}</span>
+              </div>
             </div>
             <Button className="w-full h-12 text-base font-bold" disabled={cart.length === 0 || createOrder.isPending} onClick={handlePlaceOrder}>
               {createOrder.isPending ? "Processing..." : "Place Order"}
