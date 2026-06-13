@@ -262,7 +262,7 @@ export default function Orders() {
             </div>
 
             {/* Order items summary */}
-            <div className="bg-muted/30 rounded-md p-3 space-y-1 max-h-36 overflow-y-auto" id="order-receipt-preview">
+            <div className="bg-muted/30 rounded-md p-3 space-y-1 max-h-36 overflow-y-auto">
               {paymentModalOrder?.items?.map((item: any) => (
                 <div key={item.id} className="flex justify-between text-sm">
                   <span>{item.quantity}× {item.menuItemName}</span>
@@ -297,14 +297,34 @@ export default function Orders() {
 
       {/* Hidden receipt for printing */}
       {paymentModalOrder && (
-        <div className="hidden print:block font-mono text-sm">
-          <div className="text-center mb-4"><h2 className="text-xl font-bold">LHC CAFE</h2></div>
-          <p>Order #{paymentModalOrder.id}</p>
-          <p>Payment: {paymentMethod === 'cash' ? 'Cash' : 'Nabil QR'}</p>
-          {paymentModalOrder.items?.map((i: any) => (
-            <div key={i.id} className="flex justify-between"><span>{i.quantity}× {i.menuItemName}</span><span>Rs. {parseFloat(String(i.subtotal)).toFixed(0)}</span></div>
-          ))}
-          <div className="font-bold mt-2"><span>TOTAL</span><span>Rs. {parseFloat(String(paymentModalOrder.totalAmount)).toFixed(0)}</span></div>
+        <div id="order-receipt-preview" className="hidden">
+          <div className="bg-white text-black p-5 font-mono text-sm">
+            <div className="text-center mb-3 border-b border-dashed border-gray-400 pb-3">
+              <h2 className="text-lg font-bold">Legendary House Cafe & Barista School</h2>
+              <p className="text-xs">Sulimha Durbar, Pimbahal, Nepal</p>
+            </div>
+            <div className="mb-3 text-xs space-y-0.5">
+              <p>Order #{paymentModalOrder.id}</p>
+              <p>{new Date().toLocaleString()}</p>
+              {paymentModalOrder.notes && <p>Note: {paymentModalOrder.notes}</p>}
+              <p>Payment: {paymentMethod === 'cash' ? 'Cash' : 'Nabil QR'}</p>
+            </div>
+            <div className="border-t border-b border-dashed border-gray-400 py-2 mb-3 space-y-1">
+              {paymentModalOrder.items?.map((item: any) => (
+                <div key={item.id} className="flex justify-between text-xs">
+                  <span>{item.quantity}× {item.menuItemName}</span>
+                  <span>Rs. {parseFloat(String(item.subtotal)).toFixed(0)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between font-bold">
+              <span>TOTAL</span>
+              <span>Rs. {parseFloat(String(paymentModalOrder.totalAmount)).toFixed(0)}</span>
+            </div>
+            <div className="text-center text-xs mt-4">
+              <p>Thank you for visiting LHC!</p>
+            </div>
+          </div>
         </div>
       )}
     </div>
