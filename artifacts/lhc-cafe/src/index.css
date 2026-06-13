@@ -181,10 +181,9 @@
   }
 }
 
-@media print {
-  body > * {
-    display: none !important;
-  }
+/* @media print {
+  body > * { display: none !important; }
+  [data-receipt] { display: block !important; }
   #print-receipt {
     display: block !important;
     position: absolute;
@@ -196,4 +195,4 @@
     background: white !important;
     color: black !important;
   }
-}
+} */

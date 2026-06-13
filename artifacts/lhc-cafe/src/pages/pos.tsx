@@ -295,8 +295,8 @@ export default function POS() {
           {lastOrderDetails && (
             <div className="bg-white text-black p-5 font-mono text-sm border rounded my-2" id="receipt-preview">
               <div className="text-center mb-3 border-b border-dashed border-gray-400 pb-3">
-                <h2 className="text-lg font-bold">LHC CAFE</h2>
-                <p className="text-xs">Kathmandu, Nepal</p>
+                <h2 className="text-lg font-bold">Legendary House Cafe & Barista School</h2>
+                <p className="text-xs">Sulimha Durbar, Pimbahal, Nepal</p>
               </div>
               <div className="mb-3 text-xs space-y-0.5">
                 <p>Order #{lastOrderDetails.id}</p>
@@ -317,12 +317,40 @@ export default function POS() {
                 <span>Rs. {lastOrderDetails.subtotal.toFixed(0)}</span>
               </div>
               {lastOrderDetails.notes && <p className="text-xs mt-2 text-gray-600">Note: {lastOrderDetails.notes}</p>}
-              <div className="text-center text-xs mt-4"><p>Thank you for visiting LHC Cafe!</p></div>
+              <div className="text-center text-xs mt-4"><p>Thank you for visiting LHC!</p></div>
             </div>
           )}
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setIsReceiptOpen(false)}>Close</Button>
-            <Button onClick={() => window.print()} className="gap-2"><Printer className="w-4 h-4" /> Print</Button>
+            <Button onClick={() => {
+              const receipt = document.getElementById("receipt-preview");
+              if (!receipt) return;
+              const iframe = document.createElement("iframe");
+              iframe.style.position = "fixed";
+              iframe.style.right = "0";
+              iframe.style.bottom = "0";
+              iframe.style.width = "0";
+              iframe.style.height = "0";
+              iframe.style.border = "0";
+              document.body.appendChild(iframe);
+              const doc = iframe.contentWindow?.document;
+              if (!doc) return;
+              doc.open();
+              doc.write(`<!DOCTYPE html><html><head><style>
+                body { font-family: monospace; font-size: 12px; padding: 20px; color: black; background: white; }
+                .flex { display: flex; justify-content: space-between; }
+                h2 { text-align: center; font-size: 16px; font-weight: bold; margin: 0; }
+                p { margin: 2px 0; }
+                .dashed { border-top: 1px dashed #999; margin: 8px 0; padding-top: 8px; }
+              </style></head><body>${receipt.innerHTML}</body></html>`);
+              doc.close();
+              setTimeout(() => {
+                iframe.contentWindow?.print();
+                setTimeout(() => document.body.removeChild(iframe), 1000);
+              }, 500);
+              }} className="gap-2">
+              <Printer className="w-4 h-4" /> Print
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

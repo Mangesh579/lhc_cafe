@@ -35,7 +35,8 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
   const [categoryId, setCategoryId] = useState(item?.categoryId ? String(item.categoryId) : "");
   const [calories, setCalories] = useState(item?.calories ? String(item.calories) : "");
   const [isAvailable, setIsAvailable] = useState(item?.isAvailable ?? true);
-
+  const [imageUrl, setImageUrl] = useState(item?.imageUrl ?? "");
+  
   const createMutation = useCreateMenuItem();
   const updateMutation = useUpdateMenuItem();
   const { toast } = useToast();
@@ -45,15 +46,16 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
       setName(item?.name ?? ""); setDescription(item?.description ?? "");
       setPrice(item?.price ? String(item.price) : ""); setCategoryId(item?.categoryId ? String(item.categoryId) : "");
       setCalories(item?.calories ? String(item.calories) : ""); setIsAvailable(item?.isAvailable ?? true);
+      setImageUrl(item?.imageUrl ?? "");
     }
   }, [open, item]);
 
   const handleSave = async () => {
     if (!name || !price) { toast({ title: "Name and price are required", variant: "destructive" }); return; }
-    const data = { name, description: description || undefined, price: parseFloat(price), categoryId: categoryId ? parseInt(categoryId) : undefined, calories: calories ? parseInt(calories) : undefined, isAvailable };
+    const data = { name, description: description || undefined, price: parseFloat(price), categoryId: categoryId ? parseInt(categoryId) : undefined, calories: calories ? parseInt(calories) : undefined, isAvailable, imageUrl: imageUrl || undefined };
     try {
       if (item) await updateMutation.mutateAsync({ id: item.id, data });
-      else await createMutation.mutateAsync({ data: data as any });
+      else await createMutation.mutateAsync({ data: { ...data, imageUrl: imageUrl || undefined } as any });
       toast({ title: item ? "Item updated" : "Item created" });
       onSaved(); onClose();
     } catch (err: any) {
@@ -102,11 +104,16 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
             <Label>Description</Label>
             <Textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Rich double shot espresso..." className="resize-none h-20" />
           </div>
-          <div className="col-span-2">
-            <div className="h-32 bg-muted rounded-lg flex items-center justify-center text-muted-foreground text-sm gap-2">
-              <Coffee className="w-8 h-8 opacity-30" />
-              <span>Image upload coming soon</span>
-            </div>
+          <div className="col-span-2 space-y-1">
+            <Label>Image URL (optional)</Label>
+            <Input
+              placeholder="https://i.imgur.com/example.jpg"
+              value={imageUrl}
+              onChange={e => setImageUrl(e.target.value)}
+            />
+            {imageUrl && (
+              <img src={imageUrl} alt="Preview" className="h-24 rounded-lg object-cover mt-1" onError={e => (e.currentTarget.style.display = "none")} />
+            )}
           </div>
         </div>
         <DialogFooter>
@@ -283,7 +290,7 @@ export default function Menu() {
 
   const handleToggleAvailable = async (id: number, current: boolean) => {
     try {
-      await updateMutation.mutateAsync({ id, data: { isAvailable: !current } });
+      await updateMutation.mutateAsync({ id, data: { isAvailable: !current } as any });
       qc.invalidateQueries({ queryKey: getListMenuItemsQueryKey() });
       toast({ title: `Item ${!current ? "enabled" : "disabled"}` });
     } catch { toast({ title: "Failed to update", variant: "destructive" }); }
