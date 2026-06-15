@@ -1,8 +1,7 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable } from "@workspace/db";
-import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
+import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable } from "@workspace/db";
+import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth";
-import { tableSessionsTable } from "@workspace/db";
 
 const router = Router();
 
@@ -53,15 +52,12 @@ async function getOrderWithItems(orderId: number) {
 
 router.get("/orders", authenticate, async (req, res): Promise<void> => {
   const { status, date, paymentMethod } = req.query;
-
   const conditions = [];
   if (status) conditions.push(eq(ordersTable.orderStatus, status as string));
   if (paymentMethod) conditions.push(eq(ordersTable.paymentMethod, paymentMethod as string));
   if (date) {
-    const startDate = new Date(date as string);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(date as string);
-    endDate.setHours(23, 59, 59, 999);
+    const startDate = new Date(date as string); startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(date as string); endDate.setHours(23, 59, 59, 999);
     conditions.push(gte(ordersTable.createdAt, startDate));
     conditions.push(lte(ordersTable.createdAt, endDate));
   }
@@ -136,10 +132,9 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
   }).returning();
 
   for (const item of resolvedItems) {
-    await db.insert(orderItemsTable).values({ orderId: order.id, ...item, unitPrice: String(item.unitPrice), subtotal: String(item.subtotal) });
+    await db.insert(orderItemsTable).values({ orderId: order.id, menuItemId: item.menuItemId, quantity: item.quantity, unitPrice: String(item.unitPrice), subtotal: String(item.subtotal), notes: item.notes ?? null });
   }
 
-  // Deduct inventory
   for (const item of resolvedItems) {
     const recipes = await db.select().from(recipesTable).where(eq(recipesTable.menuItemId, item.menuItemId));
     for (const recipe of recipes) {
@@ -165,39 +160,20 @@ router.get("/orders/:id", authenticate, async (req, res): Promise<void> => {
   res.json(order);
 });
 
-router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void> => {
+router.patch("/orders/:id/status", authenticate, async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
-  const { paymentMethod, paymentStatus, loyaltyCustomerId } = req.body;
-  const updateData: Record<string, unknown> = {};
-  if (paymentMethod) updateData.paymentMethod = paymentMethod;
-  if (paymentStatus) updateData.paymentStatus = paymentStatus;
+  const { status } = req.body;
+  if (!status) { res.status(400).json({ error: "status required" }); return; }
 
-  if (paymentStatus === "paid") {
+  if (status === "completed") {
     const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
-    if (order) {
-      const customerId = loyaltyCustomerId ?? order.loyaltyCustomerId;
-      if (customerId) {
-        const points = Math.floor(parseFloat(String(order.totalAmount)) / 10);
-        updateData.loyaltyPointsEarned = points;
-        updateData.loyaltyCustomerId = customerId;
-        const [customer] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, customerId));
-        if (customer) {
-          await db.update(loyaltyCustomersTable).set({
-            totalPoints: customer.totalPoints + points,
-            totalOrders: customer.totalOrders + 1,
-            totalSpent: String(parseFloat(String(customer.totalSpent)) + parseFloat(String(order.totalAmount))),
-          }).where(eq(loyaltyCustomersTable.id, customerId));
-        }
-      }
-
-      // Clear the table session so next guest gets a fresh start
-      if (order.tableId) {
-        await db.delete(tableSessionsTable).where(eq(tableSessionsTable.tableId, order.tableId));
-      }
+    if (order && order.paymentStatus === "pending") {
+      res.status(400).json({ error: "Cannot complete order: payment is still pending. Please process payment first." });
+      return;
     }
   }
 
-  await db.update(ordersTable).set(updateData).where(eq(ordersTable.id, id));
+  await db.update(ordersTable).set({ orderStatus: status }).where(eq(ordersTable.id, id));
   const result = await getOrderWithItems(id);
   if (!result) { res.status(404).json({ error: "Order not found" }); return; }
   res.json(result);
@@ -226,6 +202,11 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
             totalSpent: String(parseFloat(String(customer.totalSpent)) + parseFloat(String(order.totalAmount))),
           }).where(eq(loyaltyCustomersTable.id, customerId));
         }
+      }
+
+      // Clear table session so next guest gets a fresh start
+      if (order.tableId) {
+        await db.delete(tableSessionsTable).where(eq(tableSessionsTable.tableId, order.tableId));
       }
     }
   }
