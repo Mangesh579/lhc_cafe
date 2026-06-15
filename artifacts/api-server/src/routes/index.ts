@@ -21,7 +21,7 @@ router.use(ordersRouter);
 router.use(tablesRouter);
 router.use(loyaltyRouter);
 router.use(dashboardRouter);
-router.use(publicRouter);
+router.use("/public", publicRouter);
 router.use(equipmentRouter);
 router.use(wasteRouter);
 
