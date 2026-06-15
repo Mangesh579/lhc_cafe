@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Coffee, Minus, Plus, ShoppingBag, CheckCircle2, AlertCircle } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
+const SESSION_KEY = "lhc_session_token";
+const SESSION_IDLE_MINUTES = 90;
 
 type MenuItem = {
   id: number;
@@ -20,17 +22,15 @@ type Category = {
   items: MenuItem[];
 };
 
-type MenuData = {
-  tableNumber: number;
-  tableId: number;
-  categories: Category[];
-};
-
 export default function PublicOrder({ params }: { params: { token: string } }) {
-  const token = params.token;
-  const [menuData, setMenuData] = useState<MenuData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isInvalid, setIsInvalid] = useState(false);
+  const tableToken = params.token;
+
+  const [sessionState, setSessionState] = useState<"loading" | "active" | "expired">("loading");
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [tableNumber, setTableNumber] = useState<number | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [menuLoading, setMenuLoading] = useState(false);
+
   const [cart, setCart] = useState<{ id: number; name: string; price: number; quantity: number }[]>([]);
   const [customerName, setCustomerName] = useState("");
   const [notes, setNotes] = useState("");
@@ -39,21 +39,76 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastCart, setLastCart] = useState<typeof cart>([]);
 
+  // Step 1: on mount, resolve session
   useEffect(() => {
-    const fetchMenu = async () => {
+    const stored = localStorage.getItem(SESSION_KEY);
+
+    const startSession = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/public/menu?token=${encodeURIComponent(token)}`);
-        if (!res.ok) { setIsInvalid(true); return; }
+        const res = await fetch(`${API_BASE}/api/public/session/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tableToken }),
+        });
+        if (!res.ok) { setSessionState("expired"); return; }
         const data = await res.json();
-        setMenuData(data);
+        localStorage.setItem(SESSION_KEY, data.sessionToken);
+        setSessionToken(data.sessionToken);
+        setTableNumber(data.tableNumber);
+        setSessionState("active");
       } catch {
-        setIsInvalid(true);
-      } finally {
-        setIsLoading(false);
+        setSessionState("expired");
       }
     };
-    fetchMenu();
-  }, [token]);
+
+    const validateSession = async (token: string) => {
+      try {
+        const res = await fetch(`${API_BASE}/api/public/session/validate?sessionToken=${token}`);
+        if (!res.ok) {
+          localStorage.removeItem(SESSION_KEY);
+          await startSession();
+          return;
+        }
+        const data = await res.json();
+        setSessionToken(token);
+        setTableNumber(data.tableNumber);
+        setSessionState("active");
+      } catch {
+        setSessionState("expired");
+      }
+    };
+
+    if (stored) {
+      validateSession(stored);
+    } else {
+      startSession();
+    }
+  }, [tableToken]);
+
+  // Step 2: once session is active, fetch menu
+  useEffect(() => {
+    if (sessionState !== "active" || !sessionToken) return;
+    setMenuLoading(true);
+    fetch(`${API_BASE}/api/public/menu?sessionToken=${encodeURIComponent(sessionToken)}`)
+      .then(res => {
+        if (!res.ok) {
+          if (res.status === 401) setSessionState("expired");
+          return null;
+        }
+        return res.json();
+      })
+      .then(data => {
+        if (!data) return;
+        // API returns { categories, items } — group items into categories
+        const cats: Category[] = (data.categories ?? []).map((c: any) => ({
+          ...c,
+          items: (data.items ?? []).filter((i: any) => i.categoryId === c.id),
+        }));
+        setCategories(cats);
+      })
+      .catch(() => setSessionState("expired"))
+      .finally(() => setMenuLoading(false));
+  }, [sessionState, sessionToken]);
 
   const addToCart = (item: MenuItem) => {
     setCart(prev => {
@@ -74,22 +129,26 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (cart.length === 0 || isSubmitting) return;
+    if (cart.length === 0 || isSubmitting || !sessionToken) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/api/public/orders`, {
+      const res = await fetch(`${API_BASE}/api/public/order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token,
-          customerName: customerName || undefined,
-          notes: notes || undefined,
+          sessionToken,
+          customerNote: notes || undefined,
           items: cart.map(item => ({ menuItemId: item.id, quantity: item.quantity })),
         }),
       });
+      if (res.status === 401) {
+        localStorage.removeItem(SESSION_KEY);
+        setSessionState("expired");
+        return;
+      }
       if (!res.ok) throw new Error("Failed");
       const result = await res.json();
-      setOrderId(result.id);
+      setOrderId(result.orderId);
       setIsSuccess(true);
       setLastCart(cart);
       setCart([]);
@@ -100,69 +159,79 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     }
   };
 
-  if (isLoading) {
+  // ── Screens ──────────────────────────────────────────────
+
+  if (sessionState === "loading") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#fdfaf6]">
-        <Coffee className="w-8 h-8 text-amber-700 animate-pulse" />
+      <div className="min-h-screen bg-[#fdfaf6] flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <Coffee className="w-10 h-10 mx-auto animate-pulse text-amber-700" />
+          <p className="text-amber-800/60 text-sm">Loading menu…</p>
+        </div>
       </div>
     );
   }
 
-  if (isInvalid || !menuData) {
+  if (sessionState === "expired") {
     return (
-      <div className="min-h-screen bg-[#fdfaf6] flex flex-col items-center justify-center p-6 text-center">
-        <AlertCircle className="w-16 h-16 text-red-400 mb-4" />
-        <h1 className="text-2xl font-serif font-bold text-amber-950 mb-2">Invalid QR Code</h1>
-        <p className="text-amber-800/70">This table QR code is not valid. Please ask staff for assistance.</p>
+      <div className="min-h-screen bg-[#fdfaf6] flex items-center justify-center p-6">
+        <div className="text-center space-y-4 max-w-sm">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto">
+            <span className="text-3xl">⏱️</span>
+          </div>
+          <h2 className="text-xl font-bold text-gray-800">Session Expired</h2>
+          <p className="text-amber-800/60 text-sm">
+            Your session has ended. Please scan the QR code at your table to begin a new order.
+          </p>
+        </div>
       </div>
     );
   }
 
   if (isSuccess) {
-  return (
-    <div className="min-h-screen bg-[#fdfaf6] p-6">
-      <div className="max-w-sm mx-auto space-y-6 pt-8">
-        <div className="text-center">
-          <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-4 mx-auto">
-            <CheckCircle2 className="w-10 h-10" />
+    return (
+      <div className="min-h-screen bg-[#fdfaf6] p-6">
+        <div className="max-w-sm mx-auto space-y-6 pt-8">
+          <div className="text-center">
+            <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-4 mx-auto">
+              <CheckCircle2 className="w-10 h-10" />
+            </div>
+            <h1 className="text-3xl font-serif font-bold text-amber-950 mb-1">Order Placed!</h1>
+            <p className="text-amber-800/70">Table {tableNumber} — Order #{orderId}</p>
           </div>
-          <h1 className="text-3xl font-serif font-bold text-amber-950 mb-1">Order Placed!</h1>
-          <p className="text-amber-800/70">Table {menuData?.tableNumber} — Order #{orderId}</p>
+          <Card className="bg-white border-amber-200 shadow-sm">
+            <CardContent className="p-5 space-y-4">
+              <h2 className="font-semibold text-amber-950 text-lg border-b border-amber-100 pb-2">Your Order</h2>
+              <div className="space-y-2">
+                {lastCart.map(item => (
+                  <div key={item.id} className="flex justify-between text-sm">
+                    <span className="text-amber-900"><span className="font-medium">{item.quantity}×</span> {item.name}</span>
+                    <span className="font-medium text-amber-700">Rs. {(item.price * item.quantity).toFixed(0)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-amber-100 pt-3 flex justify-between font-bold text-amber-950">
+                <span>Total</span>
+                <span>Rs. {lastCart.reduce((sum, i) => sum + i.price * i.quantity, 0).toFixed(0)}</span>
+              </div>
+            </CardContent>
+          </Card>
+          <p className="text-center text-amber-800/60 text-sm">Your order is being prepared. We'll bring it to your table shortly.</p>
+          <Button className="w-full bg-amber-600 hover:bg-amber-700 text-white rounded-xl" onClick={() => { setIsSuccess(false); setLastCart([]); }}>
+            Order More
+          </Button>
         </div>
-
-        <Card className="bg-white border-amber-200 shadow-sm">
-          <CardContent className="p-5 space-y-4">
-            <h2 className="font-semibold text-amber-950 text-lg border-b border-amber-100 pb-2">Your Order</h2>
-            <div className="space-y-2">
-              {lastCart.map(item => (
-                <div key={item.id} className="flex justify-between text-sm">
-                  <span className="text-amber-900">
-                    <span className="font-medium">{item.quantity}×</span> {item.name}
-                  </span>
-                  <span className="font-medium text-amber-700">
-                    Rs. {(item.price * item.quantity).toFixed(0)}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div className="border-t border-amber-100 pt-3 flex justify-between font-bold text-amber-950">
-              <span>Total</span>
-              <span>Rs. {lastCart.reduce((sum, i) => sum + i.price * i.quantity, 0).toFixed(0)}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <p className="text-center text-amber-800/60 text-sm">
-          Your order is being prepared. We'll bring it to your table shortly.
-        </p>
-
-        <Button className="w-full bg-amber-600 hover:bg-amber-700 text-white rounded-xl" onClick={() => { setIsSuccess(false); setLastCart([]); }}>
-          Order More
-        </Button>
       </div>
-    </div>
-  );
-}
+    );
+  }
+
+  if (menuLoading) {
+    return (
+      <div className="min-h-screen bg-[#fdfaf6] flex items-center justify-center">
+        <Coffee className="w-8 h-8 text-amber-700 animate-pulse" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#fdfaf6] pb-32">
@@ -170,20 +239,20 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         <div className="max-w-3xl mx-auto flex justify-between items-end">
           <div>
             <h1 className="text-2xl font-serif font-bold tracking-tight">LHC Cafe</h1>
-            <p className="text-amber-200/80 text-sm mt-1">Table {menuData.tableNumber}</p>
+            <p className="text-amber-200/80 text-sm mt-1">Table {tableNumber}</p>
           </div>
           <Coffee className="w-8 h-8 text-amber-500" />
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto p-4 space-y-8 mt-4">
-        {menuData.categories.length === 0 ? (
+        {categories.length === 0 ? (
           <div className="text-center py-16 text-amber-900/50">
             <Coffee className="w-12 h-12 mx-auto mb-4 opacity-40" />
             <p className="text-lg">Menu is being updated. Please ask staff.</p>
           </div>
         ) : (
-          menuData.categories.map(category => (
+          categories.map(category => (
             <section key={category.id} className="space-y-4">
               <h2 className="text-xl font-serif font-bold text-amber-950 border-b border-amber-900/10 pb-2">
                 {category.name}

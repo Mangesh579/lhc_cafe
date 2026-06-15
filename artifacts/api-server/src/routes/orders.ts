@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable } from "@workspace/db";
 import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth";
+import { tableSessionsTable } from "@workspace/db";
 
 const router = Router();
 
@@ -164,21 +165,39 @@ router.get("/orders/:id", authenticate, async (req, res): Promise<void> => {
   res.json(order);
 });
 
-router.patch("/orders/:id/status", authenticate, async (req, res): Promise<void> => {
+router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
-  const { status } = req.body;
-  if (!status) { res.status(400).json({ error: "status required" }); return; }
+  const { paymentMethod, paymentStatus, loyaltyCustomerId } = req.body;
+  const updateData: Record<string, unknown> = {};
+  if (paymentMethod) updateData.paymentMethod = paymentMethod;
+  if (paymentStatus) updateData.paymentStatus = paymentStatus;
 
-  // Block completion if payment is still pending
-  if (status === "completed") {
+  if (paymentStatus === "paid") {
     const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
-    if (order && order.paymentStatus === "pending") {
-      res.status(400).json({ error: "Cannot complete order: payment is still pending. Please process payment first." });
-      return;
+    if (order) {
+      const customerId = loyaltyCustomerId ?? order.loyaltyCustomerId;
+      if (customerId) {
+        const points = Math.floor(parseFloat(String(order.totalAmount)) / 10);
+        updateData.loyaltyPointsEarned = points;
+        updateData.loyaltyCustomerId = customerId;
+        const [customer] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, customerId));
+        if (customer) {
+          await db.update(loyaltyCustomersTable).set({
+            totalPoints: customer.totalPoints + points,
+            totalOrders: customer.totalOrders + 1,
+            totalSpent: String(parseFloat(String(customer.totalSpent)) + parseFloat(String(order.totalAmount))),
+          }).where(eq(loyaltyCustomersTable.id, customerId));
+        }
+      }
+
+      // Clear the table session so next guest gets a fresh start
+      if (order.tableId) {
+        await db.delete(tableSessionsTable).where(eq(tableSessionsTable.tableId, order.tableId));
+      }
     }
   }
 
-  await db.update(ordersTable).set({ orderStatus: status }).where(eq(ordersTable.id, id));
+  await db.update(ordersTable).set(updateData).where(eq(ordersTable.id, id));
   const result = await getOrderWithItems(id);
   if (!result) { res.status(404).json({ error: "Order not found" }); return; }
   res.json(result);

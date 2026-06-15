@@ -9,3 +9,4 @@ export * from "./loyalty";
 export * from "./equipment";
 export * from "./waste";
 export * from "./menu-changelog";
+export { tableSessionsTable } from "./tables";

@@ -11,6 +11,15 @@ export const cafeTablesTable = pgTable("cafe_tables", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const tableSessionsTable = pgTable("table_sessions", {
+  id: serial("id").primaryKey(),
+  tableId: integer("table_id").notNull().references(() => cafeTablesTable.id, { onDelete: "cascade" }),
+  sessionToken: text("session_token").notNull().unique(),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  lastActivityAt: timestamp("last_activity_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at"),  // set when bill is paid (hard expiry)
+});
+
 export const insertCafeTableSchema = createInsertSchema(cafeTablesTable).omit({ id: true, createdAt: true, token: true });
 export type InsertCafeTable = z.infer<typeof insertCafeTableSchema>;
 export type CafeTable = typeof cafeTablesTable.$inferSelect;

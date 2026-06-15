@@ -1,99 +1,160 @@
 import { Router } from "express";
-import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, recipesTable, inventoryItemsTable, inventoryLogsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { randomBytes } from "crypto";
 
 const router = Router();
 
-router.get("/public/menu", async (req, res): Promise<void> => {
-  const { token } = req.query;
-  if (!token) { res.status(400).json({ error: "token required" }); return; }
+const SESSION_IDLE_MINUTES = 90;
 
-  const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.token, token as string));
-  if (!table) { res.status(404).json({ error: "Invalid table token" }); return; }
+async function resolveSession(sessionToken: string) {
+  const [session] = await db
+    .select()
+    .from(tableSessionsTable)
+    .where(eq(tableSessionsTable.sessionToken, sessionToken))
+    .limit(1);
 
-  const categories = await db.select().from(menuCategoriesTable).orderBy(menuCategoriesTable.displayOrder);
-  const availableItems = await db
-    .select({
-      id: menuItemsTable.id,
-      name: menuItemsTable.name,
-      description: menuItemsTable.description,
-      price: menuItemsTable.price,
-      categoryId: menuItemsTable.categoryId,
-      categoryName: menuCategoriesTable.name,
-      isAvailable: menuItemsTable.isAvailable,
-      imageUrl: menuItemsTable.imageUrl,
-      calories: menuItemsTable.calories,
-      createdAt: menuItemsTable.createdAt,
-    })
-    .from(menuItemsTable)
-    .leftJoin(menuCategoriesTable, eq(menuItemsTable.categoryId, menuCategoriesTable.id))
-    .where(eq(menuItemsTable.isAvailable, true))
-    .orderBy(menuCategoriesTable.displayOrder, menuItemsTable.name);
+  if (!session) return null;
 
-  const categoryMap = new Map<number | null, typeof availableItems>();
-  for (const item of availableItems) {
-    const catId = item.categoryId;
-    if (!categoryMap.has(catId)) categoryMap.set(catId, []);
-    categoryMap.get(catId)!.push(item);
+  if (session.expiresAt && new Date() > session.expiresAt) {
+    await db.delete(tableSessionsTable).where(eq(tableSessionsTable.id, session.id));
+    return null;
   }
 
-  const result = [];
-  for (const cat of categories) {
-    const items = categoryMap.get(cat.id) ?? [];
-    if (items.length > 0) result.push({ id: cat.id, name: cat.name, items });
+  const idleCutoff = new Date(Date.now() - SESSION_IDLE_MINUTES * 60 * 1000);
+  if (session.lastActivityAt < idleCutoff) {
+    await db.delete(tableSessionsTable).where(eq(tableSessionsTable.id, session.id));
+    return null;
   }
-  const uncategorized = categoryMap.get(null) ?? [];
-  if (uncategorized.length > 0) result.push({ id: 0, name: "Other", items: uncategorized });
 
-  res.json({ tableNumber: table.tableNumber, tableId: table.id, categories: result });
+  await db
+    .update(tableSessionsTable)
+    .set({ lastActivityAt: new Date() })
+    .where(eq(tableSessionsTable.id, session.id));
+
+  return session;
+}
+
+// POST /api/public/session/start
+router.post("/session/start", async (req, res): Promise<void> => {
+  try {
+    const { tableToken } = req.body;
+    if (!tableToken) { res.status(400).json({ error: "tableToken required" }); return; }
+
+    const [table] = await db
+      .select()
+      .from(cafeTablesTable)
+      .where(eq(cafeTablesTable.token, tableToken))
+      .limit(1);
+
+    if (!table) { res.status(404).json({ error: "Invalid QR code" }); return; }
+
+    // Check for existing active session on this table
+    const [existing] = await db
+      .select()
+      .from(tableSessionsTable)
+      .where(eq(tableSessionsTable.tableId, table.id))
+      .limit(1);
+
+    if (existing) {
+      const idleCutoff = new Date(Date.now() - SESSION_IDLE_MINUTES * 60 * 1000);
+      const hardExpired = existing.expiresAt && new Date() > existing.expiresAt;
+      const idleExpired = existing.lastActivityAt < idleCutoff;
+
+      if (!hardExpired && !idleExpired) {
+        await db.update(tableSessionsTable)
+          .set({ lastActivityAt: new Date() })
+          .where(eq(tableSessionsTable.id, existing.id));
+        res.json({ sessionToken: existing.sessionToken, tableNumber: table.tableNumber });
+        return;
+      }
+      await db.delete(tableSessionsTable).where(eq(tableSessionsTable.id, existing.id));
+    }
+
+    const sessionToken = randomBytes(32).toString("hex");
+    await db.insert(tableSessionsTable).values({
+      tableId: table.id,
+      sessionToken,
+      lastActivityAt: new Date(),
+    });
+
+    res.json({ sessionToken, tableNumber: table.tableNumber });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
-router.post("/public/orders", async (req, res): Promise<void> => {
-  const { token, customerName, notes, items } = req.body;
-  if (!token || !items?.length) { res.status(400).json({ error: "token and items required" }); return; }
+// GET /api/public/session/validate?sessionToken=xxx
+router.get("/session/validate", async (req, res): Promise<void> => {
+  const { sessionToken } = req.query as { sessionToken: string };
+  if (!sessionToken) { res.status(400).json({ valid: false }); return; }
 
-  const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.token, token as string));
-  if (!table) { res.status(404).json({ error: "Invalid table token" }); return; }
+  const session = await resolveSession(sessionToken);
+  if (!session) { res.status(401).json({ valid: false, reason: "expired" }); return; }
 
-  let totalAmount = 0;
-  const resolvedItems: Array<{ menuItemId: number; quantity: number; unitPrice: number; subtotal: number; notes?: string }> = [];
-  for (const item of items) {
-    const [menuItem] = await db.select().from(menuItemsTable).where(and(eq(menuItemsTable.id, item.menuItemId), eq(menuItemsTable.isAvailable, true)));
-    if (!menuItem) { res.status(400).json({ error: `Menu item ${item.menuItemId} not found or unavailable` }); return; }
-    const unitPrice = parseFloat(String(menuItem.price));
-    const subtotal = unitPrice * item.quantity;
-    totalAmount += subtotal;
-    resolvedItems.push({ menuItemId: item.menuItemId, quantity: item.quantity, unitPrice, subtotal, notes: item.notes });
-  }
+  const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, session.tableId)).limit(1);
+  res.json({ valid: true, tableNumber: table?.tableNumber });
+});
 
-  const [order] = await db.insert(ordersTable).values({
-    tableId: table.id,
-    totalAmount: String(totalAmount),
-    paymentMethod: "cash",
-    paymentStatus: "pending",
-    orderStatus: "pending",
-    notes: customerName ? `Customer: ${customerName}${notes ? `. ${notes}` : ""}` : notes ?? null,
-  }).returning();
+// GET /api/public/menu?sessionToken=xxx
+router.get("/menu", async (req, res): Promise<void> => {
+  const { sessionToken } = req.query as { sessionToken: string };
+  const session = await resolveSession(sessionToken);
+  if (!session) { res.status(401).json({ error: "Session expired" }); return; }
 
-  for (const item of resolvedItems) {
-    await db.insert(orderItemsTable).values({ orderId: order.id, ...item, unitPrice: String(item.unitPrice), subtotal: String(item.subtotal) });
-  }
+  const categories = await db.select().from(menuCategoriesTable);
+  const items = await db.select().from(menuItemsTable).where(eq(menuItemsTable.isAvailable, true));
+  res.json({ categories, items });
+});
 
-  for (const item of resolvedItems) {
-    const recipes = await db.select().from(recipesTable).where(eq(recipesTable.menuItemId, item.menuItemId));
-    for (const recipe of recipes) {
-      const needed = parseFloat(String(recipe.quantityRequired)) * item.quantity;
-      const [inv] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, recipe.inventoryItemId));
-      if (inv) {
-        const stockBefore = parseFloat(String(inv.currentStock));
-        const stockAfter = Math.max(0, stockBefore - needed);
-        await db.update(inventoryItemsTable).set({ currentStock: String(stockAfter) }).where(eq(inventoryItemsTable.id, inv.id));
-        await db.insert(inventoryLogsTable).values({ inventoryItemId: inv.id, changeAmount: String(-needed), stockBefore: String(stockBefore), stockAfter: String(stockAfter), reason: `Table order #${order.id}`, orderId: order.id });
-      }
+// POST /api/public/order
+router.post("/order", async (req, res): Promise<void> => {
+  try {
+    const { sessionToken, items, customerNote, paymentMethod } = req.body;
+    const session = await resolveSession(sessionToken);
+    if (!session) { res.status(401).json({ error: "Session expired. Please scan the QR code again." }); return; }
+
+    const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, session.tableId)).limit(1);
+    if (!table) { res.status(404).json({ error: "Table not found" }); return; }
+
+    let totalAmount = 0;
+    const resolvedItems: Array<{ menuItemId: number; quantity: number; unitPrice: number; subtotal: number; notes?: string }> = [];
+
+    for (const item of items) {
+      const [menuItem] = await db.select().from(menuItemsTable).where(eq(menuItemsTable.id, item.menuItemId)).limit(1);
+      if (!menuItem) continue;
+      const unitPrice = parseFloat(String(menuItem.price));
+      const subtotal = unitPrice * item.quantity;
+      totalAmount += subtotal;
+      resolvedItems.push({ menuItemId: item.menuItemId, quantity: item.quantity, unitPrice, subtotal, notes: item.notes });
     }
-  }
 
-  res.status(201).json({ id: order.id, tableNumber: table.tableNumber });
+    const [order] = await db.insert(ordersTable).values({
+      tableId: table.id,
+      totalAmount: String(totalAmount),
+      paymentMethod: paymentMethod ?? "cash",
+      paymentStatus: "pending",
+      orderStatus: "pending",
+      notes: customerNote ?? null,
+    }).returning();
+
+    for (const item of resolvedItems) {
+      await db.insert(orderItemsTable).values({
+        orderId: order.id,
+        menuItemId: item.menuItemId,
+        quantity: item.quantity,
+        unitPrice: String(item.unitPrice),
+        subtotal: String(item.subtotal),
+        notes: item.notes ?? null,
+      });
+    }
+
+    res.json({ success: true, orderId: order.id, totalAmount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to place order" });
+  }
 });
 
 export default router;
