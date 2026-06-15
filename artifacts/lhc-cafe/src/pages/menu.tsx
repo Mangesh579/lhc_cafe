@@ -202,7 +202,7 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
             <div className="grid grid-cols-2 gap-2">
               <Select value={newIngId} onValueChange={setNewIngId}>
                 <SelectTrigger><SelectValue placeholder="Select ingredient" /></SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[300px] overflow-y-auto">
                   {inventory.filter(inv => !recipes.find(r => r.inventoryItemId === inv.id)).map(inv => (
                     <SelectItem key={inv.id} value={String(inv.id)}>{inv.name} ({inv.unit})</SelectItem>
                   ))}
