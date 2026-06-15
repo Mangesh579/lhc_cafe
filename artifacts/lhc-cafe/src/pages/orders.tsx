@@ -252,7 +252,7 @@ export default function Orders() {
           <DialogHeader>
             <DialogTitle>Process Payment — Order #{paymentModalOrder?.id}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-5 py-4">
+          <div className="space-y-5 py-4 overflow-y-auto max-h-[60vh]">
             <div className="text-center">
               {(() => {
                 const base = parseFloat(String(paymentModalOrder?.totalAmount ?? 0));
