@@ -22,6 +22,7 @@ async function getOrderWithItems(orderId: number) {
       loyaltyCustomerId: ordersTable.loyaltyCustomerId,
       loyaltyCustomerName: loyaltyCustomersTable.name,
       loyaltyPointsEarned: ordersTable.loyaltyPointsEarned,
+      discountAmount: ordersTable.discountAmount,
       notes: ordersTable.notes,
       createdAt: ordersTable.createdAt,
       updatedAt: ordersTable.updatedAt,
@@ -74,6 +75,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
       loyaltyCustomerId: ordersTable.loyaltyCustomerId,
       loyaltyCustomerName: loyaltyCustomersTable.name,
       loyaltyPointsEarned: ordersTable.loyaltyPointsEarned,
+      discountAmount: ordersTable.discountAmount,
       notes: ordersTable.notes,
       createdAt: ordersTable.createdAt,
       updatedAt: ordersTable.updatedAt,
@@ -107,7 +109,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
 });
 
 router.post("/orders", authenticate, async (req, res): Promise<void> => {
-  const { tableId, paymentMethod, loyaltyCustomerId, notes, items } = req.body;
+  const { tableId, paymentMethod, loyaltyCustomerId, notes, items, discountAmount } = req.body;
   if (!items?.length) { res.status(400).json({ error: "Order must have at least one item" }); return; }
 
   let totalAmount = 0;
@@ -129,6 +131,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
     orderStatus: "pending",
     loyaltyCustomerId: loyaltyCustomerId ?? null,
     notes: notes ?? null,
+    discountAmount: discountAmount ? String(discountAmount) : "0",
   }).returning();
 
   for (const item of resolvedItems) {
@@ -214,6 +217,28 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   await db.update(ordersTable).set(updateData).where(eq(ordersTable.id, id));
   const result = await getOrderWithItems(id);
   if (!result) { res.status(404).json({ error: "Order not found" }); return; }
+  res.json(result);
+});
+
+router.patch("/orders/:id/discount", authenticate, async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  const { discountPercent } = req.body;
+  if (discountPercent === undefined) { res.status(400).json({ error: "discountPercent required" }); return; }
+
+  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+
+  const base = parseFloat(String(order.totalAmount));
+  const discountAmount = base * (parseFloat(String(discountPercent)) / 100);
+  const newTotal = base - discountAmount;
+
+  await db.update(ordersTable).set({
+    discountAmount: String(discountAmount),
+    totalAmount: String(newTotal),
+    notes: [order.notes, `Staff discount: ${discountPercent}%`].filter(Boolean).join(" | "),
+  }).where(eq(ordersTable.id, id));
+
+  const result = await getOrderWithItems(id);
   res.json(result);
 });
 

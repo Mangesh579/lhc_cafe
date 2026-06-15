@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,6 +24,7 @@ export default function Orders() {
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const [paymentModalOrder, setPaymentModalOrder] = useState<any>(null);
   const [paymentMethod, setPaymentMethod] = useState<string>("cash");
+  const [discount, setDiscount] = useState<string>("");
   const [secondsToRefresh, setSecondsToRefresh] = useState(POLL_INTERVAL / 1000);
 
   const { data: orders, isLoading, refetch, dataUpdatedAt } = useListOrders(
@@ -57,6 +59,7 @@ export default function Orders() {
   const openPaymentModal = (order: any) => {
     setPaymentModalOrder(order);
     setPaymentMethod(order.paymentMethod ?? "cash");
+    setDiscount("");
   };
 
   const handleStatusChange = async (id: number, status: OrderStatusUpdateStatus) => {
@@ -81,6 +84,13 @@ export default function Orders() {
   const handlePayment = async () => {
     if (!paymentModalOrder) return;
     try {
+      const discountValue = parseFloat(discount) || 0;
+      const discountedTotal = parseFloat(String(paymentModalOrder.totalAmount)) * (1 - discountValue / 100);
+      await fetch(`/api/orders/${paymentModalOrder.id}/discount`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+        body: JSON.stringify({ discountPercent: discountValue }),
+      });
       await updatePayment.mutateAsync({
         id: paymentModalOrder.id,
         data: { paymentStatus: "paid", paymentMethod: paymentMethod as OrderPaymentUpdatePaymentMethod, loyaltyCustomerId: paymentModalOrder.loyaltyCustomerId }
@@ -244,8 +254,36 @@ export default function Orders() {
           </DialogHeader>
           <div className="space-y-5 py-4">
             <div className="text-center">
-              <p className="text-4xl font-bold text-primary">Rs. {parseFloat(String(paymentModalOrder?.totalAmount ?? 0)).toFixed(0)}</p>
-              {paymentModalOrder?.loyaltyCustomerName && <p className="text-sm text-muted-foreground mt-1">Customer: {paymentModalOrder.loyaltyCustomerName}</p>}
+              {(() => {
+                const base = parseFloat(String(paymentModalOrder?.totalAmount ?? 0));
+                const pct = parseFloat(discount) || 0;
+                const discAmt = base * (pct / 100);
+                const final = base - discAmt;
+                return (
+                  <>
+                    {discAmt > 0 && <p className="text-sm line-through text-muted-foreground">Rs. {base.toFixed(0)}</p>}
+                    <p className="text-4xl font-bold text-primary">Rs. {final.toFixed(0)}</p>
+                    {discAmt > 0 && <p className="text-sm text-green-600 font-medium">Discount: {pct}% (−Rs. {discAmt.toFixed(0)})</p>}
+                    {paymentModalOrder?.loyaltyCustomerName && <p className="text-sm text-muted-foreground mt-1">Customer: {paymentModalOrder.loyaltyCustomerName}</p>}
+                  </>
+                );
+              })()}
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase">Discount %</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  placeholder="0"
+                  value={discount}
+                  onChange={e => setDiscount(e.target.value)}
+                  className="h-9 w-24 text-center font-bold text-lg"
+                />
+                <span className="text-muted-foreground text-sm">% off the total</span>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -318,8 +356,29 @@ export default function Orders() {
               ))}
             </div>
             <div className="flex justify-between font-bold">
-              <span>TOTAL</span>
-              <span>Rs. {parseFloat(String(paymentModalOrder.totalAmount)).toFixed(0)}</span>
+              {(() => {
+                const base = parseFloat(String(paymentModalOrder.totalAmount));
+                const pct = parseFloat(discount) || 0;
+                const discAmt = base * (pct / 100);
+                const final = base - discAmt;
+                return (
+                  <>
+                    {discAmt > 0 && (
+                      <div className="flex justify-between text-xs mb-1">
+                        <span>Subtotal</span><span>Rs. {base.toFixed(0)}</span>
+                      </div>
+                    )}
+                    {discAmt > 0 && (
+                      <div className="flex justify-between text-xs mb-1 text-gray-600">
+                        <span>Discount ({pct}%)</span><span>−Rs. {discAmt.toFixed(0)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-bold">
+                      <span>TOTAL</span><span>Rs. {final.toFixed(0)}</span>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
             <div className="text-center text-xs mt-4">
               <p>Thank you for visiting LHC!</p>
