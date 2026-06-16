@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { ShoppingBag, Plus, Minus, CheckCircle2, ChevronDown } from "lucide-react";
+import { ShoppingBag, Plus, Minus, CheckCircle2, ChevronUp, X } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 const SESSION_KEY = "lhc_session_token";
@@ -18,6 +18,38 @@ type Category = {
   items: MenuItem[];
 };
 
+// ── Newari lattice SVG used as subtle texture ──────────────
+function NewariLattice() {
+  return (
+    <svg
+      width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"
+      style={{ position: "absolute", inset: 0, opacity: 0.035, pointerEvents: "none" }}
+    >
+      <defs>
+        <pattern id="lattice" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+          <rect x="0" y="0" width="12" height="12" fill="none" stroke="#C8873A" strokeWidth="0.5"/>
+          <rect x="12" y="12" width="12" height="12" fill="none" stroke="#C8873A" strokeWidth="0.5"/>
+          <line x1="6" y1="0" x2="6" y2="12" stroke="#C8873A" strokeWidth="0.3"/>
+          <line x1="0" y1="6" x2="12" y2="6" stroke="#C8873A" strokeWidth="0.3"/>
+          <circle cx="6" cy="6" r="1.5" fill="#C8873A"/>
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#lattice)"/>
+    </svg>
+  );
+}
+
+// ── Thin gold rule ─────────────────────────────────────────
+function GoldRule({ opacity = 0.25 }: { opacity?: number }) {
+  return (
+    <div style={{
+      height: 1,
+      background: `linear-gradient(to right, transparent, rgba(200,135,58,${opacity}), transparent)`,
+      margin: "0 0",
+    }} />
+  );
+}
+
 export default function PublicOrder({ params }: { params: { token: string } }) {
   const tableToken = params.token;
 
@@ -26,7 +58,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [tableNumber, setTableNumber] = useState<number | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuLoading, setMenuLoading] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<number | null>(null);
+  const [activeCatId, setActiveCatId] = useState<number | null>(null);
 
   const [cart, setCart] = useState<{ id: number; name: string; price: number; quantity: number }[]>([]);
   const [notes, setNotes] = useState("");
@@ -36,16 +68,16 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [lastCart, setLastCart] = useState<typeof cart>([]);
   const [cartOpen, setCartOpen] = useState(false);
 
-  const categoryRefs = useRef<Record<number, HTMLElement | null>>({});
+  const catRefs = useRef<Record<number, HTMLElement | null>>({});
+  const observerRef = useRef<IntersectionObserver | null>(null);
 
+  // Session bootstrap
   useEffect(() => {
     const stored = localStorage.getItem(SESSION_KEY);
-
     const startSession = async () => {
       try {
         const res = await fetch(`${API_BASE}/api/public/session/start`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ tableToken }),
         });
         if (!res.ok) { setSessionState("expired"); return; }
@@ -56,159 +88,278 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         setSessionState("active");
       } catch { setSessionState("expired"); }
     };
-
     const validateSession = async (token: string) => {
       try {
         const res = await fetch(`${API_BASE}/api/public/session/validate?sessionToken=${token}`);
         if (!res.ok) { localStorage.removeItem(SESSION_KEY); await startSession(); return; }
         const data = await res.json();
-        setSessionToken(token);
-        setTableNumber(data.tableNumber);
-        setSessionState("active");
+        setSessionToken(token); setTableNumber(data.tableNumber); setSessionState("active");
       } catch { setSessionState("expired"); }
     };
-
     stored ? validateSession(stored) : startSession();
   }, [tableToken]);
 
+  // Menu fetch
   useEffect(() => {
     if (sessionState !== "active" || !sessionToken) return;
     setMenuLoading(true);
     fetch(`${API_BASE}/api/public/menu?sessionToken=${encodeURIComponent(sessionToken)}`)
-      .then(res => { if (!res.ok) { if (res.status === 401) setSessionState("expired"); return null; } return res.json(); })
+      .then(r => { if (!r.ok) { if (r.status === 401) setSessionState("expired"); return null; } return r.json(); })
       .then(data => {
         if (!data) return;
-        const cats: Category[] = (data.categories ?? []).map((c: any) => ({
-          ...c,
-          items: (data.items ?? []).filter((i: any) => i.categoryId === c.id),
-        })).filter((c: Category) => c.items.length > 0);
+        const cats: Category[] = (data.categories ?? [])
+          .map((c: any) => ({ ...c, items: (data.items ?? []).filter((i: any) => i.categoryId === c.id) }))
+          .filter((c: Category) => c.items.length > 0);
         setCategories(cats);
-        if (cats.length > 0) setActiveCategory(cats[0].id);
+        if (cats.length > 0) setActiveCatId(cats[0].id);
       })
       .catch(() => setSessionState("expired"))
       .finally(() => setMenuLoading(false));
   }, [sessionState, sessionToken]);
 
+  // Intersection observer for active category pill
+  useEffect(() => {
+    if (categories.length === 0) return;
+    observerRef.current?.disconnect();
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter(e => e.isIntersecting);
+        if (visible.length > 0) {
+          const topmost = visible.reduce((a, b) => a.boundingClientRect.top < b.boundingClientRect.top ? a : b);
+          const id = parseInt((topmost.target as HTMLElement).dataset.catid ?? "0");
+          if (id) setActiveCatId(id);
+        }
+      },
+      { rootMargin: "-20% 0px -70% 0px", threshold: 0 }
+    );
+    categories.forEach(cat => {
+      const el = catRefs.current[cat.id];
+      if (el) observerRef.current?.observe(el);
+    });
+    return () => observerRef.current?.disconnect();
+  }, [categories]);
+
   const addToCart = (item: MenuItem) => {
     setCart(prev => {
-      const existing = prev.find(i => i.id === item.id);
-      if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+      const ex = prev.find(i => i.id === item.id);
+      if (ex) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
       return [...prev, { id: item.id, name: item.name, price: parseFloat(item.price), quantity: 1 }];
     });
   };
-
-  const updateQuantity = (id: number, delta: number) => {
+  const updateQty = (id: number, delta: number) =>
     setCart(prev => prev.map(i => i.id === id ? { ...i, quantity: i.quantity + delta } : i).filter(i => i.quantity > 0));
-  };
 
-  const subtotal = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  const totalItems = cart.reduce((sum, i) => sum + i.quantity, 0);
+  const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+  const totalItems = cart.reduce((s, i) => s + i.quantity, 0);
 
-  const scrollToCategory = (catId: number) => {
-    setActiveCategory(catId);
-    const el = categoryRefs.current[catId];
+  const scrollToCat = (id: number) => {
+    setActiveCatId(id);
+    const el = catRefs.current[id];
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const handleSubmit = async () => {
-    if (cart.length === 0 || isSubmitting || !sessionToken) return;
+  const handleOrder = async () => {
+    if (!cart.length || isSubmitting || !sessionToken) return;
     setIsSubmitting(true);
     try {
       const res = await fetch(`${API_BASE}/api/public/order`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionToken, customerNote: notes || undefined, items: cart.map(i => ({ menuItemId: i.id, quantity: i.quantity })) }),
       });
       if (res.status === 401) { localStorage.removeItem(SESSION_KEY); setSessionState("expired"); return; }
-      if (!res.ok) throw new Error("Failed");
+      if (!res.ok) throw new Error();
       const result = await res.json();
-      setOrderId(result.orderId);
-      setIsSuccess(true);
-      setLastCart(cart);
-      setCart([]);
-      setCartOpen(false);
-    } catch { alert("Failed to place order. Please try again."); }
+      setOrderId(result.orderId); setIsSuccess(true); setLastCart(cart); setCart([]); setCartOpen(false);
+    } catch { alert("Could not place order. Please try again."); }
     finally { setIsSubmitting(false); }
   };
 
-  // ── Screens ──────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  // FONTS + BASE STYLES (injected once)
+  // ─────────────────────────────────────────────────────────
+  const fonts = (
+    <>
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400;1,600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+      <style>{`
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { background: #1A0A05; }
+        ::-webkit-scrollbar { width: 0; }
 
+        @keyframes candleFlicker {
+          0%   { background-position: 0% 50%; }
+          50%  { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(18px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes subtlePulse {
+          0%, 100% { opacity: 0.7; }
+          50%       { opacity: 1; }
+        }
+
+        .hero-bg {
+          background: linear-gradient(135deg, #1A0A05 0%, #2E1206 40%, #3D1A08 60%, #1A0A05 100%);
+          background-size: 300% 300%;
+          animation: candleFlicker 12s ease infinite;
+        }
+
+        .fade-up { animation: fadeUp 0.6s ease both; }
+        .fade-up-2 { animation: fadeUp 0.6s 0.1s ease both; }
+        .fade-up-3 { animation: fadeUp 0.6s 0.2s ease both; }
+
+        .cat-pill {
+          border: none; cursor: pointer; border-radius: 0;
+          padding: 8px 18px;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 12px; font-weight: 500; letter-spacing: 0.08em;
+          text-transform: uppercase; white-space: nowrap; flex-shrink: 0;
+          transition: color 0.25s, border-bottom-color 0.25s;
+          border-bottom: 2px solid transparent;
+        }
+        .cat-pill.active {
+          color: #C8873A !important;
+          border-bottom-color: #C8873A;
+        }
+
+        .menu-row { transition: background 0.18s; }
+        .menu-row:hover { background: rgba(200,135,58,0.04); }
+
+        .qty-btn { transition: opacity 0.15s; }
+        .qty-btn:hover { opacity: 0.75; }
+        .qty-btn:active { opacity: 0.5; transform: scale(0.92); }
+
+        .order-btn {
+          transition: background 0.2s, transform 0.1s;
+        }
+        .order-btn:hover { background: #b87830 !important; }
+        .order-btn:active { transform: scale(0.97); }
+
+        .cart-drawer {
+          animation: fadeUp 0.25s ease both;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .hero-bg { animation: none; }
+          .fade-up, .fade-up-2, .fade-up-3, .cart-drawer { animation: none; }
+        }
+      `}</style>
+    </>
+  );
+
+  // ─── LOADING ──────────────────────────────────────────────
   if (sessionState === "loading" || menuLoading) {
     return (
-      <div style={{ minHeight: "100vh", background: "#F5EDD8", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px" }}>
-        <div style={{ width: 56, height: 56 }}>
-          <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="28" cy="28" r="24" stroke="#C9943A" strokeWidth="2" strokeDasharray="6 4">
-              <animateTransform attributeName="transform" type="rotate" from="0 28 28" to="360 28 28" dur="2s" repeatCount="indefinite" />
-            </circle>
-            <path d="M28 16 L30 24 L28 22 L26 24 Z M28 40 L26 32 L28 34 L30 32 Z M16 28 L24 26 L22 28 L24 30 Z M40 28 L32 30 L34 28 L32 26 Z" fill="#C9943A" opacity="0.6" />
-          </svg>
+      <>
+        {fonts}
+        <div style={{ minHeight: "100vh", background: "#1A0A05", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20 }}>
+          <div style={{ position: "relative", width: 48, height: 48 }}>
+            <svg viewBox="0 0 48 48" fill="none" style={{ width: 48, height: 48 }}>
+              <circle cx="24" cy="24" r="20" stroke="rgba(200,135,58,0.15)" strokeWidth="1.5"/>
+              <circle cx="24" cy="24" r="20" stroke="#C8873A" strokeWidth="1.5" strokeDasharray="30 96" strokeLinecap="round">
+                <animateTransform attributeName="transform" type="rotate" from="0 24 24" to="360 24 24" dur="1.4s" repeatCount="indefinite"/>
+              </circle>
+            </svg>
+          </div>
+          <p style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 14, color: "rgba(200,135,58,0.6)", letterSpacing: "0.15em", fontStyle: "italic" }}>
+            Preparing your menu
+          </p>
         </div>
-        <p style={{ fontFamily: "'Playfair Display', Georgia, serif", color: "#8B4A2B", fontSize: 15, letterSpacing: "0.05em" }}>Preparing your menu…</p>
-        <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet" />
-      </div>
+      </>
     );
   }
 
+  // ─── EXPIRED ──────────────────────────────────────────────
   if (sessionState === "expired") {
     return (
       <>
-        <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet" />
-        <div style={{ minHeight: "100vh", background: "#F5EDD8", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
-          <div style={{ textAlign: "center", maxWidth: 320 }}>
-            <div style={{ width: 72, height: 72, margin: "0 auto 20px", background: "#3D1C0E", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#C9943A" strokeWidth="1.5">
+        {fonts}
+        <div className="hero-bg" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 32, position: "relative", overflow: "hidden" }}>
+          <NewariLattice />
+          <div style={{ position: "relative", zIndex: 1, textAlign: "center", maxWidth: 300 }}>
+            <div style={{ width: 56, height: 56, margin: "0 auto 24px", border: "1px solid rgba(200,135,58,0.3)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(200,135,58,0.7)" strokeWidth="1.5">
                 <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
               </svg>
             </div>
-            <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 26, color: "#3D1C0E", marginBottom: 12 }}>Session Expired</h2>
-            <p style={{ color: "#8B4A2B", fontSize: 14, lineHeight: 1.7 }}>Your session has ended. Please scan the QR code at your table to begin a new order.</p>
+            <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "rgba(200,135,58,0.5)", letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 12 }}>Session Ended</p>
+            <h2 style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 32, color: "#F0E2C8", fontWeight: 300, lineHeight: 1.2, marginBottom: 16 }}>
+              Your table<br/>session has expired
+            </h2>
+            <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "rgba(240,226,200,0.45)", lineHeight: 1.8 }}>
+              Please scan the QR code at your table to begin a new order.
+            </p>
           </div>
         </div>
       </>
     );
   }
 
+  // ─── SUCCESS ──────────────────────────────────────────────
   if (isSuccess) {
     return (
       <>
-        <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet" />
-        <div style={{ minHeight: "100vh", background: "#F5EDD8" }}>
-          {/* Header */}
-          <div style={{ background: "#3D1C0E", padding: "32px 24px 28px", textAlign: "center" }}>
-            <p style={{ color: "#C9943A", fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontFamily: "Inter, sans-serif", marginBottom: 6 }}>Sulimha Durbar</p>
-            <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 28, color: "#FBF7F0", margin: 0 }}>LHC Cafe</h1>
-          </div>
-          <div style={{ maxWidth: 400, margin: "0 auto", padding: "40px 24px" }}>
-            <div style={{ textAlign: "center", marginBottom: 32 }}>
-              <div style={{ width: 72, height: 72, background: "#C9943A", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
-                <CheckCircle2 size={36} color="#FBF7F0" />
+        {fonts}
+        <div style={{ minHeight: "100vh", background: "#1A0A05" }}>
+          <div className="hero-bg" style={{ padding: "40px 24px 36px", textAlign: "center", position: "relative", overflow: "hidden" }}>
+            <NewariLattice />
+            <div style={{ position: "relative", zIndex: 1 }}>
+              <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "rgba(200,135,58,0.55)", letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 20 }}>
+                LHC Cafe · Sulimha Durbar
+              </p>
+              <div style={{ width: 64, height: 64, margin: "0 auto 20px", border: "1px solid rgba(200,135,58,0.35)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <CheckCircle2 size={28} color="#C8873A" />
               </div>
-              <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 28, color: "#3D1C0E", margin: "0 0 8px" }}>Order Placed!</h2>
-              <p style={{ color: "#8B4A2B", fontSize: 14 }}>Table {tableNumber} · Order #{orderId}</p>
+              <h1 style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 38, color: "#F0E2C8", fontWeight: 300, letterSpacing: "-0.01em", lineHeight: 1.1, marginBottom: 8 }}>
+                Order Placed
+              </h1>
+              <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "rgba(240,226,200,0.45)", letterSpacing: "0.05em" }}>
+                Table {tableNumber} · Order #{orderId}
+              </p>
             </div>
+          </div>
 
-            <div style={{ background: "#FBF7F0", border: "1px solid #E8D9BE", borderRadius: 12, padding: "20px 24px", marginBottom: 20 }}>
-              <h3 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 16, color: "#3D1C0E", margin: "0 0 16px", paddingBottom: 12, borderBottom: "1px solid #E8D9BE" }}>Your Order</h3>
-              {lastCart.map(item => (
-                <div key={item.id} style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, fontSize: 14 }}>
-                  <span style={{ color: "#3D1C0E" }}><span style={{ fontWeight: 600 }}>{item.quantity}×</span> {item.name}</span>
-                  <span style={{ color: "#C9943A", fontWeight: 600 }}>Rs. {(item.price * item.quantity).toFixed(0)}</span>
+          <div style={{ maxWidth: 420, margin: "0 auto", padding: "32px 24px" }}>
+            <div style={{ marginBottom: 8 }}>
+              <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "rgba(200,135,58,0.5)", letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 20 }}>
+                Your Order
+              </p>
+              {lastCart.map((item, idx) => (
+                <div key={item.id}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "13px 0" }}>
+                    <span style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 17, color: "#F0E2C8", fontWeight: 400 }}>
+                      <span style={{ color: "rgba(200,135,58,0.7)", marginRight: 8, fontSize: 14 }}>{item.quantity}×</span>
+                      {item.name}
+                    </span>
+                    <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#C8873A", fontWeight: 500 }}>
+                      Rs. {(item.price * item.quantity).toFixed(0)}
+                    </span>
+                  </div>
+                  {idx < lastCart.length - 1 && <GoldRule />}
                 </div>
               ))}
-              <div style={{ borderTop: "1px solid #E8D9BE", marginTop: 12, paddingTop: 12, display: "flex", justifyContent: "space-between", fontWeight: 700, color: "#3D1C0E" }}>
-                <span>Total</span>
-                <span>Rs. {lastCart.reduce((s, i) => s + i.price * i.quantity, 0).toFixed(0)}</span>
-              </div>
             </div>
 
-            <p style={{ textAlign: "center", color: "#8B4A2B", fontSize: 13, lineHeight: 1.7, marginBottom: 24 }}>
-              Your order is being prepared with care. We'll bring it to your table shortly.
+            <div style={{ borderTop: "1px solid rgba(200,135,58,0.2)", paddingTop: 16, display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 40 }}>
+              <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "rgba(240,226,200,0.4)", letterSpacing: "0.12em", textTransform: "uppercase" }}>Total</span>
+              <span style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 24, color: "#C8873A", fontWeight: 600 }}>
+                Rs. {lastCart.reduce((s, i) => s + i.price * i.quantity, 0).toFixed(0)}
+              </span>
+            </div>
+
+            <p style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontStyle: "italic", fontSize: 15, color: "rgba(240,226,200,0.35)", textAlign: "center", lineHeight: 1.8, marginBottom: 32 }}>
+              Your order is being prepared with care.<br/>We'll bring it to you shortly.
             </p>
 
             <button
               onClick={() => { setIsSuccess(false); setLastCart([]); }}
-              style={{ width: "100%", padding: "14px", background: "#3D1C0E", color: "#FBF7F0", border: "none", borderRadius: 8, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 16, cursor: "pointer", letterSpacing: "0.03em" }}
+              className="order-btn"
+              style={{ width: "100%", padding: "15px", background: "transparent", border: "1px solid rgba(200,135,58,0.4)", color: "#C8873A", fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 17, fontWeight: 400, letterSpacing: "0.06em", cursor: "pointer", borderRadius: 2 }}
             >
               Order More
             </button>
@@ -218,77 +369,42 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     );
   }
 
-  // ── Main Menu ─────────────────────────────────────────────
+  // ─── MAIN MENU ────────────────────────────────────────────
   return (
     <>
-      <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
-      <style>{`
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #F5EDD8; }
-        .menu-item-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }
-        .menu-item-card:active { transform: scale(0.98); }
-        .cat-pill { transition: all 0.2s ease; white-space: nowrap; flex-shrink: 0; }
-        .add-btn { transition: background 0.15s ease; }
-        .add-btn:active { transform: scale(0.95); }
-        @media (prefers-reduced-motion: reduce) { .menu-item-card, .add-btn { transition: none; } }
-      `}</style>
+      {fonts}
+      <div style={{ minHeight: "100vh", background: "#1A0A05", paddingBottom: cart.length > 0 ? 80 : 48 }}>
 
-      <div style={{ minHeight: "100vh", background: "#F5EDD8", paddingBottom: cart.length > 0 ? 90 : 20 }}>
-
-        {/* Hero Header */}
-        <div style={{ background: "linear-gradient(160deg, #3D1C0E 0%, #5C2A14 100%)", padding: "28px 20px 24px", position: "relative", overflow: "hidden" }}>
-          {/* Decorative mandala-like circles in background */}
-          <div style={{ position: "absolute", top: -30, right: -30, width: 120, height: 120, border: "1px solid rgba(201,148,58,0.15)", borderRadius: "50%" }} />
-          <div style={{ position: "absolute", top: -15, right: -15, width: 80, height: 80, border: "1px solid rgba(201,148,58,0.1)", borderRadius: "50%" }} />
-          <div style={{ position: "absolute", bottom: -20, left: -20, width: 90, height: 90, border: "1px solid rgba(201,148,58,0.12)", borderRadius: "50%" }} />
-
+        {/* ── Hero ── */}
+        <div className="hero-bg" style={{ padding: "40px 24px 44px", position: "relative", overflow: "hidden" }}>
+          <NewariLattice />
           <div style={{ position: "relative", zIndex: 1 }}>
-            <p style={{ color: "#C9943A", fontSize: 10, letterSpacing: "0.25em", textTransform: "uppercase", fontFamily: "Inter, sans-serif", marginBottom: 6, opacity: 0.9 }}>
-              ✦ Sulimha Durbar · Patan ✦
+            <p className="fade-up" style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "rgba(200,135,58,0.55)", letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 16 }}>
+              Sulimha Durbar · Patan, Nepal
             </p>
-            <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 30, color: "#FBF7F0", fontWeight: 700, letterSpacing: "-0.01em", marginBottom: 4 }}>
+            <h1 className="fade-up-2" style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 52, color: "#F0E2C8", fontWeight: 300, letterSpacing: "-0.02em", lineHeight: 1.0, marginBottom: 6 }}>
               LHC Cafe
             </h1>
-            <p style={{ color: "rgba(251,247,240,0.55)", fontSize: 12, fontFamily: "Inter, sans-serif", letterSpacing: "0.05em" }}>
+            <p className="fade-up-2" style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontStyle: "italic", fontSize: 16, color: "rgba(240,226,200,0.4)", marginBottom: 28, letterSpacing: "0.04em" }}>
               & Barista School
             </p>
-            <div style={{ marginTop: 16, display: "inline-block", background: "rgba(201,148,58,0.15)", border: "1px solid rgba(201,148,58,0.3)", borderRadius: 20, padding: "5px 14px" }}>
-              <span style={{ color: "#C9943A", fontSize: 12, fontFamily: "Inter, sans-serif", fontWeight: 500 }}>Table {tableNumber}</span>
+            <div className="fade-up-3" style={{ display: "inline-flex", alignItems: "center", gap: 8, border: "1px solid rgba(200,135,58,0.25)", padding: "6px 14px 6px 10px", borderRadius: 1 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#C8873A", animation: "subtlePulse 2.5s ease infinite" }} />
+              <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "rgba(200,135,58,0.8)", letterSpacing: "0.1em" }}>TABLE {tableNumber}</span>
             </div>
           </div>
         </div>
 
-        {/* Ornamental divider */}
-        <div style={{ background: "#3D1C0E", display: "flex", alignItems: "center", justifyContent: "center", padding: "6px 0" }}>
-          <svg width="200" height="12" viewBox="0 0 200 12" fill="none">
-            <line x1="0" y1="6" x2="80" y2="6" stroke="#C9943A" strokeOpacity="0.4" strokeWidth="0.5"/>
-            <circle cx="88" cy="6" r="2" fill="#C9943A" fillOpacity="0.5"/>
-            <circle cx="100" cy="6" r="3" fill="#C9943A" fillOpacity="0.7"/>
-            <circle cx="112" cy="6" r="2" fill="#C9943A" fillOpacity="0.5"/>
-            <line x1="120" y1="6" x2="200" y2="6" stroke="#C9943A" strokeOpacity="0.4" strokeWidth="0.5"/>
-          </svg>
-        </div>
-
-        {/* Category nav pills */}
+        {/* ── Category nav ── */}
         {categories.length > 1 && (
-          <div style={{ position: "sticky", top: 0, zIndex: 10, background: "#F5EDD8", borderBottom: "1px solid #E8D9BE", padding: "10px 0" }}>
-            <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: "0 16px", scrollbarWidth: "none" }}>
+          <div style={{ position: "sticky", top: 0, zIndex: 20, background: "#1A0A05", borderBottom: "1px solid rgba(200,135,58,0.1)" }}>
+            <div style={{ display: "flex", overflowX: "auto", scrollbarWidth: "none", padding: "0 8px" }}>
               {categories.map(cat => (
                 <button
                   key={cat.id}
-                  className="cat-pill"
-                  onClick={() => scrollToCategory(cat.id)}
-                  style={{
-                    padding: "7px 16px",
-                    borderRadius: 20,
-                    border: activeCategory === cat.id ? "none" : "1px solid #D4B896",
-                    background: activeCategory === cat.id ? "#3D1C0E" : "transparent",
-                    color: activeCategory === cat.id ? "#FBF7F0" : "#8B4A2B",
-                    fontSize: 13,
-                    fontFamily: "Inter, sans-serif",
-                    fontWeight: 500,
-                    cursor: "pointer",
-                  }}
+                  className={`cat-pill${activeCatId === cat.id ? " active" : ""}`}
+                  onClick={() => scrollToCat(cat.id)}
+                  style={{ background: "transparent", color: activeCatId === cat.id ? "#C8873A" : "rgba(240,226,200,0.35)" }}
                 >
                   {cat.name}
                 </button>
@@ -297,76 +413,92 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
           </div>
         )}
 
-        {/* Menu */}
-        <div style={{ padding: "0 16px" }}>
+        {/* ── Menu sections ── */}
+        <div style={{ maxWidth: 640, margin: "0 auto" }}>
           {categories.map((cat, catIdx) => (
             <section
               key={cat.id}
-              ref={el => { categoryRefs.current[cat.id] = el; }}
-              style={{ paddingTop: 28, paddingBottom: 8 }}
+              ref={el => { catRefs.current[cat.id] = el; }}
+              data-catid={cat.id}
+              style={{ padding: "36px 24px 8px" }}
             >
-              {/* Category header */}
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
-                <div style={{ flex: 1, height: 1, background: "linear-gradient(to right, #C9943A40, transparent)" }} />
-                <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, color: "#3D1C0E", fontWeight: 600, fontStyle: catIdx % 2 === 1 ? "italic" : "normal" }}>
+              {/* Category heading */}
+              <div style={{ marginBottom: 24 }}>
+                <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: "rgba(200,135,58,0.4)", letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 6 }}>
+                  {String(catIdx + 1).padStart(2, "0")}
+                </p>
+                <h2 style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 30, color: "#F0E2C8", fontWeight: 300, letterSpacing: "-0.01em", lineHeight: 1.1 }}>
                   {cat.name}
                 </h2>
-                <div style={{ flex: 1, height: 1, background: "linear-gradient(to left, #C9943A40, transparent)" }} />
+                <div style={{ width: 32, height: 1, background: "#C8873A", marginTop: 10, opacity: 0.5 }} />
               </div>
 
               {/* Items */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {cat.items.map(item => {
-                  const inCart = cart.find(i => i.id === item.id);
-                  return (
+              {cat.items.map((item, itemIdx) => {
+                const inCart = cart.find(i => i.id === item.id);
+                return (
+                  <div key={item.id}>
                     <div
-                      key={item.id}
-                      className="menu-item-card"
-                      style={{ background: "#FBF7F0", border: "1px solid #E8D9BE", borderRadius: 12, overflow: "hidden", display: "flex" }}
+                      className="menu-row"
+                      style={{ display: "flex", alignItems: "flex-start", gap: 16, padding: "16px 8px", borderRadius: 2 }}
                     >
+                      {/* Text content */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: item.description ? 5 : 0 }}>
+                          <h3 style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 18, color: "#F0E2C8", fontWeight: 400, lineHeight: 1.25, flex: 1 }}>
+                            {item.name}
+                          </h3>
+                          <span style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 17, color: "#C8873A", fontWeight: 600, flexShrink: 0, paddingTop: 1 }}>
+                            Rs.&nbsp;{item.price}
+                          </span>
+                        </div>
+                        {item.description && (
+                          <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "rgba(240,226,200,0.35)", lineHeight: 1.65, fontWeight: 300, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                            {item.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Image (if exists) */}
                       {item.imageUrl && (
-                        <img src={item.imageUrl} alt={item.name} style={{ width: 100, height: 100, objectFit: "cover", flexShrink: 0 }} />
+                        <img
+                          src={item.imageUrl} alt={item.name}
+                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 2, flexShrink: 0, opacity: 0.9 }}
+                        />
                       )}
-                      <div style={{ flex: 1, padding: "14px 14px 12px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                        <div>
-                          <h3 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 15, color: "#3D1C0E", fontWeight: 600, marginBottom: 4, lineHeight: 1.3 }}>{item.name}</h3>
-                          {item.description && <p style={{ fontSize: 12, color: "#8B4A2B", lineHeight: 1.5, opacity: 0.8, marginBottom: 8, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.description}</p>}
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <span style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 16, color: "#C9943A", fontWeight: 700 }}>Rs. {item.price}</span>
-                          {inCart ? (
-                            <div style={{ display: "flex", alignItems: "center", gap: 0, background: "#3D1C0E", borderRadius: 20, overflow: "hidden" }}>
-                              <button onClick={() => updateQuantity(item.id, -1)} style={{ width: 32, height: 32, border: "none", background: "transparent", color: "#FBF7F0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                                <Minus size={14} />
-                              </button>
-                              <span style={{ width: 24, textAlign: "center", color: "#FBF7F0", fontSize: 14, fontWeight: 600 }}>{inCart.quantity}</span>
-                              <button onClick={() => updateQuantity(item.id, 1)} style={{ width: 32, height: 32, border: "none", background: "transparent", color: "#FBF7F0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                                <Plus size={14} />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              className="add-btn"
-                              onClick={() => addToCart(item)}
-                              style={{ width: 32, height: 32, borderRadius: "50%", background: "#3D1C0E", border: "none", color: "#FBF7F0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-                            >
-                              <Plus size={16} />
+
+                      {/* Cart control */}
+                      <div style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
+                        {inCart ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <button className="qty-btn" onClick={() => updateQty(item.id, -1)} style={{ width: 28, height: 28, border: "1px solid rgba(200,135,58,0.3)", background: "transparent", color: "#C8873A", cursor: "pointer", borderRadius: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <Minus size={12} />
                             </button>
-                          )}
-                        </div>
+                            <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: "#F0E2C8", minWidth: 16, textAlign: "center", fontWeight: 500 }}>{inCart.quantity}</span>
+                            <button className="qty-btn" onClick={() => updateQty(item.id, 1)} style={{ width: 28, height: 28, border: "none", background: "#C8873A", color: "#1A0A05", cursor: "pointer", borderRadius: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <Plus size={12} />
+                            </button>
+                          </div>
+                        ) : (
+                          <button className="qty-btn" onClick={() => addToCart(item)} style={{ width: 28, height: 28, border: "none", background: "rgba(200,135,58,0.12)", color: "#C8873A", cursor: "pointer", borderRadius: 1, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            <Plus size={14} />
+                          </button>
+                        )}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+                    {itemIdx < cat.items.length - 1 && <GoldRule opacity={0.12} />}
+                  </div>
+                );
+              })}
 
-              {/* Inter-category ornament */}
               {catIdx < categories.length - 1 && (
-                <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
-                  <svg width="80" height="16" viewBox="0 0 80 16" fill="none">
-                    <path d="M0 8 Q20 2 40 8 Q60 14 80 8" stroke="#C9943A" strokeOpacity="0.35" strokeWidth="1" fill="none"/>
-                    <circle cx="40" cy="8" r="2.5" fill="#C9943A" fillOpacity="0.4"/>
+                <div style={{ margin: "28px 0 0", display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ flex: 1, height: 1, background: "rgba(200,135,58,0.1)" }} />
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <circle cx="8" cy="8" r="3" stroke="#C8873A" strokeOpacity="0.3" strokeWidth="0.75"/>
+                    <circle cx="8" cy="8" r="1" fill="#C8873A" fillOpacity="0.35"/>
                   </svg>
+                  <div style={{ flex: 1, height: 1, background: "rgba(200,135,58,0.1)" }} />
                 </div>
               )}
             </section>
@@ -374,61 +506,94 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         </div>
 
         {/* Footer */}
-        <div style={{ textAlign: "center", padding: "32px 24px 16px", borderTop: "1px solid #E8D9BE", marginTop: 24 }}>
-          <p style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 13, color: "#8B4A2B", fontStyle: "italic", opacity: 0.7 }}>
-            Sulimha Durbar · Heritage Hotel & Museum · Patan, Nepal
+        <div style={{ padding: "40px 24px 16px", textAlign: "center" }}>
+          <p style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontStyle: "italic", fontSize: 13, color: "rgba(200,135,58,0.25)", letterSpacing: "0.06em" }}>
+            Sulimha Durbar Heritage Hotel & Museum · Patan
           </p>
         </div>
       </div>
 
-      {/* Sticky Cart Bar */}
+      {/* ── Sticky cart bar ── */}
       {cart.length > 0 && (
         <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50 }}>
+
           {/* Cart drawer */}
           {cartOpen && (
-            <div style={{ background: "#FBF7F0", borderTop: "1px solid #E8D9BE", padding: "20px 20px 8px", maxHeight: "55vh", overflowY: "auto" }}>
-              <h3 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 17, color: "#3D1C0E", marginBottom: 14 }}>Your Order</h3>
-              {cart.map(item => (
-                <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                  <span style={{ fontSize: 14, color: "#3D1C0E" }}><span style={{ fontWeight: 600 }}>{item.quantity}×</span> {item.name}</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 13, color: "#C9943A", fontWeight: 600 }}>Rs. {(item.price * item.quantity).toFixed(0)}</span>
-                    <div style={{ display: "flex", alignItems: "center", background: "#3D1C0E", borderRadius: 14, overflow: "hidden" }}>
-                      <button onClick={() => updateQuantity(item.id, -1)} style={{ width: 26, height: 26, border: "none", background: "transparent", color: "#FBF7F0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Minus size={11} /></button>
-                      <span style={{ width: 20, textAlign: "center", color: "#FBF7F0", fontSize: 12, fontWeight: 600 }}>{item.quantity}</span>
-                      <button onClick={() => updateQuantity(item.id, 1)} style={{ width: 26, height: 26, border: "none", background: "transparent", color: "#FBF7F0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Plus size={11} /></button>
+            <div className="cart-drawer" style={{ background: "#2E1206", borderTop: "1px solid rgba(200,135,58,0.18)", padding: "20px 20px 0", maxHeight: "52vh", overflowY: "auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 18 }}>
+                <p style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, color: "#F0E2C8", fontWeight: 300 }}>Your Order</p>
+                <button onClick={() => setCartOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(240,226,200,0.35)", padding: 4 }}>
+                  <X size={16} />
+                </button>
+              </div>
+
+              {cart.map((item, idx) => (
+                <div key={item.id}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0" }}>
+                    <span style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 16, color: "#F0E2C8", flex: 1, minWidth: 0, paddingRight: 12 }}>
+                      {item.name}
+                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                      <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#C8873A", minWidth: 56, textAlign: "right" }}>
+                        Rs. {(item.price * item.quantity).toFixed(0)}
+                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button className="qty-btn" onClick={() => updateQty(item.id, -1)} style={{ width: 24, height: 24, border: "1px solid rgba(200,135,58,0.25)", background: "transparent", color: "#C8873A", cursor: "pointer", borderRadius: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Minus size={10} />
+                        </button>
+                        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#F0E2C8", minWidth: 16, textAlign: "center" }}>{item.quantity}</span>
+                        <button className="qty-btn" onClick={() => updateQty(item.id, 1)} style={{ width: 24, height: 24, border: "none", background: "#C8873A", color: "#1A0A05", cursor: "pointer", borderRadius: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Plus size={10} />
+                        </button>
+                      </div>
                     </div>
                   </div>
+                  {idx < cart.length - 1 && <GoldRule opacity={0.1} />}
                 </div>
               ))}
-              <div style={{ borderTop: "1px solid #E8D9BE", marginTop: 8, paddingTop: 12, marginBottom: 12 }}>
+
+              <div style={{ borderTop: "1px solid rgba(200,135,58,0.15)", marginTop: 8, padding: "12px 0" }}>
                 <textarea
-                  placeholder="Any special requests? (optional)"
+                  placeholder="Special requests…"
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
-                  style={{ width: "100%", padding: "10px 12px", border: "1px solid #D4B896", borderRadius: 8, fontSize: 13, fontFamily: "Inter, sans-serif", color: "#3D1C0E", background: "#F5EDD8", resize: "none", height: 64, outline: "none" }}
+                  style={{ width: "100%", padding: "10px 0", background: "transparent", border: "none", borderBottom: "1px solid rgba(200,135,58,0.15)", color: "rgba(240,226,200,0.6)", fontFamily: "'DM Sans', sans-serif", fontSize: 13, resize: "none", height: 52, outline: "none", fontWeight: 300 }}
                 />
               </div>
             </div>
           )}
 
-          {/* Cart bar */}
-          <div style={{ background: "#3D1C0E", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+          {/* Bar */}
+          <div style={{ background: "#1A0A05", borderTop: "1px solid rgba(200,135,58,0.15)", padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
             <button
               onClick={() => setCartOpen(o => !o)}
-              style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(201,148,58,0.15)", border: "1px solid rgba(201,148,58,0.3)", borderRadius: 8, padding: "8px 12px", cursor: "pointer", flex: 1, minWidth: 0 }}
+              style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, background: "transparent", border: "none", cursor: "pointer", padding: 0, minWidth: 0 }}
             >
-              <ShoppingBag size={18} color="#C9943A" />
-              <span style={{ color: "#FBF7F0", fontSize: 13, fontFamily: "Inter, sans-serif" }}>{totalItems} item{totalItems !== 1 ? "s" : ""}</span>
-              <ChevronDown size={14} color="#C9943A" style={{ transform: cartOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s", marginLeft: "auto" }} />
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                <ShoppingBag size={20} color="rgba(240,226,200,0.6)" />
+                <div style={{ position: "absolute", top: -5, right: -5, width: 16, height: 16, background: "#C8873A", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 9, color: "#1A0A05", fontWeight: 700 }}>{totalItems}</span>
+                </div>
+              </div>
+              <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "rgba(240,226,200,0.5)", flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {cart.map(i => i.name).join(", ")}
+              </span>
+              <ChevronUp size={14} color="rgba(200,135,58,0.5)" style={{ transform: cartOpen ? "rotate(180deg)" : "none", transition: "transform 0.25s", flexShrink: 0 }} />
             </button>
-            <span style={{ color: "#C9943A", fontFamily: "'Playfair Display', Georgia, serif", fontSize: 17, fontWeight: 700, flexShrink: 0 }}>Rs. {subtotal.toFixed(0)}</span>
+
+            <div style={{ width: 1, height: 28, background: "rgba(200,135,58,0.15)", flexShrink: 0 }} />
+
+            <span style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 18, color: "#C8873A", fontWeight: 600, flexShrink: 0 }}>
+              Rs.&nbsp;{subtotal.toFixed(0)}
+            </span>
+
             <button
-              onClick={handleSubmit}
+              onClick={handleOrder}
               disabled={isSubmitting}
-              style={{ background: "#C9943A", border: "none", borderRadius: 8, padding: "10px 18px", color: "#3D1C0E", fontFamily: "'Playfair Display', Georgia, serif", fontSize: 14, fontWeight: 700, cursor: isSubmitting ? "wait" : "pointer", flexShrink: 0, opacity: isSubmitting ? 0.7 : 1 }}
+              className="order-btn"
+              style={{ background: "#C8873A", border: "none", padding: "10px 18px", color: "#1A0A05", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", cursor: isSubmitting ? "wait" : "pointer", flexShrink: 0, borderRadius: 1, opacity: isSubmitting ? 0.6 : 1 }}
             >
-              {isSubmitting ? "Placing…" : "Place Order"}
+              {isSubmitting ? "…" : "Place Order"}
             </button>
           </div>
         </div>
