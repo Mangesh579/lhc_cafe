@@ -1,11 +1,11 @@
 import { Router } from "express";
-import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable } from "@workspace/db";
+import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { randomBytes } from "crypto";
 
 const router = Router();
 
-const SESSION_IDLE_MINUTES = 2;
+const SESSION_IDLE_MINUTES = 30;
 
 async function resolveSession(sessionToken: string) {
   const [session] = await db
@@ -150,7 +150,30 @@ router.post("/order", async (req, res): Promise<void> => {
       });
     }
 
+    // Deduct inventory
+    for (const item of resolvedItems) {
+      const recipes = await db.select().from(recipesTable).where(eq(recipesTable.menuItemId, item.menuItemId));
+      for (const recipe of recipes) {
+        const needed = parseFloat(String(recipe.quantityRequired)) * item.quantity;
+        const [inv] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, recipe.inventoryItemId));
+        if (inv) {
+          const stockBefore = parseFloat(String(inv.currentStock));
+          const stockAfter = Math.max(0, stockBefore - needed);
+          await db.update(inventoryItemsTable).set({ currentStock: String(stockAfter) }).where(eq(inventoryItemsTable.id, inv.id));
+          await db.insert(inventoryLogsTable).values({
+            inventoryItemId: inv.id,
+            changeAmount: String(-needed),
+            stockBefore: String(stockBefore),
+            stockAfter: String(stockAfter),
+            reason: `QR Order #${order.id} (Table ${table.tableNumber})`,
+            orderId: order.id,
+          });
+        }
+      }
+    }
+
     res.json({ success: true, orderId: order.id, totalAmount });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to place order" });
