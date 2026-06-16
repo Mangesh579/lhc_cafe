@@ -1,5 +1,5 @@
 import { useState, Fragment } from "react";
-import { useListOrders } from "@workspace/api-client-react";
+import { useListOrders, useListMenuCategories, useListMenuItems } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,23 +14,54 @@ export default function OrderLog() {
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
 
   const { data: orders, isLoading } = useListOrders({ date: dateFilter || undefined });
+  const { data: categories } = useListMenuCategories();
+  const { data: menuItems } = useListMenuItems({});
+
+  // Build a map of menuItemId -> categoryId for fast lookup
+  const itemCategoryMap = new Map<number, number>();
+  menuItems?.forEach(item => {
+    if (item.categoryId) itemCategoryMap.set(item.id, item.categoryId);
+  });
 
   const filteredOrders = orders?.filter(order => {
     if (statusFilter !== "all" && order.orderStatus !== statusFilter) return false;
     if (paymentFilter !== "all" && order.paymentMethod !== paymentFilter) return false;
     if (paymentStatusFilter !== "all" && order.paymentStatus !== paymentStatusFilter) return false;
+    if (categoryFilter !== "all") {
+      const catId = parseInt(categoryFilter);
+      const hasItemInCategory = order.items?.some((item: any) => itemCategoryMap.get(item.menuItemId) === catId);
+      if (!hasItemInCategory) return false;
+    }
     return true;
   }) ?? [];
 
-  // Only sum paid orders for the sales metric
   const totalSales = filteredOrders.reduce((sum, o) => {
     if (o.paymentStatus !== 'paid') return sum;
     return sum + parseFloat(String(o.totalAmount));
   }, 0);
   const paidCount = filteredOrders.filter(o => o.paymentStatus === 'paid').length;
+
+  // Category sales breakdown (only paid orders)
+  const categorySales = new Map<number, { name: string; qty: number; revenue: number }>();
+  if (categoryFilter === "all") {
+    filteredOrders.forEach(order => {
+      if (order.paymentStatus !== 'paid') return;
+      order.items?.forEach((item: any) => {
+        const catId = itemCategoryMap.get(item.menuItemId);
+        if (!catId) return;
+        const cat = categories?.find(c => c.id === catId);
+        if (!cat) return;
+        const existing = categorySales.get(catId) ?? { name: cat.name, qty: 0, revenue: 0 };
+        existing.qty += item.quantity;
+        existing.revenue += parseFloat(String(item.subtotal));
+        categorySales.set(catId, existing);
+      });
+    });
+  }
 
   const toggleExpand = (id: number) => {
     setExpandedOrders(prev => {
@@ -80,14 +111,43 @@ export default function OrderLog() {
         </Card>
       </div>
 
+      {/* Category Breakdown — only shown when no category filter active */}
+      {categoryFilter === "all" && categorySales.size > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from(categorySales.values())
+            .sort((a, b) => b.revenue - a.revenue)
+            .map(cat => (
+              <Card key={cat.name} className="border-dashed">
+                <CardContent className="p-4">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase truncate">{cat.name}</p>
+                  <p className="text-lg font-bold mt-1">Rs. {cat.revenue.toFixed(0)}</p>
+                  <p className="text-xs text-muted-foreground">{cat.qty} items sold</p>
+                </CardContent>
+              </Card>
+            ))}
+        </div>
+      )}
+
       {/* Filters */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-muted/20 rounded-lg border">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 p-4 bg-muted/20 rounded-lg border">
         <div className="space-y-1">
           <Label className="text-xs font-semibold text-muted-foreground uppercase">Date</Label>
           <div className="flex gap-1">
             <Input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} className="text-sm h-9" />
             {dateFilter && <Button variant="ghost" size="sm" onClick={() => setDateFilter("")} className="h-9 px-2 text-muted-foreground">✕</Button>}
           </div>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold text-muted-foreground uppercase">Category</Label>
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {categories?.map(cat => (
+                <SelectItem key={cat.id} value={cat.id.toString()}>{cat.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-1">
           <Label className="text-xs font-semibold text-muted-foreground uppercase">Order Status</Label>
