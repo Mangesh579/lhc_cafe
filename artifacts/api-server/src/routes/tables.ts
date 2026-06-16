@@ -2,9 +2,16 @@ import { Router } from "express";
 import { db, cafeTablesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth";
-import { randomBytes } from "crypto";
+import { createHmac } from "crypto";
 
 const router = Router();
+
+function tableToken(tableNumber: number): string {
+  const secret = process.env.SESSION_SECRET ?? "lhc-cafe-secret";
+  return createHmac("sha256", secret)
+    .update(`table-${tableNumber}`)
+    .digest("hex");
+}
 
 router.get("/tables", authenticate, async (_req, res): Promise<void> => {
   const tables = await db.select().from(cafeTablesTable).orderBy(cafeTablesTable.tableNumber);
@@ -14,7 +21,14 @@ router.get("/tables", authenticate, async (_req, res): Promise<void> => {
 router.post("/tables", authenticate, async (req, res): Promise<void> => {
   const { tableNumber } = req.body;
   if (!tableNumber) { res.status(400).json({ error: "tableNumber required" }); return; }
-  const token = randomBytes(24).toString("hex");
+  const token = tableToken(tableNumber);
+  // If a table with this number was deleted and recreated, upsert to reuse the same token
+  const existing = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.tableNumber, tableNumber)).limit(1);
+  if (existing.length > 0) {
+    const [table] = await db.update(cafeTablesTable).set({ token, isActive: true }).where(eq(cafeTablesTable.tableNumber, tableNumber)).returning();
+    res.status(201).json(table);
+    return;
+  }
   const [table] = await db.insert(cafeTablesTable).values({ tableNumber, token, isActive: true }).returning();
   res.status(201).json(table);
 });

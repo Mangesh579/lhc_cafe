@@ -5,7 +5,7 @@ import { randomBytes } from "crypto";
 
 const router = Router();
 
-const SESSION_IDLE_MINUTES = 90;
+const SESSION_IDLE_MINUTES = 2;
 
 async function resolveSession(sessionToken: string) {
   const [session] = await db
