@@ -244,6 +244,30 @@ router.patch("/orders/:id/discount", authenticate, async (req, res): Promise<voi
 
 router.patch("/orders/:id/cancel", authenticate, async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
+
+  // Restore inventory before cancelling
+  const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
+  for (const item of items) {
+    const recipes = await db.select().from(recipesTable).where(eq(recipesTable.menuItemId, item.menuItemId));
+    for (const recipe of recipes) {
+      const restore = parseFloat(String(recipe.quantityRequired)) * item.quantity;
+      const [inv] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, recipe.inventoryItemId));
+      if (inv) {
+        const stockBefore = parseFloat(String(inv.currentStock));
+        const stockAfter = stockBefore + restore;
+        await db.update(inventoryItemsTable).set({ currentStock: String(stockAfter) }).where(eq(inventoryItemsTable.id, inv.id));
+        await db.insert(inventoryLogsTable).values({
+          inventoryItemId: inv.id,
+          changeAmount: String(restore),
+          stockBefore: String(stockBefore),
+          stockAfter: String(stockAfter),
+          reason: `Order #${id} cancelled — stock restored`,
+          orderId: id,
+        });
+      }
+    }
+  }
+
   await db.update(ordersTable).set({ orderStatus: "cancelled", paymentStatus: "cancelled" }).where(eq(ordersTable.id, id));
   const result = await getOrderWithItems(id);
   if (!result) { res.status(404).json({ error: "Order not found" }); return; }
