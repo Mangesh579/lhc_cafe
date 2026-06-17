@@ -39,4 +39,12 @@ router.delete("/tables/:id", authenticate, async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
+router.patch("/tables/:id/occupy", authenticate, async (req, res): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  const { isOccupied } = req.body;
+  const [table] = await db.update(cafeTablesTable).set({ isOccupied: !!isOccupied }).where(eq(cafeTablesTable.id, id)).returning();
+  if (!table) { res.status(404).json({ error: "Table not found" }); return; }
+  res.json(table);
+});
+
 export default router;

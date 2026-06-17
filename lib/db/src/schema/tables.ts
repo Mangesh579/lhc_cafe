@@ -8,6 +8,7 @@ export const cafeTablesTable = pgTable("cafe_tables", {
   qrCode: text("qr_code"),
   token: text("token").notNull().unique(),
   isActive: boolean("is_active").notNull().default(true),
+  isOccupied: boolean("is_occupied").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

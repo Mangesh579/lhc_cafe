@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useListTables, useCreateTable, useDeleteTable, getListTablesQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Download, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Download, Trash2, Lock, Unlock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -11,6 +13,7 @@ export default function Tables() {
   const deleteTable = useDeleteTable();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [togglingId, setTogglingId] = useState<number | null>(null);
 
   const handleAddTable = async () => {
     const nextTableNum = tables ? Math.max(0, ...tables.map((t: any) => t.tableNumber)) + 1 : 1;
@@ -34,6 +37,24 @@ export default function Tables() {
     }
   };
 
+  const handleToggleOccupied = async (table: any) => {
+    setTogglingId(table.id);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/tables/${table.id}/occupy`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+        body: JSON.stringify({ isOccupied: !table.isOccupied }),
+      });
+      if (!res.ok) throw new Error();
+      queryClient.invalidateQueries({ queryKey: getListTablesQueryKey() });
+      toast({ title: table.isOccupied ? "Table closed" : "Table opened — QR is now active" });
+    } catch {
+      toast({ title: "Failed to update table", variant: "destructive" });
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
   const orderUrl = (token: string) => `${window.location.origin}/order/${token}`;
   const qrUrl = (token: string) =>
     `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(orderUrl(token))}`;
@@ -45,6 +66,10 @@ export default function Tables() {
         <Button onClick={handleAddTable} className="gap-2" disabled={createTable.isPending}>
           <Plus className="w-4 h-4" /> Add Table
         </Button>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3 text-sm">
+        <strong>Security note:</strong> A table's QR code only works while marked <strong>Open</strong>. Open a table when guests are seated, and it auto-closes when the bill is paid.
       </div>
 
       {isLoading ? (
@@ -60,14 +85,34 @@ export default function Tables() {
                 </Button>
               </div>
               <CardContent className="p-6 flex flex-col items-center justify-center space-y-4">
+                <Badge variant="secondary" className={table.isOccupied ? "bg-green-100 text-green-800 border-green-200" : "bg-gray-100 text-gray-600 border-gray-200"}>
+                  {table.isOccupied ? "● Open — QR Active" : "○ Closed"}
+                </Badge>
+
                 {table.token ? (
                   <>
-                    <div className="p-2 bg-white rounded-lg shadow-sm border">
-                      <img src={qrUrl(table.token)} alt={`QR Table ${table.tableNumber}`} className="w-32 h-32" />
+                    <div className="p-2 bg-white rounded-lg shadow-sm border relative">
+                      <img src={qrUrl(table.token)} alt={`QR Table ${table.tableNumber}`} className={`w-32 h-32 ${!table.isOccupied ? "opacity-30" : ""}`} />
+                      {!table.isOccupied && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Lock className="w-8 h-8 text-muted-foreground" />
+                        </div>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground font-mono break-all text-center px-2">
                       {orderUrl(table.token).replace(window.location.origin, "…")}
                     </p>
+
+                    <Button
+                      className="w-full gap-2"
+                      variant={table.isOccupied ? "outline" : "default"}
+                      onClick={() => handleToggleOccupied(table)}
+                      disabled={togglingId === table.id}
+                    >
+                      {table.isOccupied ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                      {togglingId === table.id ? "Updating…" : table.isOccupied ? "Close Table" : "Open Table"}
+                    </Button>
+
                     <Button variant="outline" className="w-full gap-2" asChild>
                       <a href={qrUrl(table.token)} download={`Table-${table.tableNumber}-QR.png`} target="_blank" rel="noreferrer">
                         <Download className="w-4 h-4" /> Download QR

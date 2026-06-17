@@ -49,7 +49,13 @@ router.post("/session/start", async (req, res): Promise<void> => {
 
     if (!table) { res.status(404).json({ error: "Invalid QR code" }); return; }
 
-    // Check for existing active session on this table
+    // SECURITY: Table must be marked occupied by staff before a new session can start.
+    // This prevents someone from photographing the QR and ordering remotely whenever they want.
+    if (!table.isOccupied) {
+      res.status(403).json({ error: "This table is not currently active. Please ask staff to seat you." });
+      return;
+    }
+
     const [existing] = await db
       .select()
       .from(tableSessionsTable)
@@ -94,6 +100,14 @@ router.get("/session/validate", async (req, res): Promise<void> => {
   if (!session) { res.status(401).json({ valid: false, reason: "expired" }); return; }
 
   const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, session.tableId)).limit(1);
+
+  // If staff closed the table mid-session, kill it immediately
+  if (table && !table.isOccupied) {
+    await db.delete(tableSessionsTable).where(eq(tableSessionsTable.id, session.id));
+    res.status(401).json({ valid: false, reason: "table_closed" });
+    return;
+  }
+
   res.json({ valid: true, tableNumber: table?.tableNumber });
 });
 
@@ -106,6 +120,45 @@ router.get("/menu", async (req, res): Promise<void> => {
   const categories = await db.select().from(menuCategoriesTable);
   const items = await db.select().from(menuItemsTable).where(eq(menuItemsTable.isAvailable, true));
   res.json({ categories, items });
+});
+
+// GET /api/public/my-orders?sessionToken=xxx
+// Returns all orders placed under this table's current session, for live status tracking
+router.get("/my-orders", async (req, res): Promise<void> => {
+  const { sessionToken } = req.query as { sessionToken: string };
+  const session = await resolveSession(sessionToken);
+  if (!session) { res.status(401).json({ error: "Session expired" }); return; }
+
+  const myOrders = await db
+    .select({
+      id: ordersTable.id,
+      orderStatus: ordersTable.orderStatus,
+      paymentStatus: ordersTable.paymentStatus,
+      totalAmount: ordersTable.totalAmount,
+      createdAt: ordersTable.createdAt,
+    })
+    .from(ordersTable)
+    .where(eq(ordersTable.tableId, session.tableId))
+    .orderBy(ordersTable.createdAt);
+
+  const ordersWithItems = await Promise.all(
+    myOrders.map(async (order) => {
+      const items = await db
+        .select({
+          id: orderItemsTable.id,
+          menuItemId: orderItemsTable.menuItemId,
+          menuItemName: menuItemsTable.name,
+          quantity: orderItemsTable.quantity,
+          subtotal: orderItemsTable.subtotal,
+        })
+        .from(orderItemsTable)
+        .leftJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id))
+        .where(eq(orderItemsTable.orderId, order.id));
+      return { ...order, items };
+    })
+  );
+
+  res.json(ordersWithItems);
 });
 
 // POST /api/public/order
@@ -150,7 +203,6 @@ router.post("/order", async (req, res): Promise<void> => {
       });
     }
 
-    // Deduct inventory
     for (const item of resolvedItems) {
       const recipes = await db.select().from(recipesTable).where(eq(recipesTable.menuItemId, item.menuItemId));
       for (const recipe of recipes) {
@@ -173,7 +225,6 @@ router.post("/order", async (req, res): Promise<void> => {
     }
 
     res.json({ success: true, orderId: order.id, totalAmount });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to place order" });

@@ -207,9 +207,10 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
         }
       }
 
-      // Clear table session so next guest gets a fresh start
+      // Clear table session and mark table unoccupied so next guest gets a fresh start
       if (order.tableId) {
         await db.delete(tableSessionsTable).where(eq(tableSessionsTable.tableId, order.tableId));
+        await db.update(cafeTablesTable).set({ isOccupied: false }).where(eq(cafeTablesTable.id, order.tableId));
       }
     }
   }
