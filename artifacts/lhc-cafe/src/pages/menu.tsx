@@ -149,7 +149,12 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
     try {
       await APIJSON(`/menu-items/${item.id}/recipes`, "POST", { inventoryItemId: parseInt(newIngId), quantityRequired: parseFloat(newQty) });
       toast({ title: "Ingredient added" });
-      setNewIngId(""); setNewQty(""); await loadRecipes();
+      setNewIngId(""); setNewQty("");
+      const updated = await APIJSON(`/menu-items/${item.id}/recipes`);
+      const list = Array.isArray(updated) ? updated : [];
+      setRecipes(list);
+      const total = list.reduce((sum: number, r: any) => sum + parseFloat(String(r.caloriesPerUnit ?? 0)) * parseFloat(String(r.quantityRequired ?? 0)), 0);
+      await syncCaloriesToItem(total);
     } catch { toast({ title: "Failed to add ingredient", variant: "destructive" }); }
     finally { setLoading(false); }
   };
@@ -159,7 +164,12 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
     try {
       const r = await fetch(`/api/menu-items/${item.id}/recipes/${ingredientId}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
       if (!r.ok) throw new Error("Failed");
-      toast({ title: "Ingredient removed" }); await loadRecipes();
+      toast({ title: "Ingredient removed" });
+      const updated = await APIJSON(`/menu-items/${item.id}/recipes`);
+      const list = Array.isArray(updated) ? updated : [];
+      setRecipes(list);
+      const total = list.reduce((sum: number, r: any) => sum + parseFloat(String(r.caloriesPerUnit ?? 0)) * parseFloat(String(r.quantityRequired ?? 0)), 0);
+      await syncCaloriesToItem(total);
     } catch { toast({ title: "Failed to remove", variant: "destructive" }); }
     finally { setLoading(false); }
   };
@@ -169,6 +179,16 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
     const qty = parseFloat(String(r.quantityRequired ?? 0));
     return sum + (cal * qty);
   }, 0);
+
+  const updateMenuItem = useUpdateMenuItem();
+
+  // Sync the computed total back to the menu item's calories field
+  const syncCaloriesToItem = async (total: number) => {
+    if (!item) return;
+    try {
+      await updateMenuItem.mutateAsync({ id: item.id, data: { calories: Math.round(total) } as any });
+    } catch { /* silent — non-critical sync */ }
+  };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
