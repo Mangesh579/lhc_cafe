@@ -32,11 +32,11 @@ function strToHue(str: string): number {
 }
 function itemGradient(name: string): string {
   const h = strToHue(name);
-  const warmHue = 15 + (h % 40);
-  return `radial-gradient(circle at 35% 35%,
-    hsl(${warmHue + 15},55%,52%) 0%,
-    hsl(${warmHue},60%,32%) 45%,
-    hsl(${warmHue - 5},50%,14%) 100%)`;
+  const warmHue = 10 + (h % 35);
+  return `linear-gradient(155deg,
+    hsl(${warmHue + 12},48%,38%) 0%,
+    hsl(${warmHue},52%,22%) 55%,
+    hsl(${warmHue - 6},44%,11%) 100%)`;
 }
 
 function useReveal<T extends HTMLElement>() {
@@ -50,7 +50,7 @@ function useReveal<T extends HTMLElement>() {
       (entries) => {
         if (entries[0]?.isIntersecting) { setVisible(true); obs.disconnect(); }
       },
-      { threshold: 0.12, rootMargin: "0px 0px -32px 0px" }
+      { threshold: 0.1, rootMargin: "0px 0px -28px 0px" }
     );
     obs.observe(el);
     return () => obs.disconnect();
@@ -65,8 +65,8 @@ function Reveal({ children, delay = 0 }: { children: React.ReactNode; delay?: nu
       ref={ref}
       style={{
         opacity: visible ? 1 : 0,
-        transform: visible ? "translateY(0)" : "translateY(18px)",
-        transition: `opacity 0.6s cubic-bezier(0.22,1,0.36,1) ${delay}ms, transform 0.6s cubic-bezier(0.22,1,0.36,1) ${delay}ms`,
+        transform: visible ? "translateY(0)" : "translateY(16px)",
+        transition: `opacity 0.55s cubic-bezier(0.22,1,0.36,1) ${delay}ms, transform 0.55s cubic-bezier(0.22,1,0.36,1) ${delay}ms`,
       }}
     >
       {children}
@@ -74,118 +74,49 @@ function Reveal({ children, delay = 0 }: { children: React.ReactNode; delay?: nu
   );
 }
 
-// ── Tikijhya lattice SVG — the signature Newari carved-window motif ──────────
-// Each unit cell is an 8-point geometric star with connecting diamonds,
-// derived from the wood-lattice screens of Patan's historic courtyards.
-function LatticePattern({ opacity = 0.045, id = "lattice-main" }: { opacity?: number; id?: string }) {
+// ── Carved square frame ───────────────────────────────────────────────────────
+// Built from real relief construction (stepped inset shadows + a thin brass
+// sill) rather than line-art SVG, echoing the tikijhya window's deep-cut wood.
+function CarvedFrame({
+  item, size, imageUrl,
+}: { item: MenuItem; size: number; imageUrl?: string | null }) {
+  const border = Math.max(3, Math.round(size * 0.045));
   return (
-    <svg width="0" height="0" style={{ position: "absolute" }}>
-      <defs>
-        <pattern id={id} x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
-          {/* outer diamond frame */}
-          <path d="M20 2 L38 20 L20 38 L2 20 Z" fill="none" stroke="#C8873A" strokeWidth="0.6" opacity="0.9"/>
-          {/* inner diamond */}
-          <path d="M20 10 L30 20 L20 30 L10 20 Z" fill="none" stroke="#C8873A" strokeWidth="0.5" opacity="0.7"/>
-          {/* cross arms */}
-          <line x1="20" y1="2" x2="20" y2="10" stroke="#C8873A" strokeWidth="0.5" opacity="0.6"/>
-          <line x1="20" y1="30" x2="20" y2="38" stroke="#C8873A" strokeWidth="0.5" opacity="0.6"/>
-          <line x1="2" y1="20" x2="10" y2="20" stroke="#C8873A" strokeWidth="0.5" opacity="0.6"/>
-          <line x1="30" y1="20" x2="38" y2="20" stroke="#C8873A" strokeWidth="0.5" opacity="0.6"/>
-          {/* corner connectors to adjacent cells */}
-          <line x1="0" y1="0" x2="2" y2="2" stroke="#C8873A" strokeWidth="0.4" opacity="0.4"/>
-          <line x1="40" y1="0" x2="38" y2="2" stroke="#C8873A" strokeWidth="0.4" opacity="0.4"/>
-          <line x1="0" y1="40" x2="2" y2="38" stroke="#C8873A" strokeWidth="0.4" opacity="0.4"/>
-          <line x1="40" y1="40" x2="38" y2="38" stroke="#C8873A" strokeWidth="0.4" opacity="0.4"/>
-          {/* center dot */}
-          <circle cx="20" cy="20" r="1.5" fill="#C8873A" opacity="0.5"/>
-        </pattern>
-      </defs>
-      <rect width="100%" height="100%" fill={`url(#${id})`} opacity={opacity}/>
-    </svg>
-  );
-}
-
-// Decorative carved-arch divider — used between header and menu
-function LatticeArchDivider() {
-  return (
-    <div style={{ position: "relative", height: 32, margin: "0 28px", overflow: "hidden", opacity: 0.35 }}>
-      <svg viewBox="0 0 320 32" preserveAspectRatio="xMidYMid meet" style={{ width: "100%", height: "100%" }} fill="none">
-        {/* main arch */}
-        <path d="M0 32 Q80 4 160 4 Q240 4 320 32" stroke="#C8873A" strokeWidth="0.8"/>
-        {/* lattice tick marks along arch */}
-        {Array.from({ length: 13 }).map((_, i) => {
-          const t = i / 12;
-          const x = t * 320;
-          const y = 4 + 28 * (2 * Math.abs(t - 0.5)) * (2 * Math.abs(t - 0.5));
-          return <line key={i} x1={x} y1={y - 4} x2={x} y2={y + 4} stroke="#C8873A" strokeWidth="0.6" opacity="0.7"/>;
-        })}
-        {/* end diamonds */}
-        <path d="M0 32 L4 28 L8 32 L4 36 Z" fill="#C8873A" opacity="0.4"/>
-        <path d="M320 32 L316 28 L312 32 L316 36 Z" fill="#C8873A" opacity="0.4"/>
-        <circle cx="160" cy="4" r="2" fill="#C8873A" opacity="0.6"/>
-      </svg>
-    </div>
-  );
-}
-
-// Horizontal rule with lattice diamonds
-function LatticeDivider({ style }: { style?: React.CSSProperties }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, ...style }}>
-      <div style={{ flex: 1, height: 1, background: "rgba(200,135,58,0.12)" }}/>
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-        <path d="M6 1 L11 6 L6 11 L1 6 Z" fill="none" stroke="#C8873A" strokeWidth="0.8" opacity="0.5"/>
-        <circle cx="6" cy="6" r="1.2" fill="#C8873A" opacity="0.4"/>
-      </svg>
-      <div style={{ flex: 1, height: 1, background: "rgba(200,135,58,0.12)" }}/>
-    </div>
-  );
-}
-
-function SlateBg() {
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 0, overflow: "hidden", pointerEvents: "none" }}>
-      {/* Deep timber base */}
-      <div style={{ position: "absolute", inset: 0, background: "#0C0704" }} />
-      {/* Warm atmospheric gradients */}
-      <div style={{
-        position: "absolute", inset: 0,
-        backgroundImage: `
-          radial-gradient(ellipse 70% 50% at 15% 20%, rgba(72,28,8,0.65) 0%, transparent 60%),
-          radial-gradient(ellipse 60% 40% at 85% 80%, rgba(48,18,4,0.7) 0%, transparent 55%),
-          radial-gradient(ellipse 80% 60% at 50% 50%, rgba(20,8,2,0.4) 0%, transparent 75%)
+    <div
+      style={{
+        width: size, height: size, flexShrink: 0, position: "relative",
+        background: "#2A160D",
+        padding: border,
+        boxShadow: `
+          inset 0 0 0 1px rgba(0,0,0,0.5),
+          0 ${size * 0.06}px ${size * 0.22}px rgba(0,0,0,0.55)
         `,
-      }} />
-      {/* Full-screen tikijhya lattice at very low opacity — feels like light through carved screens */}
-      <div style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
-        <svg width="100%" height="100%" style={{ position: "absolute", inset: 0 }}>
-          <LatticePattern opacity={0.028} id="bg-lattice"/>
-          <rect width="100%" height="100%" fill="url(#bg-lattice)"/>
-        </svg>
-      </div>
-      {/* Vignette edges */}
+      }}
+    >
+      {/* outer carved bevel */}
       <div style={{
         position: "absolute", inset: 0,
-        background: "radial-gradient(ellipse 100% 100% at 50% 50%, transparent 40%, rgba(6,3,1,0.6) 100%)",
-      }}/>
-    </div>
-  );
-}
-
-function FoodCircle({ item, size, imageUrl }: { item: MenuItem; size: number; imageUrl?: string | null }) {
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: "50%", overflow: "hidden", flexShrink: 0,
-      boxShadow: `0 ${size * 0.1}px ${size * 0.35}px rgba(0,0,0,0.75), 0 0 0 1px rgba(200,135,58,0.15), 0 0 0 ${size * 0.04}px rgba(200,135,58,0.04)`,
-      position: "relative",
-    }}>
-      {imageUrl ? (
-        <img src={imageUrl} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-      ) : (
-        <div style={{ width: "100%", height: "100%", background: itemGradient(item.name), position: "relative" }}>
-          <div style={{ position: "absolute", top: "10%", left: "15%", width: "40%", height: "40%", borderRadius: "50%", background: "radial-gradient(circle, rgba(255,255,255,0.13) 0%, transparent 70%)" }} />
-          <div style={{ position: "absolute", inset: "8%", borderRadius: "50%", border: "1px solid rgba(255,255,255,0.07)" }} />
-        </div>
+        boxShadow: `inset 0 1px 0 rgba(216,168,103,0.18), inset 0 -1px 0 rgba(0,0,0,0.5)`,
+        pointerEvents: "none",
+      }} />
+      <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}>
+        {imageUrl ? (
+          <img src={imageUrl} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        ) : (
+          <div style={{ width: "100%", height: "100%", background: itemGradient(item.name) }} />
+        )}
+        {/* inner carved lip */}
+        <div style={{
+          position: "absolute", inset: 0,
+          boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.4), inset 0 2px 6px rgba(0,0,0,0.35)`,
+        }} />
+      </div>
+      {/* corner brass pins — like real window-frame hardware */}
+      {[[2,2],[size-2-border*0+ -2,2]].length > 0 && (
+        <>
+          <span style={{ position: "absolute", top: 1, left: 1, width: 3, height: 3, background: "rgba(216,168,103,0.45)" }} />
+          <span style={{ position: "absolute", bottom: 1, right: 1, width: 3, height: 3, background: "rgba(216,168,103,0.45)" }} />
+        </>
       )}
     </div>
   );
@@ -193,11 +124,11 @@ function FoodCircle({ item, size, imageUrl }: { item: MenuItem; size: number; im
 
 function Spinner() {
   return (
-    <svg viewBox="0 0 48 48" fill="none" style={{ width: 44, height: 44 }}>
-      <circle cx="24" cy="24" r="20" stroke="rgba(200,135,58,0.1)" strokeWidth="1.5"/>
-      <circle cx="24" cy="24" r="20" stroke="#C8873A" strokeWidth="1.5" strokeDasharray="22 104" strokeLinecap="round">
-        <animateTransform attributeName="transform" type="rotate" from="0 24 24" to="360 24 24" dur="1.4s" repeatCount="indefinite"/>
-      </circle>
+    <svg viewBox="0 0 48 48" fill="none" style={{ width: 38, height: 38 }}>
+      <rect x="6" y="6" width="36" height="36" stroke="rgba(216,168,103,0.15)" strokeWidth="2" />
+      <rect x="6" y="6" width="36" height="36" stroke="#C8873A" strokeWidth="2" strokeDasharray="36 108" strokeLinecap="square">
+        <animateTransform attributeName="transform" type="rotate" from="0 24 24" to="360 24 24" dur="1.6s" repeatCount="indefinite"/>
+      </rect>
     </svg>
   );
 }
@@ -205,28 +136,21 @@ function Spinner() {
 const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }> = {
   pending:   { label: "Order Received",  icon: Clock,        color: "#C8873A" },
   preparing: { label: "Being Prepared",  icon: ChefHat,      color: "#C8873A" },
-  ready:     { label: "Ready to Serve",  icon: Bell,         color: "#7FBF7F" },
-  completed: { label: "Completed",       icon: CheckCircle2, color: "rgba(240,226,200,0.35)" },
-  cancelled: { label: "Cancelled",       icon: X,            color: "#C85A3A" },
+  ready:     { label: "Ready to Serve",  icon: Bell,         color: "#8FAE6E" },
+  completed: { label: "Completed",       icon: CheckCircle2, color: "rgba(217,196,154,0.4)" },
+  cancelled: { label: "Cancelled",       icon: X,            color: "#A8472E" },
 };
 
-// ── Header crest — a compact tikijhya arch above the title ──────────────────
-function HeaderCrest() {
+// ── Brick-coursing divider ────────────────────────────────────────────────────
+// Offset rectangle ticks, like a row of bricks seen end-on. Replaces the
+// generic centered hairline-with-diamond motif.
+function BrickRule({ align = "left", style }: { align?: "left"|"center"; style?: React.CSSProperties }) {
   return (
-    <svg width="80" height="44" viewBox="0 0 80 44" fill="none" style={{ display: "block", margin: "0 0 16px" }}>
-      {/* arch */}
-      <path d="M4 44 Q20 8 40 6 Q60 8 76 44" stroke="#C8873A" strokeWidth="0.8" opacity="0.55"/>
-      {/* inner arch */}
-      <path d="M12 44 Q24 18 40 16 Q56 18 68 44" stroke="#C8873A" strokeWidth="0.5" opacity="0.3"/>
-      {/* lattice diamonds along top */}
-      <path d="M40 6 L43 9 L40 12 L37 9 Z" fill="none" stroke="#C8873A" strokeWidth="0.7" opacity="0.7"/>
-      <circle cx="40" cy="9" r="1" fill="#C8873A" opacity="0.5"/>
-      {/* flanking marks */}
-      <line x1="16" y1="32" x2="16" y2="26" stroke="#C8873A" strokeWidth="0.6" opacity="0.4"/>
-      <line x1="64" y1="32" x2="64" y2="26" stroke="#C8873A" strokeWidth="0.6" opacity="0.4"/>
-      <circle cx="16" cy="24" r="1.2" fill="none" stroke="#C8873A" strokeWidth="0.5" opacity="0.4"/>
-      <circle cx="64" cy="24" r="1.2" fill="none" stroke="#C8873A" strokeWidth="0.5" opacity="0.4"/>
-    </svg>
+    <div style={{ display: "flex", gap: 3, justifyContent: align === "center" ? "center" : "flex-start", ...style }}>
+      {[14, 22, 9, 17, 6].map((w, i) => (
+        <div key={i} style={{ width: w, height: 3, background: i % 2 === 0 ? "rgba(200,135,58,0.55)" : "rgba(122,46,31,0.7)" }} />
+      ))}
+    </div>
   );
 }
 
@@ -384,122 +308,75 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
       <link rel="preconnect" href="https://fonts.googleapis.com"/>
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin=""/>
-      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Fraunces:opsz,wght@9..144,300;9..144,500;9..144,600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
       <style>{`
         *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-        html,body{background:#0C0704;overscroll-behavior:none;width:100%;}
+        html,body{background:#1A0F0A;overscroll-behavior:none;width:100%;}
         ::-webkit-scrollbar{width:0;height:0;}
         textarea,input{outline:none;}
 
-        @keyframes floatIn {
-          from{opacity:0;transform:translateY(28px) scale(0.98);}
-          to{opacity:1;transform:translateY(0) scale(1);}
-        }
-        @keyframes circleIn {
-          from{opacity:0;transform:scale(0.82);}
-          to{opacity:1;transform:scale(1);}
-        }
-        @keyframes slideUp {
-          from{opacity:0;transform:translateY(100%);}
-          to{opacity:1;transform:translateY(0);}
-        }
+        @keyframes floatIn { from{opacity:0;transform:translateY(20px);} to{opacity:1;transform:translateY(0);} }
+        @keyframes wipeIn { from{opacity:0;transform:translateX(-10px);} to{opacity:1;transform:translateX(0);} }
+        @keyframes slideUp { from{opacity:0;transform:translateY(100%);} to{opacity:1;transform:translateY(0);} }
         @keyframes fadeIn { from{opacity:0;} to{opacity:1;} }
-        @keyframes crestDraw {
-          from{opacity:0;transform:translateY(-8px) scale(0.95);}
-          to{opacity:1;transform:translateY(0) scale(1);}
-        }
-        @keyframes barFill {
-          from{transform:scaleX(0);}
-          to{transform:scaleX(1);}
-        }
+        @keyframes stampIn { from{opacity:0;transform:scale(1.15);} to{opacity:1;transform:scale(1);} }
+        @keyframes barFill { from{transform:scaleX(0);} to{transform:scaleX(1);} }
 
-        .float-in{animation:floatIn 0.6s cubic-bezier(0.22,1,0.36,1) both;}
-        .float-in-2{animation:floatIn 0.6s 0.1s cubic-bezier(0.22,1,0.36,1) both;}
-        .float-in-3{animation:floatIn 0.6s 0.2s cubic-bezier(0.22,1,0.36,1) both;}
-        .float-in-4{animation:floatIn 0.6s 0.3s cubic-bezier(0.22,1,0.36,1) both;}
-        .crest-in{animation:crestDraw 0.7s cubic-bezier(0.22,1,0.36,1) both;}
-        .circle-in{animation:circleIn 0.5s cubic-bezier(0.22,1,0.36,1) both;}
-        .fade-in{animation:fadeIn 0.35s ease both;}
+        .float-in{animation:floatIn 0.55s cubic-bezier(0.22,1,0.36,1) both;}
+        .float-in-2{animation:floatIn 0.55s 0.09s cubic-bezier(0.22,1,0.36,1) both;}
+        .float-in-3{animation:floatIn 0.55s 0.18s cubic-bezier(0.22,1,0.36,1) both;}
+        .wipe-in{animation:wipeIn 0.5s cubic-bezier(0.22,1,0.36,1) both;}
+        .stamp-in{animation:stampIn 0.5s cubic-bezier(0.22,1,0.36,1) both;}
+        .fade-in{animation:fadeIn 0.3s ease both;}
 
         .carousel-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;}
         .carousel-page{flex:0 0 100%;scroll-snap-align:start;min-width:100%;}
 
-        /* Item rows — spring-like press */
-        .item-row{transition:background 0.2s;cursor:pointer;border-radius:14px;}
-        .item-row:active{background:rgba(200,135,58,0.05);}
-        .item-row:active .item-row-inner{transform:scale(0.985);}
-        .item-row-inner{transition:transform 0.18s cubic-bezier(0.34,1.56,0.64,1);}
+        .brick-card{transition:transform 0.2s cubic-bezier(0.22,1,0.36,1);cursor:pointer;}
+        .brick-card:active{transform:scale(0.97);}
 
-        /* Add circle — spring bounce */
-        .add-circle{transition:transform 0.18s cubic-bezier(0.34,1.56,0.64,1), background 0.15s, box-shadow 0.2s;}
-        .add-circle:active{transform:scale(0.82) !important;}
-        .add-circle:hover{box-shadow:0 0 0 4px rgba(200,135,58,0.1);}
+        .add-tab{transition:transform 0.16s cubic-bezier(0.34,1.56,0.64,1), background 0.15s;}
+        .add-tab:active{transform:scale(0.85) !important;}
 
-        .dot{transition:background 0.28s, width 0.28s cubic-bezier(0.34,1.56,0.64,1);}
+        .seg{transition:background 0.25s, color 0.25s;}
 
-        /* Overlays */
-        .detail-overlay{position:fixed;inset:0;z-index:100;background:rgba(8,4,1,0.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);display:flex;align-items:flex-end;justify-content:center;}
+        .detail-overlay{position:fixed;inset:0;z-index:100;background:rgba(10,5,3,0.84);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:flex-end;justify-content:center;}
         .detail-sheet{
           width:100%;max-width:${PAGE_MAX_WIDTH}px;
-          background:linear-gradient(175deg,#1A0B04 0%,#110703 100%);
-          border-top:1px solid rgba(200,135,58,0.18);
-          border-radius:22px 22px 0 0;
-          padding:28px 24px 44px;
+          background:#211208;
+          border-top:3px solid #C8873A;
+          padding:30px 24px 44px;
           animation:slideUp 0.4s cubic-bezier(0.22,1,0.36,1) both;
-          position:relative;overflow:hidden;
-        }
-        .detail-sheet::before{
-          content:'';position:absolute;inset:0;
-          background:url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M20 2L38 20L20 38L2 20Z' fill='none' stroke='%23C8873A' stroke-width='0.5'/%3E%3Cpath d='M20 10L30 20L20 30L10 20Z' fill='none' stroke='%23C8873A' stroke-width='0.4'/%3E%3C/svg%3E");
-          opacity:0.025;pointer-events:none;
         }
 
-        /* Cart drawer */
         .cart-drawer-bg{
-          background:linear-gradient(185deg,#160903 0%,#0F0602 100%);
-          border-top:2px solid rgba(200,135,58,0.2);
+          background:#190D06;
+          border-top:3px solid #7A2E1F;
           max-height:44vh;overflow-y:auto;
           animation:slideUp 0.32s cubic-bezier(0.22,1,0.36,1) both;
         }
 
-        /* Buttons */
-        .place-btn{transition:background 0.2s, transform 0.15s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s;}
-        .place-btn:hover{box-shadow:0 6px 24px rgba(200,135,58,0.28);}
-        .place-btn:active{transform:scale(0.94);}
+        .place-btn{transition:transform 0.15s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s;}
+        .place-btn:active{transform:scale(0.95);}
 
-        .tab-btn{transition:color 0.22s, transform 0.18s cubic-bezier(0.34,1.56,0.64,1);}
-        .tab-btn:active{transform:scale(0.88);}
+        .tab-btn{transition:color 0.2s;}
+        .tab-btn:active .tab-icon{transform:scale(0.85);}
+        .tab-icon{transition:transform 0.16s cubic-bezier(0.34,1.56,0.64,1);display:inline-flex;}
 
-        /* Order cards */
         .order-card{
-          background:linear-gradient(170deg,rgba(24,10,3,0.75) 0%,rgba(16,7,2,0.75) 100%);
-          border:1px solid rgba(200,135,58,0.12);
-          border-radius:18px;
-          transition:border-color 0.3s, transform 0.25s, box-shadow 0.3s;
+          background:#241509;
+          border-left:3px solid #C8873A;
+          transition:border-color 0.3s, transform 0.2s;
         }
-        .order-card:hover{border-color:rgba(200,135,58,0.28);box-shadow:0 8px 32px rgba(0,0,0,0.4);}
+        .order-card.cancelled{border-left-color:#A8472E;}
 
-        /* Tab cross-fade */
         .tab-content{transition:opacity 0.2s ease;}
 
-        /* Progress bar fill animation */
-        .progress-bar-filled{
-          transform-origin:left center;
-          animation:barFill 0.5s cubic-bezier(0.22,1,0.36,1) both;
-        }
+        .progress-fill{transform-origin:left center;animation:barFill 0.5s cubic-bezier(0.22,1,0.36,1) both;}
 
-        /* Cart bar brass accent line */
-        .cart-bar-accent::before{
-          content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);
-          width:48px;height:2px;background:linear-gradient(90deg,transparent,#C8873A,transparent);
-          border-radius:0 0 2px 2px;
-        }
-
-        /* Reduced motion */
         @media(prefers-reduced-motion:reduce){
-          .float-in,.float-in-2,.float-in-3,.float-in-4,.crest-in,.circle-in,.fade-in,
-          .tab-content,.item-row-inner,.order-card,.progress-bar-filled,
-          .add-circle,.place-btn,.tab-btn{
+          .float-in,.float-in-2,.float-in-3,.wipe-in,.stamp-in,.fade-in,
+          .tab-content,.brick-card,.order-card,.progress-fill,.add-tab,.place-btn,.tab-icon{
             animation:none!important;transition:none!important;
           }
         }
@@ -507,54 +384,46 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     </>
   );
 
-  // ── Loading state ────────────────────────────────────────────────────────────
+  // ── Loading ──────────────────────────────────────────────────────────────────
   if (sessionState==="loading"||menuLoading) return (
-    <>{G}<SlateBg/>
-      <div style={{position:"relative",zIndex:1,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:24}}>
+    <>{G}
+      <div style={{minHeight:"100vh",background:"#1A0F0A",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:22}}>
         <Spinner/>
-        <div style={{textAlign:"center"}}>
-          <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"rgba(200,135,58,0.35)",letterSpacing:"0.25em",textTransform:"uppercase",marginBottom:6}}>LHC Cafe · Sulimha Durbar</p>
-          <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontStyle:"italic",fontSize:16,color:"rgba(200,135,58,0.4)",letterSpacing:"0.06em"}}>Preparing your menu…</p>
-        </div>
+        <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(217,196,154,0.35)",letterSpacing:"0.22em",textTransform:"uppercase"}}>Preparing your menu</p>
       </div>
     </>
   );
 
-  // ── Expired state ────────────────────────────────────────────────────────────
+  // ── Expired ──────────────────────────────────────────────────────────────────
   if (sessionState==="expired") return (
-    <>{G}<SlateBg/>
-      <div style={{position:"relative",zIndex:1,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,textAlign:"center"}}>
-        <div className="crest-in" style={{marginBottom:28}}>
-          <HeaderCrest/>
+    <>{G}
+      <div style={{minHeight:"100vh",background:"#1A0F0A",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 36px",textAlign:"center"}}>
+        <div className="float-in" style={{width:64,height:64,background:"#241509",borderLeft:"3px solid #7A2E1F",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:28}}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C8873A" strokeWidth="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
         </div>
-        <p className="float-in" style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"rgba(200,135,58,0.38)",letterSpacing:"0.22em",textTransform:"uppercase",marginBottom:14}}>Session Ended</p>
-        <h2 className="float-in-2" style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:32,color:"rgba(240,226,200,0.82)",fontWeight:300,lineHeight:1.2,marginBottom:16}}>Your session<br/>has expired</h2>
-        <LatticeDivider style={{width:120,margin:"0 auto 20px"}}/>
-        <p className="float-in-3" style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(240,226,200,0.28)",lineHeight:1.85,maxWidth:240}}>Scan the QR code at your table to begin a new order.</p>
+        <p className="float-in-2" style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"#7A2E1F",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:14,fontWeight:500}}>Session Ended</p>
+        <h2 className="float-in-3" style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:30,color:"rgba(217,196,154,0.88)",fontWeight:300,lineHeight:1.2,marginBottom:18}}>Your session<br/>has expired</h2>
+        <BrickRule align="center" style={{marginBottom:20}}/>
+        <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(217,196,154,0.32)",lineHeight:1.8,maxWidth:240}}>Scan the QR code at your table to begin a new order.</p>
       </div>
     </>
   );
 
-  // ── Success state ────────────────────────────────────────────────────────────
+  // ── Success ──────────────────────────────────────────────────────────────────
   if (isSuccess) return (
-    <>{G}<SlateBg/>
-      <div style={{position:"relative",zIndex:1,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,textAlign:"center"}}>
-        <div className="crest-in" style={{marginBottom:8}}>
-          <HeaderCrest/>
+    <>{G}
+      <div style={{minHeight:"100vh",background:"#1A0F0A",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 36px",textAlign:"center"}}>
+        <div className="stamp-in" style={{width:72,height:72,background:"#241509",border:"3px solid #C8873A",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:26,transform:"rotate(-3deg)"}}>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#C8873A" strokeWidth="1.6" strokeLinecap="square"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
-        <div className="circle-in" style={{width:64,height:64,borderRadius:"50%",border:"1px solid rgba(200,135,58,0.22)",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:28,background:"rgba(200,135,58,0.05)"}}>
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#C8873A" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        </div>
-        <p className="float-in" style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"rgba(200,135,58,0.42)",letterSpacing:"0.22em",textTransform:"uppercase",marginBottom:10}}>LHC Cafe · Sulimha Durbar</p>
-        <h1 className="float-in-2" style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:42,color:"rgba(240,226,200,0.92)",fontWeight:300,letterSpacing:"-0.025em",lineHeight:0.95,marginBottom:10}}>
-          Order<br/><em style={{fontStyle:"italic",color:"rgba(200,135,58,0.75)"}}>Placed</em>
-        </h1>
-        <p className="float-in-3" style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(240,226,200,0.28)",marginBottom:8}}>Table {tableNumber}</p>
-        <LatticeDivider style={{width:80,margin:"0 auto 36px"}}/>
+        <p className="float-in" style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"#C8873A",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:12,fontWeight:500}}>LHC Cafe · Sulimha Durbar</p>
+        <h1 className="float-in-2" style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:44,color:"rgba(217,196,154,0.94)",fontWeight:300,letterSpacing:"-0.02em",lineHeight:0.95,marginBottom:14}}>Order Placed</h1>
+        <p className="float-in-3" style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:15,color:"#7A2E1F",fontWeight:500,marginBottom:10}}>TABLE {tableNumber} &nbsp;·&nbsp; #{orderId}</p>
+        <BrickRule align="center" style={{marginBottom:34}}/>
         <button
           onClick={() => { setIsSuccess(false); switchTab("myorder"); }}
-          className="place-btn float-in-4"
-          style={{padding:"14px 36px",background:"#C8873A",border:"none",borderRadius:10,color:"#0C0704",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer"}}
+          className="place-btn float-in-3"
+          style={{padding:"15px 38px",background:"#C8873A",border:"none",color:"#1A0F0A",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",cursor:"pointer"}}
         >
           Track My Order
         </button>
@@ -566,30 +435,27 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const DetailSheet = selectedItem && (
     <div className="detail-overlay" onClick={()=>setSelectedItem(null)}>
       <div className="detail-sheet" onClick={e=>e.stopPropagation()}>
-        {/* drag handle */}
-        <div style={{width:40,height:3,background:"rgba(200,135,58,0.18)",borderRadius:2,margin:"0 auto 28px"}}/>
-        <div style={{display:"flex",gap:20,alignItems:"flex-start",marginBottom:24}}>
-          <div className="circle-in" style={{flexShrink:0}}>
-            <FoodCircle item={selectedItem} size={104} imageUrl={selectedItem.imageUrl}/>
-          </div>
-          <div style={{flex:1,paddingTop:8,minWidth:0}}>
-            <h2 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:27,color:"rgba(240,226,200,0.92)",fontWeight:400,lineHeight:1.12,marginBottom:7}}>{selectedItem.name}</h2>
-            <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:22,color:"#C8873A",fontWeight:600}}>Rs. {selectedItem.price}</p>
+        <div style={{display:"flex",gap:18,alignItems:"flex-start",marginBottom:22}}>
+          <CarvedFrame item={selectedItem} size={92} imageUrl={selectedItem.imageUrl}/>
+          <div style={{flex:1,paddingTop:4,minWidth:0}}>
+            <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"#7A2E1F",letterSpacing:"0.16em",textTransform:"uppercase",marginBottom:8,fontWeight:600}}>This Dish</p>
+            <h2 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:26,color:"rgba(217,196,154,0.92)",fontWeight:400,lineHeight:1.12,marginBottom:8}}>{selectedItem.name}</h2>
+            <p style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:22,color:"#C8873A",fontWeight:600,fontOpticalSizing:"auto" as any}}>Rs {selectedItem.price}</p>
           </div>
         </div>
         {selectedItem.description && (
           <>
-            <LatticeDivider style={{marginBottom:16}}/>
-            <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(240,226,200,0.36)",lineHeight:1.8,marginBottom:24,fontWeight:300}}>{selectedItem.description}</p>
+            <BrickRule style={{marginBottom:16}}/>
+            <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(217,196,154,0.4)",lineHeight:1.8,marginBottom:24,fontWeight:300}}>{selectedItem.description}</p>
           </>
         )}
         {cartQty(selectedItem.id) > 0 ? (
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(200,135,58,0.05)",border:"1px solid rgba(200,135,58,0.15)",borderRadius:14,padding:"12px 20px",marginBottom:16}}>
-            <button onClick={()=>updateQty(selectedItem.id,-1)} className="add-circle" style={{width:38,height:38,borderRadius:"50%",border:"1px solid rgba(200,135,58,0.25)",background:"transparent",color:"#C8873A",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#1A0F0A",border:"1px solid #3E2419",padding:"12px 18px",marginBottom:16}}>
+            <button onClick={()=>updateQty(selectedItem.id,-1)} className="add-tab" style={{width:36,height:36,border:"1px solid #C8873A",background:"transparent",color:"#C8873A",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
               <Minus size={13}/>
             </button>
-            <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:24,color:"rgba(240,226,200,0.9)"}}>{cartQty(selectedItem.id)}</span>
-            <button onClick={()=>addToCart(selectedItem)} className="add-circle" style={{width:38,height:38,borderRadius:"50%",border:"none",background:"#C8873A",color:"#0C0704",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <span style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:22,color:"rgba(217,196,154,0.92)",fontWeight:500}}>{cartQty(selectedItem.id)}</span>
+            <button onClick={()=>addToCart(selectedItem)} className="add-tab" style={{width:36,height:36,border:"none",background:"#C8873A",color:"#1A0F0A",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
               <Plus size={13}/>
             </button>
           </div>
@@ -597,12 +463,12 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
           <button
             className="place-btn"
             onClick={()=>{addToCart(selectedItem);setSelectedItem(null);}}
-            style={{width:"100%",padding:"16px",background:"#C8873A",border:"none",borderRadius:12,color:"#0C0704",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",cursor:"pointer",marginBottom:16}}
+            style={{width:"100%",padding:"16px",background:"#C8873A",border:"none",color:"#1A0F0A",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",marginBottom:14}}
           >
             Add to Order
           </button>
         )}
-        <button onClick={()=>setSelectedItem(null)} style={{width:"100%",padding:"13px",background:"transparent",border:"none",color:"rgba(240,226,200,0.22)",fontFamily:"'DM Sans',sans-serif",fontSize:13,cursor:"pointer"}}>
+        <button onClick={()=>setSelectedItem(null)} style={{width:"100%",padding:"12px",background:"transparent",border:"none",color:"rgba(217,196,154,0.25)",fontFamily:"'DM Sans',sans-serif",fontSize:13,cursor:"pointer"}}>
           Close
         </button>
       </div>
@@ -612,72 +478,61 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   // ── Menu tab ─────────────────────────────────────────────────────────────────
   const MenuTab = (
     <div style={{ paddingBottom: 16 }}>
-      {/* Header */}
-      <div style={{ padding: "44px 28px 16px", position: "relative", overflow: "hidden" }}>
-        {/* Lattice in header area — concentrated */}
-        <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-          <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, opacity: 0.06 }}>
-            <defs>
-              <pattern id="hdr-lattice" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M20 2 L38 20 L20 38 L2 20 Z" fill="none" stroke="#C8873A" strokeWidth="0.7"/>
-                <path d="M20 10 L30 20 L20 30 L10 20 Z" fill="none" stroke="#C8873A" strokeWidth="0.45"/>
-                <circle cx="20" cy="20" r="1.2" fill="#C8873A" opacity="0.6"/>
-              </pattern>
-              <radialGradient id="hdr-mask" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor="white" stopOpacity="1"/>
-                <stop offset="100%" stopColor="white" stopOpacity="0"/>
-              </radialGradient>
-              <mask id="hdr-fade">
-                <rect width="100%" height="100%" fill="url(#hdr-mask)"/>
-              </mask>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#hdr-lattice)" mask="url(#hdr-fade)"/>
-          </svg>
+      {/* Header — asymmetric, left-anchored, ledger-stamp eyebrow */}
+      <div style={{ padding: "44px 26px 0", position: "relative" }}>
+        <div className="wipe-in" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+          <div style={{ width: 26, height: 26, background: "#7A2E1F", flexShrink: 0, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: 13, color: "#D9C49A", fontWeight: 600 }}>S</span>
+          </div>
+          <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"rgba(200,135,58,0.55)",letterSpacing:"0.24em",textTransform:"uppercase"}}>
+            Sulimha Durbar · Patan
+          </p>
         </div>
 
-        <div className="crest-in" style={{ position: "relative", zIndex: 1 }}>
-          <HeaderCrest/>
-        </div>
-
-        <p className="float-in" style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"rgba(200,135,58,0.38)",letterSpacing:"0.26em",textTransform:"uppercase",marginBottom:12,position:"relative",zIndex:1}}>
-          Sulimha Durbar · Patan
-        </p>
-        <h1 className="float-in-2" style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:"clamp(40px,12vw,54px)",color:"rgba(240,226,200,0.92)",fontWeight:300,letterSpacing:"-0.028em",lineHeight:0.92,marginBottom:20,position:"relative",zIndex:1}}>
-          LHC <em style={{fontStyle:"italic",color:"rgba(200,135,58,0.65)",fontSize:"0.72em",letterSpacing:"-0.01em"}}>Cafe</em>
+        <h1 className="float-in-2" style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:"clamp(42px,13vw,58px)",color:"rgba(217,196,154,0.94)",fontWeight:300,letterSpacing:"-0.03em",lineHeight:0.9,marginBottom:6}}>
+          LHC Cafe
         </h1>
-        <div className="float-in-3" style={{display:"inline-flex",alignItems:"center",gap:8,padding:"6px 14px 6px 10px",border:"1px solid rgba(200,135,58,0.2)",borderRadius:20,position:"relative",zIndex:1,background:"rgba(200,135,58,0.04)"}}>
-          <div style={{width:5,height:5,borderRadius:"50%",background:"#C8873A",opacity:0.9}}/>
-          <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(200,135,58,0.65)",letterSpacing:"0.12em"}}>TABLE {tableNumber}</span>
+        <p className="float-in-2" style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontStyle:"italic",fontSize:15,color:"rgba(217,196,154,0.3)",marginBottom:20}}>
+          Heritage courtyard dining
+        </p>
+
+        <div className="float-in-3" style={{display:"flex",alignItems:"center",gap:0,marginBottom:28}}>
+          <div style={{padding:"7px 16px",background:"#C8873A"}}>
+            <span style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:13,color:"#1A0F0A",fontWeight:600,letterSpacing:"0.04em"}}>TABLE {tableNumber}</span>
+          </div>
+          <div style={{padding:"7px 14px",border:"1px solid #3E2419",borderLeft:"none"}}>
+            <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(217,196,154,0.3)",letterSpacing:"0.08em"}}>ORDERING OPEN</span>
+          </div>
         </div>
       </div>
 
-      <LatticeArchDivider/>
-
-      {/* Category nav */}
+      {/* Category selector — bracketed tabs, not pills */}
       {categories.length > 0 && (
-        <div style={{ padding: "20px 28px 20px", marginBottom: 4 }}>
-          <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"rgba(200,135,58,0.32)",letterSpacing:"0.22em",textTransform:"uppercase"}}>
-            {String(activeCatIdx+1).padStart(2,"0")} / {String(categories.length).padStart(2,"0")}
-          </span>
-          <h2 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:34,color:"rgba(240,226,200,0.85)",fontWeight:300,letterSpacing:"-0.015em",margin:"8px 0 18px"}}>
-            {categories[activeCatIdx]?.name}
-          </h2>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", gap: 7 }}>
-              {categories.map((_, i) => (
-                <div
-                  key={i}
-                  className="dot"
-                  onClick={() => scrollToCategory(i)}
-                  style={{
-                    width: i === activeCatIdx ? 20 : 6, height: 6, borderRadius: 3,
-                    background: i === activeCatIdx ? "#C8873A" : "rgba(200,135,58,0.18)",
-                    cursor: "pointer",
-                  }}
-                />
-              ))}
-            </div>
-            <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"rgba(240,226,200,0.18)",letterSpacing:"0.08em"}}>← swipe →</span>
+        <div style={{ padding: "0 26px 24px" }}>
+          <div style={{ display: "flex", gap: 0, overflowX: "auto", borderBottom: "1px solid #3E2419" }}>
+            {categories.map((cat, i) => (
+              <button
+                key={cat.id}
+                className="seg"
+                onClick={() => scrollToCategory(i)}
+                style={{
+                  flexShrink: 0,
+                  padding: "10px 16px 12px",
+                  background: "none", border: "none", cursor: "pointer",
+                  borderBottom: i === activeCatIdx ? "2px solid #C8873A" : "2px solid transparent",
+                  marginBottom: -1,
+                }}
+              >
+                <span style={{
+                  fontFamily: "'DM Sans',sans-serif", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase",
+                  color: i === activeCatIdx ? "#D9C49A" : "rgba(217,196,154,0.32)",
+                  fontWeight: i === activeCatIdx ? 500 : 400,
+                  whiteSpace: "nowrap",
+                }}>
+                  {cat.name}
+                </span>
+              </button>
+            ))}
           </div>
         </div>
       )}
@@ -686,85 +541,67 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       <div ref={carouselRef} className="carousel-track">
         {categories.map((cat) => (
           <div key={cat.id} className="carousel-page">
-            <div style={{ padding: "0 28px" }}>
-              {cat.items.map((item, idx) => {
-                const inCart = cartQty(item.id) > 0;
-                const layout = idx % 3;
+            <div style={{ padding: "0 26px" }}>
+              <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, color:"rgba(217,196,154,0.2)", letterSpacing:"0.14em", marginBottom: 18 }}>
+                {cat.items.length} {cat.items.length === 1 ? "ITEM" : "ITEMS"}
+              </p>
 
-                if (layout === 2) {
+              {/* Asymmetric brick grid — alternating offset rows */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {Array.from({ length: Math.ceil(cat.items.length / 2) }).map((_, rowIdx) => {
+                  const a = cat.items[rowIdx * 2];
+                  const b = cat.items[rowIdx * 2 + 1];
+                  const offset = rowIdx % 2 === 1; // every other row shifts, like real brick coursing
                   return (
-                    <Reveal key={item.id} delay={(idx % 6) * 45}>
-                      <div className="item-row" onClick={()=>setSelectedItem(item)}
-                        style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"18px 0 36px",gap:16}}>
-                        <div className="item-row-inner" style={{position:"relative"}}>
-                          <FoodCircle item={item} size={156} imageUrl={item.imageUrl}/>
-                          {inCart && (
-                            <div style={{position:"absolute",top:8,right:8,width:24,height:24,borderRadius:"50%",background:"#C8873A",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 8px rgba(200,135,58,0.4)"}}>
-                              <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"#0C0704",fontWeight:700}}>{cartQty(item.id)}</span>
+                    <div key={rowIdx} style={{ display: "flex", gap: 2, marginLeft: offset ? 22 : 0, marginRight: offset ? -22 : 0 }}>
+                      {[a, b].map((item, ci) => {
+                        if (!item) return <div key={ci} style={{ flex: 1 }} />;
+                        const inCart = cartQty(item.id) > 0;
+                        const big = ci === 0;
+                        return (
+                          <Reveal key={item.id} delay={(rowIdx * 2 + ci) % 8 * 40}>
+                            <div
+                              className="brick-card"
+                              onClick={() => setSelectedItem(item)}
+                              style={{ flex: 1, display: "flex", flexDirection: "column" }}
+                            >
+                              <div style={{ position: "relative" }}>
+                                <CarvedFrame item={item} size={big ? 168 : 130} imageUrl={item.imageUrl} />
+                                {inCart && (
+                                  <div style={{ position: "absolute", top: -6, right: -6, width: 24, height: 24, background: "#C8873A", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #1A0F0A" }}>
+                                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, color: "#1A0F0A", fontWeight: 700 }}>{cartQty(item.id)}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div style={{ padding: "10px 2px 0" }}>
+                                <p style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: big ? 18 : 15, color: "rgba(217,196,154,0.85)", fontWeight: 400, lineHeight: 1.2, marginBottom: 4 }}>{item.name}</p>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                  <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: big ? 16 : 14, color: "#C8873A", fontWeight: 600 }}>Rs {item.price}</span>
+                                  <button
+                                    className="add-tab"
+                                    onClick={e => { e.stopPropagation(); inCart ? updateQty(item.id, 1) : addToCart(item); }}
+                                    style={{ width: 26, height: 26, border: "none", background: inCart ? "#C8873A" : "#3E2419", color: inCart ? "#1A0F0A" : "#C8873A", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                                  >
+                                    <Plus size={12} />
+                                  </button>
+                                </div>
+                              </div>
                             </div>
-                          )}
-                        </div>
-                        <div style={{textAlign:"center"}}>
-                          <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:22,color:"rgba(240,226,200,0.88)",fontWeight:400,marginBottom:5}}>{item.name}</p>
-                          <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:18,color:"#C8873A",fontWeight:600}}>Rs. {item.price}</p>
-                        </div>
-                        <button className="add-circle place-btn" onClick={e=>{e.stopPropagation();inCart?updateQty(item.id,1):addToCart(item);}}
-                          style={{width:40,height:40,borderRadius:"50%",border:"none",background:inCart?"#C8873A":"rgba(200,135,58,0.1)",color:inCart?"#0C0704":"#C8873A",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                          <Plus size={16}/>
-                        </button>
-                      </div>
-                    </Reveal>
-                  );
-                }
-
-                const isLeft = layout === 0;
-                const circleSize = isLeft ? 108 : 88;
-
-                return (
-                  <Reveal key={item.id} delay={(idx % 6) * 45}>
-                    <div className="item-row" onClick={()=>setSelectedItem(item)}
-                      style={{
-                        display:"flex",
-                        flexDirection: isLeft ? "row" : "row-reverse",
-                        alignItems:"center", gap:18,
-                        padding: "13px 0",
-                        paddingLeft: isLeft ? 0 : 22,
-                        paddingRight: isLeft ? 22 : 0,
-                      }}>
-                      <div className="item-row-inner" style={{position:"relative",flexShrink:0}}>
-                        <FoodCircle item={item} size={circleSize} imageUrl={item.imageUrl}/>
-                        {inCart && (
-                          <div style={{position:"absolute",top:4,right:4,width:21,height:21,borderRadius:"50%",background:"#C8873A",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 6px rgba(200,135,58,0.4)"}}>
-                            <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"#0C0704",fontWeight:700}}>{cartQty(item.id)}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:isLeft?19:17,color:"rgba(240,226,200,0.86)",fontWeight:400,lineHeight:1.2,marginBottom:5}}>{item.name}</p>
-                        {item.description && (
-                          <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(240,226,200,0.26)",lineHeight:1.65,fontWeight:300,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",marginBottom:9}}>{item.description}</p>
-                        )}
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                          <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:17,color:"#C8873A",fontWeight:600}}>Rs. {item.price}</span>
-                          <button className="add-circle" onClick={e=>{e.stopPropagation();inCart?updateQty(item.id,1):addToCart(item);}}
-                            style={{width:32,height:32,borderRadius:"50%",border:"none",background:inCart?"#C8873A":"rgba(200,135,58,0.1)",color:inCart?"#0C0704":"#C8873A",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                            <Plus size={12}/>
-                          </button>
-                        </div>
-                      </div>
+                          </Reveal>
+                        );
+                      })}
                     </div>
-                  </Reveal>
-                );
-              })}
+                  );
+                })}
+              </div>
 
-              {/* Category navigation footer */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "28px 0 44px", marginTop: 16, position: "relative" }}>
-                <LatticeDivider style={{ position: "absolute", inset: "0 0 auto", top: 0 }}/>
-                <button onClick={() => scrollToCategory(activeCatIdx - 1, true)} style={{ background: "none", border: "none", color: "rgba(200,135,58,0.45)", fontFamily: "'DM Sans',sans-serif", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, paddingTop: 20 }}>
-                  ← {categories.length > 1 ? categories[(activeCatIdx - 1 + categories.length) % categories.length]?.name : ""}
+              {/* Category nav footer */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "32px 0 44px", marginTop: 20, borderTop: "1px solid #3E2419" }}>
+                <button onClick={() => scrollToCategory(activeCatIdx - 1, true)} style={{ background: "none", border: "none", color: "rgba(217,196,154,0.35)", fontFamily: "'DM Sans',sans-serif", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", marginTop: 18 }}>
+                  ← Prev
                 </button>
-                <button onClick={() => scrollToCategory(activeCatIdx + 1, true)} style={{ background: "none", border: "none", color: "#C8873A", fontFamily: "'DM Sans',sans-serif", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, paddingTop: 20 }}>
-                  {categories.length > 1 ? categories[(activeCatIdx + 1) % categories.length]?.name : ""} →
+                <button onClick={() => scrollToCategory(activeCatIdx + 1, true)} style={{ background: "none", border: "none", color: "#C8873A", fontFamily: "'DM Sans',sans-serif", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", marginTop: 18 }}>
+                  Next →
                 </button>
               </div>
             </div>
@@ -772,10 +609,8 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         ))}
       </div>
 
-      {/* Footer credit */}
-      <div style={{ padding: "4px 28px 20px", textAlign: "center" }}>
-        <LatticeDivider style={{ marginBottom: 16 }}/>
-        <p style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontStyle: "italic", fontSize: 12, color: "rgba(200,135,58,0.18)" }}>
+      <div style={{ padding: "0 26px 20px", textAlign: "center" }}>
+        <p style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontStyle: "italic", fontSize: 12, color: "rgba(217,196,154,0.16)" }}>
           Sulimha Durbar Heritage Hotel & Museum · Patan
         </p>
       </div>
@@ -784,95 +619,80 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
   // ── My Order tab ─────────────────────────────────────────────────────────────
   const MyOrderTab = (
-    <div style={{ padding: "48px 28px 28px", minHeight: "60vh" }}>
-      <div className="crest-in" style={{ marginBottom: 0 }}>
-        <HeaderCrest/>
+    <div style={{ padding: "48px 26px 28px", minHeight: "60vh" }}>
+      <div className="wipe-in" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+        <div style={{ width: 26, height: 26, background: "#7A2E1F", flexShrink: 0, display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: 13, color: "#D9C49A", fontWeight: 600 }}>S</span>
+        </div>
+        <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"rgba(200,135,58,0.55)",letterSpacing:"0.24em",textTransform:"uppercase"}}>
+          Table {tableNumber}
+        </p>
       </div>
-      <p className="float-in" style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"rgba(200,135,58,0.38)",letterSpacing:"0.25em",textTransform:"uppercase",marginBottom:10}}>
-        Table {tableNumber}
-      </p>
-      <h1 className="float-in-2" style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:40,color:"rgba(240,226,200,0.92)",fontWeight:300,letterSpacing:"-0.022em",marginBottom:8}}>
+      <h1 className="float-in-2" style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:38,color:"rgba(217,196,154,0.94)",fontWeight:300,letterSpacing:"-0.02em",marginBottom:24}}>
         My Order
       </h1>
-      <LatticeDivider style={{ marginBottom: 32 }}/>
 
       {activeMyOrders.length === 0 ? (
-        <div className="float-in-3" style={{ textAlign: "center", padding: "52px 0" }}>
-          <div style={{width:58,height:58,borderRadius:"50%",border:"1px solid rgba(200,135,58,0.14)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px",background:"rgba(200,135,58,0.03)"}}>
-            <Clock size={22} color="rgba(200,135,58,0.38)" />
-          </div>
-          <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontStyle:"italic",fontSize:18,color:"rgba(240,226,200,0.32)",marginBottom:7}}>No active orders yet</p>
-          <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(240,226,200,0.18)"}}>Items you order will appear here with live status</p>
+        <div className="float-in-3" style={{ textAlign: "center", padding: "56px 0", border: "1px dashed #3E2419" }}>
+          <Clock size={22} color="rgba(200,135,58,0.4)" style={{ marginBottom: 16 }} />
+          <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontStyle:"italic",fontSize:18,color:"rgba(217,196,154,0.32)",marginBottom:7}}>No active orders yet</p>
+          <p style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(217,196,154,0.18)"}}>Items you order will appear here with live status</p>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {activeMyOrders.map((order, idx) => {
             const status = STATUS_CONFIG[order.orderStatus] ?? STATUS_CONFIG.pending;
             const StatusIcon = status.icon;
             const stages = ["pending","preparing","ready"];
             const currentStageIdx = stages.indexOf(order.orderStatus);
+            const isCancelled = order.orderStatus === "cancelled";
             return (
               <Reveal key={order.id} delay={idx * 55}>
-                <div className="order-card" style={{ padding: "20px 22px" }}>
-                  {/* Header row */}
+                <div className={`order-card${isCancelled ? " cancelled" : ""}`} style={{ padding: "20px 22px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, color: "rgba(240,226,200,0.28)", letterSpacing: "0.08em" }}>
-                      Order #{order.id}
+                    <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: 14, color: "rgba(217,196,154,0.4)", fontWeight: 500 }}>
+                      #{order.id}
                     </span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 11px", borderRadius: 12, background: `${status.color}12`, border: `1px solid ${status.color}25` }}>
-                      <StatusIcon size={11} color={status.color} />
-                      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: status.color, fontWeight: 500 }}>{status.label}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <StatusIcon size={12} color={status.color} />
+                      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: status.color, fontWeight: 500, letterSpacing: "0.02em" }}>{status.label}</span>
                     </div>
                   </div>
 
-                  {/* Items list */}
                   <div style={{ marginBottom: 14 }}>
                     {order.items.map(item => (
                       <div key={item.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
-                        <span style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 16, color: "rgba(240,226,200,0.68)" }}>
-                          <span style={{ color: "rgba(200,135,58,0.55)", marginRight: 7, fontSize: 13 }}>{item.quantity}×</span>
+                        <span style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 16, color: "rgba(217,196,154,0.7)" }}>
+                          <span style={{ color: "#C8873A", marginRight: 7, fontSize: 13, fontFamily: "'Fraunces',Georgia,serif" }}>{item.quantity}×</span>
                           {item.menuItemName}
                         </span>
-                        <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "rgba(200,135,58,0.55)" }}>Rs. {parseFloat(item.subtotal).toFixed(0)}</span>
+                        <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "rgba(200,135,58,0.6)" }}>Rs {parseFloat(item.subtotal).toFixed(0)}</span>
                       </div>
                     ))}
                   </div>
 
-                  {/* Total & payment row */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 13, borderTop: "1px solid rgba(200,135,58,0.08)", marginBottom: 16 }}>
-                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, color: order.paymentStatus === "paid" ? "#7FBF7F" : "rgba(240,226,200,0.28)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 13, borderTop: "1px solid #3E2419", marginBottom: 16 }}>
+                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, color: order.paymentStatus === "paid" ? "#8FAE6E" : "rgba(217,196,154,0.28)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
                       {order.paymentStatus === "paid" ? "Paid" : "Payment pending"}
                     </span>
-                    <span style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 20, color: "#C8873A", fontWeight: 600 }}>Rs. {parseFloat(order.totalAmount).toFixed(0)}</span>
+                    <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: 19, color: "#C8873A", fontWeight: 600 }}>Rs {parseFloat(order.totalAmount).toFixed(0)}</span>
                   </div>
 
-                  {/* Progress track */}
-                  <div style={{ display: "flex", gap: 5 }}>
+                  <div style={{ display: "flex", gap: 4 }}>
                     {stages.map((s, si) => {
-                      const filled = order.orderStatus !== "cancelled" && si <= currentStageIdx;
+                      const filled = !isCancelled && si <= currentStageIdx;
                       return (
-                        <div key={s} style={{ flex: 1, height: 3, borderRadius: 2, background: "rgba(200,135,58,0.08)", overflow: "hidden" }}>
-                          {filled && (
-                            <div
-                              className="progress-bar-filled"
-                              style={{
-                                height: "100%",
-                                background: si === currentStageIdx
-                                  ? `linear-gradient(90deg, rgba(200,135,58,0.6), #C8873A)`
-                                  : "rgba(200,135,58,0.35)",
-                                animationDelay: `${si * 80}ms`,
-                              }}
-                            />
-                          )}
+                        <div key={s} style={{ flex: 1, height: 3, background: "#3E2419", overflow: "hidden" }}>
+                          {filled && <div className="progress-fill" style={{ height: "100%", background: "#C8873A", animationDelay: `${si * 90}ms` }} />}
                         </div>
                       );
                     })}
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
                     {stages.map((s, si) => {
-                      const filled = order.orderStatus !== "cancelled" && si <= currentStageIdx;
+                      const filled = !isCancelled && si <= currentStageIdx;
                       return (
-                        <span key={s} style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, color: filled ? "rgba(200,135,58,0.55)" : "rgba(240,226,200,0.15)", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                        <span key={s} style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, color: filled ? "rgba(200,135,58,0.55)" : "rgba(217,196,154,0.14)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
                           {s === "pending" ? "Received" : s === "preparing" ? "Preparing" : "Ready"}
                         </span>
                       );
@@ -889,8 +709,8 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
   // ── Main render ──────────────────────────────────────────────────────────────
   return (
-    <>{G}<SlateBg/>
-      <div style={{ position: "relative", zIndex: 1, minHeight: "100vh", width: "100%", display: "flex", justifyContent: "center", paddingBottom: 76 }}>
+    <>{G}
+      <div style={{ minHeight: "100vh", width: "100%", background: "#1A0F0A", display: "flex", justifyContent: "center", paddingBottom: 76 }}>
         <div style={{ width: "100%", maxWidth: PAGE_MAX_WIDTH }}>
           <div className="tab-content" style={{ opacity: tabFade ? 1 : 0 }}>
             {displayTab === "menu" ? MenuTab : MyOrderTab}
@@ -903,29 +723,29 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       {/* Cart drawer */}
       {activeTab === "menu" && cart.length > 0 && cartOpen && (
         <div style={{ position: "fixed", bottom: 124, left: 0, right: 0, zIndex: 49, display: "flex", justifyContent: "center" }}>
-          <div className="cart-drawer-bg" style={{ width: "100%", maxWidth: PAGE_MAX_WIDTH, padding: "20px 20px 8px" }}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:21,color:"rgba(240,226,200,0.85)",fontWeight:300}}>Your Order</p>
-              <button onClick={()=>setCartOpen(false)} style={{background:"none",border:"none",cursor:"pointer",color:"rgba(240,226,200,0.28)",padding:4}}><X size={15}/></button>
+          <div className="cart-drawer-bg" style={{ width: "100%", maxWidth: PAGE_MAX_WIDTH, padding: "18px 20px 8px" }}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <p style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:19,color:"rgba(217,196,154,0.85)",fontWeight:300}}>Your Order</p>
+              <button onClick={()=>setCartOpen(false)} style={{background:"none",border:"none",cursor:"pointer",color:"rgba(217,196,154,0.28)",padding:4}}><X size={15}/></button>
             </div>
             {cart.map((item)=>(
-              <div key={item.id} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid rgba(200,135,58,0.07)" }}>
-                <div style={{width:32,height:32,borderRadius:"50%",background:itemGradient(item.name),flexShrink:0,boxShadow:"0 3px 10px rgba(0,0,0,0.55)"}}/>
-                <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:16,color:"rgba(240,226,200,0.72)",flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</span>
+              <div key={item.id} style={{ display:"flex",alignItems:"center",gap:12,padding:"9px 0",borderBottom:"1px solid #2A160D" }}>
+                <div style={{width:28,height:28,background:itemGradient(item.name),flexShrink:0}}/>
+                <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:15,color:"rgba(217,196,154,0.7)",flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</span>
                 <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-                  <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(200,135,58,0.65)",minWidth:50,textAlign:"right"}}>Rs. {(item.price*item.quantity).toFixed(0)}</span>
+                  <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(200,135,58,0.6)",minWidth:48,textAlign:"right"}}>Rs {(item.price*item.quantity).toFixed(0)}</span>
                   <div style={{display:"flex",alignItems:"center",gap:5}}>
-                    <button onClick={()=>updateQty(item.id,-1)} className="add-circle" style={{width:24,height:24,borderRadius:"50%",border:"1px solid rgba(200,135,58,0.2)",background:"transparent",color:"#C8873A",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Minus size={10}/></button>
-                    <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(240,226,200,0.65)",minWidth:16,textAlign:"center"}}>{item.quantity}</span>
-                    <button onClick={()=>updateQty(item.id,1)} className="add-circle" style={{width:24,height:24,borderRadius:"50%",border:"none",background:"#C8873A",color:"#0C0704",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Plus size={10}/></button>
+                    <button onClick={()=>updateQty(item.id,-1)} className="add-tab" style={{width:22,height:22,border:"1px solid #3E2419",background:"transparent",color:"#C8873A",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Minus size={10}/></button>
+                    <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(217,196,154,0.65)",minWidth:14,textAlign:"center"}}>{item.quantity}</span>
+                    <button onClick={()=>updateQty(item.id,1)} className="add-tab" style={{width:22,height:22,border:"none",background:"#C8873A",color:"#1A0F0A",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Plus size={10}/></button>
                   </div>
                 </div>
               </div>
             ))}
-            <div style={{padding:"13px 0 6px"}}>
+            <div style={{padding:"12px 0 6px"}}>
               <input
                 type="text" placeholder="Any special requests…" value={notes} onChange={e=>setNotes(e.target.value)}
-                style={{width:"100%",background:"transparent",border:"none",borderBottom:"1px solid rgba(200,135,58,0.1)",padding:"8px 0",color:"rgba(240,226,200,0.42)",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:300}}
+                style={{width:"100%",background:"transparent",border:"none",borderBottom:"1px solid #3E2419",padding:"8px 0",color:"rgba(217,196,154,0.4)",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:300}}
               />
             </div>
           </div>
@@ -935,72 +755,53 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       {/* Cart bar */}
       {activeTab === "menu" && cart.length > 0 && (
         <div style={{ position: "fixed", bottom: 64, left: 0, right: 0, zIndex: 48, display: "flex", justifyContent: "center" }}>
-          <div style={{ width: "100%", maxWidth: PAGE_MAX_WIDTH, position: "relative" }} className="cart-bar-accent">
-            <div style={{ background: "rgba(9,4,2,0.97)", backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)", borderTop: "1px solid rgba(200,135,58,0.14)", padding: "8px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-              <button onClick={()=>setCartOpen(o=>!o)} style={{flex:1,display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:0,minWidth:0,overflow:"hidden"}}>
-                <div style={{position:"relative",flexShrink:0}}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(240,226,200,0.48)" strokeWidth="1.5"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
-                  <div style={{position:"absolute",top:-5,right:-5,width:15,height:15,borderRadius:"50%",background:"#C8873A",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 6px rgba(200,135,58,0.4)"}}>
-                    <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:8,color:"#0C0704",fontWeight:700}}>{totalItems}</span>
-                  </div>
-                </div>
-                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:"clamp(10px,3vw,12px)",color:"rgba(240,226,200,0.38)",flex:1,minWidth:0,textAlign:"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                  {cart.map(i=>i.name).join(" · ")}
-                </span>
-              </button>
-              <span style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:"clamp(14px,4vw,18px)",color:"#C8873A",fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>Rs.&nbsp;{subtotal.toFixed(0)}</span>
-              <button onClick={placeOrder} disabled={isSubmitting} className="place-btn"
-                style={{background:"#C8873A",border:"none",borderRadius:8,padding:"9px 14px",color:"#0C0704",fontFamily:"'DM Sans',sans-serif",fontSize:"clamp(10px,2.8vw,11px)",fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",cursor:isSubmitting?"wait":"pointer",flexShrink:0,opacity:isSubmitting?0.55:1,whiteSpace:"nowrap"}}>
-                {isSubmitting?"…":"Order"}
-              </button>
-            </div>
+          <div style={{ width: "100%", maxWidth: PAGE_MAX_WIDTH, background: "#0F0805", borderTop: "2px solid #C8873A", padding: "9px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={()=>setCartOpen(o=>!o)} style={{flex:1,display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:0,minWidth:0,overflow:"hidden"}}>
+              <div style={{position:"relative",flexShrink:0,width:24,height:24,background:"#7A2E1F",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"#D9C49A",fontWeight:700}}>{totalItems}</span>
+              </div>
+              <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:"clamp(10px,3vw,12px)",color:"rgba(217,196,154,0.4)",flex:1,minWidth:0,textAlign:"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {cart.map(i=>i.name).join(" · ")}
+              </span>
+            </button>
+            <span style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:"clamp(14px,4vw,18px)",color:"#C8873A",fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}>Rs&nbsp;{subtotal.toFixed(0)}</span>
+            <button onClick={placeOrder} disabled={isSubmitting} className="place-btn"
+              style={{background:"#C8873A",border:"none",padding:"9px 14px",color:"#1A0F0A",fontFamily:"'DM Sans',sans-serif",fontSize:"clamp(10px,2.8vw,11px)",fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",cursor:isSubmitting?"wait":"pointer",flexShrink:0,opacity:isSubmitting?0.55:1,whiteSpace:"nowrap"}}>
+              {isSubmitting?"…":"Order"}
+            </button>
           </div>
         </div>
       )}
 
       {/* Tab bar */}
-      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, background: "#0C0704", borderTop: "1px solid rgba(200,135,58,0.12)", display: "flex", justifyContent: "center", height: 64 }}>
-        {/* Lattice accent in tab bar */}
-        <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", opacity: 0.04 }}>
-          <svg width="100%" height="100%">
-            <defs>
-              <pattern id="tab-lattice" x="0" y="0" width="30" height="30" patternUnits="userSpaceOnUse">
-                <path d="M15 2 L28 15 L15 28 L2 15 Z" fill="none" stroke="#C8873A" strokeWidth="0.5"/>
-                <circle cx="15" cy="15" r="1" fill="#C8873A"/>
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#tab-lattice)"/>
-          </svg>
-        </div>
-        <div style={{ width: "100%", maxWidth: PAGE_MAX_WIDTH, display: "flex", position: "relative", zIndex: 1 }}>
+      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, background: "#150B06", borderTop: "1px solid #3E2419", display: "flex", justifyContent: "center", height: 64 }}>
+        <div style={{ width: "100%", maxWidth: PAGE_MAX_WIDTH, display: "flex" }}>
           <button
             className="tab-btn"
             onClick={() => switchTab("menu")}
-            style={{ flex: 1, background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}
+            style={{ flex: 1, background: "none", border: "none", borderTop: activeTab === "menu" ? "2px solid #C8873A" : "2px solid transparent", marginTop: -1, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5 }}
           >
-            {activeTab === "menu" && (
-              <div style={{ position: "absolute", top: 0, left: "25%", right: "25%", height: 2, background: "linear-gradient(90deg, transparent, #C8873A, transparent)", borderRadius: "0 0 2px 2px" }}/>
-            )}
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={activeTab==="menu"?"#C8873A":"rgba(240,226,200,0.28)"} strokeWidth="1.5"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
-            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, letterSpacing: "0.08em", color: activeTab==="menu"?"#C8873A":"rgba(240,226,200,0.28)" }}>MENU</span>
+            <span className="tab-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={activeTab==="menu"?"#C8873A":"rgba(217,196,154,0.28)"} strokeWidth="1.5"><rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/></svg>
+            </span>
+            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, letterSpacing: "0.08em", color: activeTab==="menu"?"#C8873A":"rgba(217,196,154,0.28)" }}>MENU</span>
           </button>
           <button
             className="tab-btn"
             onClick={() => switchTab("myorder")}
-            style={{ flex: 1, background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, position: "relative" }}
+            style={{ flex: 1, background: "none", border: "none", borderTop: activeTab === "myorder" ? "2px solid #C8873A" : "2px solid transparent", marginTop: -1, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, position: "relative" }}
           >
-            {activeTab === "myorder" && (
-              <div style={{ position: "absolute", top: 0, left: "25%", right: "25%", height: 2, background: "linear-gradient(90deg, transparent, #C8873A, transparent)", borderRadius: "0 0 2px 2px" }}/>
-            )}
             <div style={{ position: "relative" }}>
-              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={activeTab==="myorder"?"#C8873A":"rgba(240,226,200,0.28)"} strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              <span className="tab-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={activeTab==="myorder"?"#C8873A":"rgba(217,196,154,0.28)"} strokeWidth="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+              </span>
               {activeMyOrders.length > 0 && (
-                <div style={{ position: "absolute", top: -4, right: -6, width: 14, height: 14, borderRadius: "50%", background: "#C8873A", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(200,135,58,0.4)" }}>
-                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 8, color: "#0C0704", fontWeight: 700 }}>{activeMyOrders.length}</span>
+                <div style={{ position: "absolute", top: -5, right: -7, width: 14, height: 14, background: "#7A2E1F", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 8, color: "#D9C49A", fontWeight: 700 }}>{activeMyOrders.length}</span>
                 </div>
               )}
             </div>
-            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, letterSpacing: "0.08em", color: activeTab==="myorder"?"#C8873A":"rgba(240,226,200,0.28)" }}>MY ORDER</span>
+            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, letterSpacing: "0.08em", color: activeTab==="myorder"?"#C8873A":"rgba(217,196,154,0.28)" }}>MY ORDER</span>
           </button>
         </div>
       </div>
