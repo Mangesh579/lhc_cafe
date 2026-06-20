@@ -170,6 +170,11 @@ router.post("/order", async (req, res): Promise<void> => {
 
     const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, session.tableId)).limit(1);
     if (!table) { res.status(404).json({ error: "Table not found" }); return; }
+    if (!table.isOccupied) {
+      await db.delete(tableSessionsTable).where(eq(tableSessionsTable.id, session.id));
+      res.status(403).json({ error: "This table has been closed. Please ask staff for assistance." });
+      return;
+    }
 
     let totalAmount = 0;
     const resolvedItems: Array<{ menuItemId: number; quantity: number; unitPrice: number; subtotal: number; notes?: string }> = [];

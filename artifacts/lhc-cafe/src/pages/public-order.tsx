@@ -242,6 +242,24 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     return () => clearInterval(interval);
   }, [sessionState, sessionToken]);
 
+  // Periodically re-check the session is still valid — catches staff closing
+  // the table or the bill being paid while the customer is mid-browse
+  useEffect(() => {
+    if (sessionState !== "active" || !sessionToken) return;
+    const checkStillValid = () => {
+      fetch(`${API_BASE}/api/public/session/validate?sessionToken=${encodeURIComponent(sessionToken)}`)
+        .then(r => {
+          if (!r.ok) {
+            localStorage.removeItem(SESSION_KEY);
+            setSessionState("expired");
+          }
+        })
+        .catch(() => {});
+    };
+    const interval = setInterval(checkStillValid, STATUS_POLL_MS);
+    return () => clearInterval(interval);
+  }, [sessionState, sessionToken]);
+
   useEffect(() => {
     const el = carouselRef.current;
     if (!el) return;
