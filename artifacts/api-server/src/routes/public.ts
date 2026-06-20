@@ -109,6 +109,9 @@ router.post("/session/start", async (req, res): Promise<void> => {
 
 // GET /api/public/session/validate?sessionToken=xxx
 router.get("/session/validate", async (req, res): Promise<void> => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
   const { sessionToken } = req.query as { sessionToken: string };
   if (!sessionToken) { res.status(400).json({ valid: false }); return; }
 
@@ -170,7 +173,11 @@ async function getBestsellerIds(): Promise<Set<number>> {
 }
 
 // GET /api/public/menu?sessionToken=xxx
+// GET /api/public/menu?sessionToken=xxx
 router.get("/menu", async (req, res): Promise<void> => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
   const { sessionToken } = req.query as { sessionToken: string };
   const session = await resolveSession(sessionToken);
   if (!session) { res.status(401).json({ error: "Session expired" }); return; }
@@ -185,6 +192,9 @@ router.get("/menu", async (req, res): Promise<void> => {
 
 // GET /api/public/my-orders?sessionToken=xxx
 router.get("/my-orders", async (req, res): Promise<void> => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
   const { sessionToken } = req.query as { sessionToken: string };
   const session = await resolveSession(sessionToken);
   if (!session) { res.status(401).json({ error: "Session expired" }); return; }
