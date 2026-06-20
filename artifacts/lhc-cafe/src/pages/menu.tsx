@@ -128,17 +128,27 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
 }
 
 // ─── Recipe Dialog ────────────────────────────────────────────────────────────
-function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory: any[]; open: boolean; onClose: () => void }) {
+function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory: any[]; open: boolean; onClose: () => void }) {  
   const [recipes, setRecipes] = useState<any[]>([]);
   const [newIngId, setNewIngId] = useState("");
   const [newQty, setNewQty] = useState("");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+  const qc = useQueryClient();
+  const updateMenuItem = useUpdateMenuItem();
 
   const loadRecipes = async () => {
     if (!item) return;
     const data = await APIJSON(`/menu-items/${item.id}/recipes`);
     setRecipes(Array.isArray(data) ? data : []);
+  };
+
+  const syncCaloriesToItem = async (total: number) => {
+    if (!item) return;
+    try {
+      await updateMenuItem.mutateAsync({ id: item.id, data: { calories: Math.round(total) } as any });
+      qc.invalidateQueries({ queryKey: getListMenuItemsQueryKey() });
+    } catch { /* silent — non-critical sync */ }
   };
 
   useEffect(() => { if (open && item) loadRecipes(); }, [open, item]);
@@ -179,16 +189,6 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
     const qty = parseFloat(String(r.quantityRequired ?? 0));
     return sum + (cal * qty);
   }, 0);
-
-  const updateMenuItem = useUpdateMenuItem();
-
-  // Sync the computed total back to the menu item's calories field
-  const syncCaloriesToItem = async (total: number) => {
-    if (!item) return;
-    try {
-      await updateMenuItem.mutateAsync({ id: item.id, data: { calories: Math.round(total) } as any });
-    } catch { /* silent — non-critical sync */ }
-  };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
