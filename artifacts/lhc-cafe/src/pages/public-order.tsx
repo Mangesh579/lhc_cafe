@@ -206,7 +206,15 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     const validate = async (tok: string) => {
       try {
         const r = await fetch(`${API_BASE}/api/public/session/validate?sessionToken=${tok}`);
-        if (!r.ok) { localStorage.removeItem(SESSION_KEY); await start(); return; }
+        if (!r.ok) {
+          // Do NOT silently re-authenticate here. A failed validation means
+          // this exact session is dead (table closed/reopened, idle timeout,
+          // or bill paid). Force the customer to actually re-scan the QR —
+          // a page refresh alone must never grant a new session.
+          localStorage.removeItem(SESSION_KEY);
+          setSessionState("expired");
+          return;
+        }
         const d = await r.json();
         setSessionToken(tok); setTableNumber(d.tableNumber); setSessionState("active");
       } catch { setSessionState("expired"); }
