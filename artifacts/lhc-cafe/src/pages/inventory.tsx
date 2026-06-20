@@ -161,9 +161,10 @@ function EquipmentDialog({ eq, open, onClose, onSaved }: { eq?: any; open: boole
 }
 
 // ─── Waste Form Dialog ────────────────────────────────────────────────────────
-function WasteDialog({ inventory, menuItems, open, onClose, onSaved }: { inventory: any[]; menuItems: any[]; open: boolean; onClose: () => void; onSaved: () => void }) {
+function WasteDialog({ inventory, menuItems, equipment, open, onClose, onSaved }: { inventory: any[]; menuItems: any[]; equipment: any[]; open: boolean; onClose: () => void; onSaved: () => void }) {
   const [invItemId, setInvItemId] = useState("");
   const [menuItemId, setMenuItemId] = useState("");
+  const [equipmentItemId, setEquipmentItemId] = useState("");
   const [itemName, setItemName] = useState("");
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
@@ -174,7 +175,7 @@ function WasteDialog({ inventory, menuItems, open, onClose, onSaved }: { invento
 
   const handleInvChange = (id: string) => {
     const val = id === "none" ? "" : id;
-    setInvItemId(val); setMenuItemId("");
+    setInvItemId(val); setMenuItemId(""); setEquipmentItemId("");
     if (val) {
       const inv = inventory.find(i => i.id.toString() === val);
       if (inv) { setItemName(inv.name); setUnit(inv.unit); }
@@ -183,12 +184,28 @@ function WasteDialog({ inventory, menuItems, open, onClose, onSaved }: { invento
 
   const handleMenuChange = (id: string) => {
     const val = id === "none" ? "" : id;
-    setMenuItemId(val); setInvItemId("");
+    setMenuItemId(val); setInvItemId(""); setEquipmentItemId("");
     if (val) {
       const m = menuItems.find(i => i.id.toString() === val);
       if (m) { setItemName(m.name); setUnit("serving"); }
     } else { setItemName(""); setUnit(""); }
   };
+
+  const handleEquipmentChange = (id: string) => {
+    const val = id === "none" ? "" : id;
+    setEquipmentItemId(val); setInvItemId(""); setMenuItemId("");
+    if (val) {
+      const e = equipment.find(i => i.id.toString() === val);
+      if (e) {
+        setItemName(e.name);
+        setUnit("pieces");
+        // Pre-fill estimated value from unit price × 1, staff can adjust quantity
+        if (e.unitPrice) setWasteValue(String(parseFloat(e.unitPrice)));
+      }
+    } else { setItemName(""); setUnit(""); setWasteValue(""); }
+  };
+
+  const selectedEquipment = equipment.find(e => e.id.toString() === equipmentItemId);
 
   const handleSave = async () => {
     if (!itemName || !quantity || !unit || !reason) { toast({ title: "Fill all required fields", variant: "destructive" }); return; }
@@ -197,10 +214,11 @@ function WasteDialog({ inventory, menuItems, open, onClose, onSaved }: { invento
       await APIJSON(`/waste`, "POST", {
         inventoryItemId: invItemId ? parseInt(invItemId) : undefined,
         menuItemId: menuItemId ? parseInt(menuItemId) : undefined,
+        equipmentItemId: equipmentItemId ? parseInt(equipmentItemId) : undefined,
         itemName, quantity: parseFloat(quantity), unit, reason, wasteValue: wasteValue ? parseFloat(wasteValue) : 0,
       });
       toast({ title: "Waste logged" });
-      setInvItemId(""); setMenuItemId(""); setItemName(""); setQuantity(""); setUnit(""); setReason(""); setWasteValue("");
+      setInvItemId(""); setMenuItemId(""); setEquipmentItemId(""); setItemName(""); setQuantity(""); setUnit(""); setReason(""); setWasteValue("");
       onSaved(); onClose();
     } catch { toast({ title: "Failed to log waste", variant: "destructive" }); }
     finally { setLoading(false); }
@@ -211,11 +229,11 @@ function WasteDialog({ inventory, menuItems, open, onClose, onSaved }: { invento
       <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>Log Waste</DialogTitle></DialogHeader>
         <div className="space-y-4 py-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1">
-              <Label>Linked Ingredient</Label>
+              <Label>Ingredient</Label>
               <Select value={invItemId || "none"} onValueChange={handleInvChange}>
-                <SelectTrigger><SelectValue placeholder="Select ingredient" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent className="max-h-[300px] overflow-y-auto">
                   <SelectItem value="none">None</SelectItem>
                   {inventory.map(i => <SelectItem key={i.id} value={String(i.id)}>{i.name}</SelectItem>)}
@@ -223,23 +241,43 @@ function WasteDialog({ inventory, menuItems, open, onClose, onSaved }: { invento
               </Select>
             </div>
             <div className="space-y-1">
-              <Label>Or Linked Menu Item</Label>
+              <Label>Menu Item</Label>
               <Select value={menuItemId || "none"} onValueChange={handleMenuChange}>
-                <SelectTrigger><SelectValue placeholder="Select item" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent className="max-h-[300px] overflow-y-auto">
                   <SelectItem value="none">None</SelectItem>
                   {menuItems.map(i => <SelectItem key={i.id} value={String(i.id)}>{i.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1">
+              <Label>Equipment</Label>
+              <Select value={equipmentItemId || "none"} onValueChange={handleEquipmentChange}>
+                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent className="max-h-[300px] overflow-y-auto">
+                  <SelectItem value="none">None</SelectItem>
+                  {equipment.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.name} ({e.quantity ?? 1} in stock)</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+
+          {selectedEquipment && (
+            <div className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-md px-3 py-2">
+              Damaging this will reduce stock from <strong>{selectedEquipment.quantity ?? 1}</strong> units. Unit price: Rs. {selectedEquipment.unitPrice ? parseFloat(selectedEquipment.unitPrice).toFixed(0) : "—"}
+            </div>
+          )}
+
           <div className="space-y-1"><Label>Item Name *</Label><Input value={itemName} onChange={e => setItemName(e.target.value)} /></div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1"><Label>Quantity *</Label><Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} /></div>
             <div className="space-y-1"><Label>Unit *</Label><Input value={unit} onChange={e => setUnit(e.target.value)} placeholder="grams, ml, pieces..." /></div>
           </div>
-          <div className="space-y-1"><Label>Reason *</Label><Input value={reason} onChange={e => setReason(e.target.value)} placeholder="Expired, Spillage, Over-prep..." /></div>
-          <div className="space-y-1"><Label>Estimated Value (Rs.)</Label><Input type="number" value={wasteValue} onChange={e => setWasteValue(e.target.value)} /></div>
+          <div className="space-y-1"><Label>Reason *</Label><Input value={reason} onChange={e => setReason(e.target.value)} placeholder="Expired, Spillage, Broken, Dropped..." /></div>
+          <div className="space-y-1">
+            <Label>Estimated Value (Rs.)</Label>
+            <Input type="number" value={wasteValue} onChange={e => setWasteValue(e.target.value)} placeholder={selectedEquipment ? "Auto-calculated from unit price × qty" : undefined} />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
@@ -597,7 +635,7 @@ export default function Inventory() {
       {/* Dialogs */}
       <IngredientDialog item={ingDialog.item} open={ingDialog.open} onClose={() => setIngDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); }} />
       <EquipmentDialog eq={eqDialog.eq} open={eqDialog.open} onClose={() => setEqDialog({ open: false })} onSaved={() => loadTab("equipment", true)} />
-      <WasteDialog inventory={inventory as any[]} menuItems={menuItems as any[]} open={wasteDialog} onClose={() => setWasteDialog(false)} onSaved={() => loadTab("waste", true)} />
+      <WasteDialog inventory={inventory as any[]} menuItems={menuItems as any[]} equipment={equipment} open={wasteDialog} onClose={() => setWasteDialog(false)} onSaved={() => { loadTab("waste", true); loadTab("equipment", true); }} />
     </div>
   );
 }
