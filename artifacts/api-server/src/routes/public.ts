@@ -35,9 +35,7 @@ async function resolveSession(sessionToken: string) {
     await db.delete(tableSessionsTable).where(eq(tableSessionsTable.id, session.id));
     return null;
   }
-  const tableOpenedAtMs = table.openedAt ? new Date(table.openedAt).getTime() : null;
-  const sessionOpenedAtMs = session.tableOpenedAt ? new Date(session.tableOpenedAt).getTime() : null;
-  if (tableOpenedAtMs !== sessionOpenedAtMs) {
+  if (table.openedAt !== session.tableOpenedAt) {
     await db.delete(tableSessionsTable).where(eq(tableSessionsTable.id, session.id));
     return null;
   }
@@ -77,14 +75,11 @@ router.post("/session/start", async (req, res): Promise<void> => {
       .where(eq(tableSessionsTable.tableId, table.id))
       .limit(1);
 
-    const tableOpenedAtMs = table.openedAt ? new Date(table.openedAt).getTime() : null;
-
     if (existing) {
       const idleCutoff = new Date(Date.now() - SESSION_IDLE_MINUTES * 60 * 1000);
       const hardExpired = existing.expiresAt && new Date() > existing.expiresAt;
       const idleExpired = existing.lastActivityAt < idleCutoff;
-      const existingOpenedAtMs = existing.tableOpenedAt ? new Date(existing.tableOpenedAt).getTime() : null;
-      const sameOpening = existingOpenedAtMs === tableOpenedAtMs;
+      const sameOpening = existing.tableOpenedAt === table.openedAt;
 
       if (!hardExpired && !idleExpired && sameOpening) {
         await db.update(tableSessionsTable)

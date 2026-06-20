@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db, cafeTablesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth";
-import { createHmac } from "crypto";
+import { createHmac, randomBytes } from "crypto";
 
 const router = Router();
 
@@ -46,7 +46,7 @@ router.patch("/tables/:id/occupy", authenticate, async (req, res): Promise<void>
   // Stamp a fresh "opened" timestamp every time staff opens the table —
   // this invalidates any session created under a previous opening, even
   // if that session row technically still exists.
-  if (isOccupied) updateData.openedAt = new Date();
+  if (isOccupied) updateData.openedAt = randomBytes(8).toString("hex");
   const [table] = await db.update(cafeTablesTable).set(updateData).where(eq(cafeTablesTable.id, id)).returning();
   if (!table) { res.status(404).json({ error: "Table not found" }); return; }
   res.json(table);

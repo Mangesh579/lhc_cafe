@@ -9,7 +9,7 @@ export const cafeTablesTable = pgTable("cafe_tables", {
   token: text("token").notNull().unique(),
   isActive: boolean("is_active").notNull().default(true),
   isOccupied: boolean("is_occupied").notNull().default(false),
-  openedAt: timestamp("opened_at"),
+  openedAt: text("opened_at"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -20,7 +20,7 @@ export const tableSessionsTable = pgTable("table_sessions", {
   startedAt: timestamp("started_at").defaultNow().notNull(),
   lastActivityAt: timestamp("last_activity_at").defaultNow().notNull(),
   expiresAt: timestamp("expires_at"),  // set when bill is paid (hard expiry)
-  tableOpenedAt: timestamp("table_opened_at"),
+  tableOpenedAt: text("table_opened_at"),
 });
 
 export const insertCafeTableSchema = createInsertSchema(cafeTablesTable).omit({ id: true, createdAt: true, token: true });
