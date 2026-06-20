@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable, bestsellerCacheTable } from "@workspace/db";
+import { eq, and, gte, desc, sql } from "drizzle-orm";
 import { randomBytes } from "crypto";
 
 const router = Router();
@@ -111,6 +111,62 @@ router.get("/session/validate", async (req, res): Promise<void> => {
   res.json({ valid: true, tableNumber: table?.tableNumber });
 });
 
+const BESTSELLER_CACHE_DAYS = 30;
+
+async function getBestsellerIds(): Promise<Set<number>> {
+  // Check cache freshness
+  const [latest] = await db.select().from(bestsellerCacheTable).orderBy(desc(bestsellerCacheTable.computedAt)).limit(1);
+  const cacheAge = latest ? (Date.now() - new Date(latest.computedAt).getTime()) / (1000 * 60 * 60 * 24) : Infinity;
+
+  if (latest && cacheAge < BESTSELLER_CACHE_DAYS) {
+    const cached = await db.select().from(bestsellerCacheTable);
+    return new Set(cached.map(c => c.menuItemId));
+  }
+
+  // Recompute: top 3 per category by quantity sold in last 2 months, paid orders only
+  const twoMonthsAgo = new Date();
+  twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+
+  const sold = await db
+    .select({
+      menuItemId: orderItemsTable.menuItemId,
+      categoryId: menuItemsTable.categoryId,
+      totalQty: sql<number>`SUM(${orderItemsTable.quantity})`.as("total_qty"),
+    })
+    .from(orderItemsTable)
+    .innerJoin(ordersTable, eq(orderItemsTable.orderId, ordersTable.id))
+    .innerJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id))
+    .where(and(eq(ordersTable.paymentStatus, "paid"), gte(ordersTable.createdAt, twoMonthsAgo)))
+    .groupBy(orderItemsTable.menuItemId, menuItemsTable.categoryId)
+    .orderBy(desc(sql`total_qty`));
+
+  // Group by category, take top 3 each
+  const byCategory = new Map<number, { menuItemId: number; totalQty: number }[]>();
+  for (const row of sold) {
+    const catId = row.categoryId ?? 0;
+    if (!byCategory.has(catId)) byCategory.set(catId, []);
+    byCategory.get(catId)!.push({ menuItemId: row.menuItemId, totalQty: Number(row.totalQty) });
+  }
+
+  // Clear old cache and insert fresh
+  await db.delete(bestsellerCacheTable);
+  const newIds = new Set<number>();
+  for (const [catId, items] of byCategory.entries()) {
+    const top3 = items.slice(0, 3);
+    for (let i = 0; i < top3.length; i++) {
+      await db.insert(bestsellerCacheTable).values({
+        menuItemId: top3[i].menuItemId,
+        categoryId: catId || null,
+        rank: i + 1,
+        totalQuantity: top3[i].totalQty,
+      });
+      newIds.add(top3[i].menuItemId);
+    }
+  }
+
+  return newIds;
+}
+
 // GET /api/public/menu?sessionToken=xxx
 router.get("/menu", async (req, res): Promise<void> => {
   const { sessionToken } = req.query as { sessionToken: string };
@@ -119,7 +175,11 @@ router.get("/menu", async (req, res): Promise<void> => {
 
   const categories = await db.select().from(menuCategoriesTable);
   const items = await db.select().from(menuItemsTable).where(eq(menuItemsTable.isAvailable, true));
-  res.json({ categories, items });
+  const bestsellerIds = await getBestsellerIds();
+
+  const itemsWithBadge = items.map(item => ({ ...item, isBestseller: bestsellerIds.has(item.id) }));
+
+  res.json({ categories, items: itemsWithBadge });
 });
 
 // GET /api/public/my-orders?sessionToken=xxx

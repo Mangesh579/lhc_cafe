@@ -12,6 +12,7 @@ type MenuItem = {
   description?: string | null;
   price: string;
   imageUrl?: string | null;
+  isBestseller?: boolean;
 };
 
 type Category = { id: number; name: string; items: MenuItem[] };
@@ -594,7 +595,12 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
                               <div style={{ padding: "10px 2px 0" }}>
                                 <p style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: big ? 18 : 15, color: "rgba(217,196,154,0.85)", fontWeight: 400, lineHeight: 1.2, marginBottom: 4 }}>{item.name}</p>
                                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                  <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: big ? 16 : 14, color: "#C8873A", fontWeight: 600 }}>Rs {item.price}</span>
+                                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: big ? 16 : 14, color: "#C8873A", fontWeight: 600 }}>Rs {item.price}</span>
+                                    {item.isBestseller && (
+                                      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 8, color: "#1A0F0A", background: "#C8873A", padding: "2px 6px", letterSpacing: "0.04em", fontWeight: 700 }}>★ TOP PICK</span>
+                                    )}
+                                  </span>
                                   <button
                                     className="add-tab"
                                     onClick={e => { e.stopPropagation(); inCart ? updateQty(item.id, 1) : addToCart(item); }}
