@@ -6,6 +6,7 @@ import { randomBytes } from "crypto";
 const router = Router();
 
 const SESSION_IDLE_MINUTES = 30;
+const BESTSELLER_CACHE_DAYS = 30;
 
 async function resolveSession(sessionToken: string) {
   const [session] = await db
@@ -23,6 +24,20 @@ async function resolveSession(sessionToken: string) {
 
   const idleCutoff = new Date(Date.now() - SESSION_IDLE_MINUTES * 60 * 1000);
   if (session.lastActivityAt < idleCutoff) {
+    await db.delete(tableSessionsTable).where(eq(tableSessionsTable.id, session.id));
+    return null;
+  }
+
+  // Check the table is still occupied AND hasn't been reopened since this session was created.
+  // If staff closed and reopened the table, openedAt changes — old sessions die instantly.
+  const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, session.tableId)).limit(1);
+  if (!table || !table.isOccupied) {
+    await db.delete(tableSessionsTable).where(eq(tableSessionsTable.id, session.id));
+    return null;
+  }
+  const tableOpenedAtMs = table.openedAt ? new Date(table.openedAt).getTime() : null;
+  const sessionOpenedAtMs = session.tableOpenedAt ? new Date(session.tableOpenedAt).getTime() : null;
+  if (tableOpenedAtMs !== sessionOpenedAtMs) {
     await db.delete(tableSessionsTable).where(eq(tableSessionsTable.id, session.id));
     return null;
   }
@@ -49,31 +64,36 @@ router.post("/session/start", async (req, res): Promise<void> => {
 
     if (!table) { res.status(404).json({ error: "Invalid QR code" }); return; }
 
-    // SECURITY: Table must be marked occupied by staff before a new session can start.
-    // This prevents someone from photographing the QR and ordering remotely whenever they want.
     if (!table.isOccupied) {
       res.status(403).json({ error: "This table is not currently active. Please ask staff to seat you." });
       return;
     }
 
+    // Only reuse an existing session if it was created under the SAME opening event.
+    // A session from a previous opening (even if not yet cleaned up) is never reused.
     const [existing] = await db
       .select()
       .from(tableSessionsTable)
       .where(eq(tableSessionsTable.tableId, table.id))
       .limit(1);
 
+    const tableOpenedAtMs = table.openedAt ? new Date(table.openedAt).getTime() : null;
+
     if (existing) {
       const idleCutoff = new Date(Date.now() - SESSION_IDLE_MINUTES * 60 * 1000);
       const hardExpired = existing.expiresAt && new Date() > existing.expiresAt;
       const idleExpired = existing.lastActivityAt < idleCutoff;
+      const existingOpenedAtMs = existing.tableOpenedAt ? new Date(existing.tableOpenedAt).getTime() : null;
+      const sameOpening = existingOpenedAtMs === tableOpenedAtMs;
 
-      if (!hardExpired && !idleExpired) {
+      if (!hardExpired && !idleExpired && sameOpening) {
         await db.update(tableSessionsTable)
           .set({ lastActivityAt: new Date() })
           .where(eq(tableSessionsTable.id, existing.id));
         res.json({ sessionToken: existing.sessionToken, tableNumber: table.tableNumber });
         return;
       }
+      // Stale session from a previous opening, or expired — remove it
       await db.delete(tableSessionsTable).where(eq(tableSessionsTable.id, existing.id));
     }
 
@@ -82,6 +102,7 @@ router.post("/session/start", async (req, res): Promise<void> => {
       tableId: table.id,
       sessionToken,
       lastActivityAt: new Date(),
+      tableOpenedAt: table.openedAt ?? null,
     });
 
     res.json({ sessionToken, tableNumber: table.tableNumber });
@@ -100,21 +121,10 @@ router.get("/session/validate", async (req, res): Promise<void> => {
   if (!session) { res.status(401).json({ valid: false, reason: "expired" }); return; }
 
   const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, session.tableId)).limit(1);
-
-  // If staff closed the table mid-session, kill it immediately
-  if (table && !table.isOccupied) {
-    await db.delete(tableSessionsTable).where(eq(tableSessionsTable.id, session.id));
-    res.status(401).json({ valid: false, reason: "table_closed" });
-    return;
-  }
-
   res.json({ valid: true, tableNumber: table?.tableNumber });
 });
 
-const BESTSELLER_CACHE_DAYS = 30;
-
 async function getBestsellerIds(): Promise<Set<number>> {
-  // Check cache freshness
   const [latest] = await db.select().from(bestsellerCacheTable).orderBy(desc(bestsellerCacheTable.computedAt)).limit(1);
   const cacheAge = latest ? (Date.now() - new Date(latest.computedAt).getTime()) / (1000 * 60 * 60 * 24) : Infinity;
 
@@ -123,7 +133,6 @@ async function getBestsellerIds(): Promise<Set<number>> {
     return new Set(cached.map(c => c.menuItemId));
   }
 
-  // Recompute: top 3 per category by quantity sold in last 2 months, paid orders only
   const twoMonthsAgo = new Date();
   twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
 
@@ -140,7 +149,6 @@ async function getBestsellerIds(): Promise<Set<number>> {
     .groupBy(orderItemsTable.menuItemId, menuItemsTable.categoryId)
     .orderBy(desc(sql`total_qty`));
 
-  // Group by category, take top 3 each
   const byCategory = new Map<number, { menuItemId: number; totalQty: number }[]>();
   for (const row of sold) {
     const catId = row.categoryId ?? 0;
@@ -148,7 +156,6 @@ async function getBestsellerIds(): Promise<Set<number>> {
     byCategory.get(catId)!.push({ menuItemId: row.menuItemId, totalQty: Number(row.totalQty) });
   }
 
-  // Clear old cache and insert fresh
   await db.delete(bestsellerCacheTable);
   const newIds = new Set<number>();
   for (const [catId, items] of byCategory.entries()) {
@@ -176,14 +183,12 @@ router.get("/menu", async (req, res): Promise<void> => {
   const categories = await db.select().from(menuCategoriesTable);
   const items = await db.select().from(menuItemsTable).where(eq(menuItemsTable.isAvailable, true));
   const bestsellerIds = await getBestsellerIds();
-
   const itemsWithBadge = items.map(item => ({ ...item, isBestseller: bestsellerIds.has(item.id) }));
 
   res.json({ categories, items: itemsWithBadge });
 });
 
 // GET /api/public/my-orders?sessionToken=xxx
-// Returns all orders placed under this table's current session, for live status tracking
 router.get("/my-orders", async (req, res): Promise<void> => {
   const { sessionToken } = req.query as { sessionToken: string };
   const session = await resolveSession(sessionToken);

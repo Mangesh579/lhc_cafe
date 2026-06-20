@@ -42,7 +42,12 @@ router.delete("/tables/:id", authenticate, async (req, res): Promise<void> => {
 router.patch("/tables/:id/occupy", authenticate, async (req, res): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
   const { isOccupied } = req.body;
-  const [table] = await db.update(cafeTablesTable).set({ isOccupied: !!isOccupied }).where(eq(cafeTablesTable.id, id)).returning();
+  const updateData: Record<string, unknown> = { isOccupied: !!isOccupied };
+  // Stamp a fresh "opened" timestamp every time staff opens the table —
+  // this invalidates any session created under a previous opening, even
+  // if that session row technically still exists.
+  if (isOccupied) updateData.openedAt = new Date();
+  const [table] = await db.update(cafeTablesTable).set(updateData).where(eq(cafeTablesTable.id, id)).returning();
   if (!table) { res.status(404).json({ error: "Table not found" }); return; }
   res.json(table);
 });
