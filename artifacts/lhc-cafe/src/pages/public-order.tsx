@@ -191,7 +191,9 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
   useEffect(() => {
     const stored = localStorage.getItem(SESSION_KEY);
+    console.log("[SESSION DEBUG] Effect running. Stored token:", stored, "tableToken:", tableToken);
     const start = async () => {
+      console.log("[SESSION DEBUG] Calling start (fresh session)");
       try {
         const r = await fetch(`${API_BASE}/api/public/session/start`, {
           method:"POST", headers:{"Content-Type":"application/json"},
@@ -204,6 +206,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       } catch { setSessionState("expired"); }
     };
     const validate = async (tok: string) => {
+      console.log("[SESSION DEBUG] Calling validate with token:", tok);
       try {
         const r = await fetch(`${API_BASE}/api/public/session/validate?sessionToken=${tok}`);
         if (!r.ok) {
