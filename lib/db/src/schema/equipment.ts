@@ -1,10 +1,12 @@
-import { pgTable, serial, text, numeric, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, numeric, timestamp, integer } from "drizzle-orm/pg-core";
 
 export const equipmentItemsTable = pgTable("equipment_items", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
   purchaseDate: text("purchase_date"),
+  quantity: integer("quantity").notNull().default(1),
+  unitPrice: numeric("unit_price", { precision: 10, scale: 2 }),
   purchasePrice: numeric("purchase_price", { precision: 10, scale: 2 }),
   condition: text("condition").notNull().default("good"),
   notes: text("notes"),

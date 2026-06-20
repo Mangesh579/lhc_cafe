@@ -87,7 +87,8 @@ function EquipmentDialog({ eq, open, onClose, onSaved }: { eq?: any; open: boole
   const [name, setName] = useState(eq?.name ?? "");
   const [description, setDescription] = useState(eq?.description ?? "");
   const [purchaseDate, setPurchaseDate] = useState(eq?.purchaseDate ?? "");
-  const [purchasePrice, setPurchasePrice] = useState(eq?.purchasePrice ? String(eq.purchasePrice) : "");
+  const [quantity, setQuantity] = useState(eq?.quantity ? String(eq.quantity) : "1");
+  const [unitPrice, setUnitPrice] = useState(eq?.unitPrice ? String(eq.unitPrice) : "");
   const [condition, setCondition] = useState(eq?.condition ?? "good");
   const [notes, setNotes] = useState(eq?.notes ?? "");
   const [loading, setLoading] = useState(false);
@@ -96,16 +97,26 @@ function EquipmentDialog({ eq, open, onClose, onSaved }: { eq?: any; open: boole
   useEffect(() => {
     if (open) {
       setName(eq?.name ?? ""); setDescription(eq?.description ?? "");
-      setPurchaseDate(eq?.purchaseDate ?? ""); setPurchasePrice(eq?.purchasePrice ? String(eq.purchasePrice) : "");
+      setPurchaseDate(eq?.purchaseDate ?? "");
+      setQuantity(eq?.quantity ? String(eq.quantity) : "1");
+      setUnitPrice(eq?.unitPrice ? String(eq.unitPrice) : "");
       setCondition(eq?.condition ?? "good"); setNotes(eq?.notes ?? "");
     }
   }, [open, eq]);
+
+  const totalPrice = (parseFloat(quantity) || 0) * (parseFloat(unitPrice) || 0);
 
   const handleSave = async () => {
     if (!name) { toast({ title: "Name required", variant: "destructive" }); return; }
     setLoading(true);
     try {
-      const body = { name, description: description || undefined, purchaseDate: purchaseDate || undefined, purchasePrice: purchasePrice ? parseFloat(purchasePrice) : undefined, condition, notes: notes || undefined };
+      const body = {
+        name, description: description || undefined,
+        purchaseDate: purchaseDate || undefined,
+        quantity: quantity ? parseInt(quantity) : 1,
+        unitPrice: unitPrice ? parseFloat(unitPrice) : undefined,
+        condition, notes: notes || undefined,
+      };
       if (eq) await APIJSON(`/equipment/${eq.id}`, "PATCH", body);
       else await APIJSON(`/equipment`, "POST", body);
       toast({ title: eq ? "Equipment updated" : "Equipment added" }); onSaved(); onClose();
@@ -120,7 +131,6 @@ function EquipmentDialog({ eq, open, onClose, onSaved }: { eq?: any; open: boole
         <div className="grid grid-cols-2 gap-4 py-4">
           <div className="col-span-2 space-y-1"><Label>Name *</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="Espresso Machine" /></div>
           <div className="space-y-1"><Label>Purchase Date</Label><Input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} /></div>
-          <div className="space-y-1"><Label>Purchase Price (Rs.)</Label><Input type="number" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} /></div>
           <div className="space-y-1">
             <Label>Condition</Label>
             <Select value={condition} onValueChange={setCondition}>
@@ -132,6 +142,12 @@ function EquipmentDialog({ eq, open, onClose, onSaved }: { eq?: any; open: boole
                 <SelectItem value="broken">Broken</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-1"><Label>Quantity</Label><Input type="number" min="1" value={quantity} onChange={e => setQuantity(e.target.value)} /></div>
+          <div className="space-y-1"><Label>Unit Price (Rs.)</Label><Input type="number" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} placeholder="Per item" /></div>
+          <div className="col-span-2 p-2 bg-muted/40 rounded-md text-sm">
+            Total: <span className="font-bold text-primary">Rs. {totalPrice.toFixed(0)}</span>
+            <span className="text-muted-foreground ml-1">({quantity || 0} × Rs. {unitPrice || 0})</span>
           </div>
           <div className="col-span-2 space-y-1"><Label>Description / Notes</Label><Textarea value={notes || description} onChange={e => setNotes(e.target.value)} className="resize-none h-20" /></div>
         </div>
@@ -436,14 +452,16 @@ export default function Inventory() {
                   <tr>
                     <th className="px-5 py-3">Equipment</th>
                     <th className="px-5 py-3">Condition</th>
+                    <th className="px-5 py-3">Qty</th>
+                    <th className="px-5 py-3">Unit Price</th>
+                    <th className="px-5 py-3">Total</th>
                     <th className="px-5 py-3">Purchase Date</th>
-                    <th className="px-5 py-3">Purchase Price</th>
                     <th className="px-5 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {equipment.length === 0 ? (
-                    <tr><td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">No equipment added yet.</td></tr>
+                    <tr><td colSpan={7} className="px-5 py-8 text-center text-muted-foreground">No equipment added yet.</td></tr>
                   ) : equipment.map(eq => (
                     <tr key={eq.id} className="hover:bg-muted/20">
                       <td className="px-5 py-3">
@@ -453,8 +471,10 @@ export default function Inventory() {
                       <td className="px-5 py-3">
                         <Badge variant="secondary" className={conditionColor[eq.condition] ?? ""}>{eq.condition}</Badge>
                       </td>
+                      <td className="px-5 py-3 font-medium">{eq.quantity ?? 1}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{eq.unitPrice ? `Rs. ${parseFloat(String(eq.unitPrice)).toFixed(0)}` : "—"}</td>
+                      <td className="px-5 py-3 font-bold text-primary">{eq.purchasePrice ? `Rs. ${parseFloat(String(eq.purchasePrice)).toFixed(0)}` : "—"}</td>
                       <td className="px-5 py-3 text-muted-foreground">{eq.purchaseDate || "—"}</td>
-                      <td className="px-5 py-3 text-muted-foreground">{eq.purchasePrice ? `Rs. ${parseFloat(String(eq.purchasePrice)).toFixed(0)}` : "—"}</td>
                       <td className="px-5 py-3 text-right">
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon" onClick={() => setEqDialog({ open: true, eq })}><Edit2 className="w-4 h-4 text-muted-foreground" /></Button>

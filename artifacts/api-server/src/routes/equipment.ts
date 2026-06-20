@@ -12,18 +12,26 @@ router.get("/equipment", authenticate, async (_req, res): Promise<void> => {
 });
 
 router.post("/equipment", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const { name, description, purchaseDate, purchasePrice, condition, notes } = req.body;
+  const { name, description, purchaseDate, quantity, unitPrice, condition, notes } = req.body;
   if (!name) { res.status(400).json({ error: "Name required" }); return; }
+
+  const qty = quantity != null ? parseInt(quantity, 10) : 1;
+  const unitP = unitPrice != null ? parseFloat(unitPrice) : null;
+  const totalPrice = unitP != null ? qty * unitP : null;
+
   const [item] = await db.insert(equipmentItemsTable).values({
     name, description: description ?? null,
     purchaseDate: purchaseDate ?? null,
-    purchasePrice: purchasePrice != null ? String(purchasePrice) : null,
+    quantity: qty,
+    unitPrice: unitP != null ? String(unitP) : null,
+    purchasePrice: totalPrice != null ? String(totalPrice) : null,
     condition: condition ?? "good",
     notes: notes ?? null,
   }).returning();
+
   await db.insert(equipmentLogsTable).values({
     equipmentItemId: item.id, action: "added",
-    notes: `Equipment added to inventory`,
+    notes: `Equipment added to inventory (qty: ${qty})`,
     changedBy: req.user?.username ?? "admin",
   });
   res.status(201).json(item);
@@ -31,16 +39,31 @@ router.post("/equipment", authenticate, async (req: AuthRequest, res: Response):
 
 router.patch("/equipment/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const { name, description, purchaseDate, purchasePrice, condition, notes } = req.body;
+  const { name, description, purchaseDate, quantity, unitPrice, condition, notes } = req.body;
+
+  const [existing] = await db.select().from(equipmentItemsTable).where(eq(equipmentItemsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Equipment not found" }); return; }
+
   const updateData: Record<string, unknown> = {};
   if (name !== undefined) updateData.name = name;
   if (description !== undefined) updateData.description = description;
   if (purchaseDate !== undefined) updateData.purchaseDate = purchaseDate;
-  if (purchasePrice !== undefined) updateData.purchasePrice = purchasePrice != null ? String(purchasePrice) : null;
   if (condition !== undefined) updateData.condition = condition;
   if (notes !== undefined) updateData.notes = notes;
+
+  // Recompute total price if quantity or unitPrice changes
+  const newQty = quantity !== undefined ? parseInt(quantity, 10) : (existing.quantity ?? 1);
+  const newUnitPrice = unitPrice !== undefined ? (unitPrice != null ? parseFloat(unitPrice) : null) : (existing.unitPrice != null ? parseFloat(String(existing.unitPrice)) : null);
+
+  if (quantity !== undefined) updateData.quantity = newQty;
+  if (unitPrice !== undefined) updateData.unitPrice = newUnitPrice != null ? String(newUnitPrice) : null;
+  if (quantity !== undefined || unitPrice !== undefined) {
+    updateData.purchasePrice = newUnitPrice != null ? String(newQty * newUnitPrice) : null;
+  }
+
   const [item] = await db.update(equipmentItemsTable).set(updateData).where(eq(equipmentItemsTable.id, id)).returning();
   if (!item) { res.status(404).json({ error: "Equipment not found" }); return; }
+
   await db.insert(equipmentLogsTable).values({
     equipmentItemId: id, action: "updated",
     notes: `Equipment details updated`,
