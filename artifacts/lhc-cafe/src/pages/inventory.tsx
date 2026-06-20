@@ -216,7 +216,7 @@ function WasteDialog({ inventory, menuItems, open, onClose, onSaved }: { invento
               <Label>Linked Ingredient</Label>
               <Select value={invItemId || "none"} onValueChange={handleInvChange}>
                 <SelectTrigger><SelectValue placeholder="Select ingredient" /></SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[300px] overflow-y-auto">
                   <SelectItem value="none">None</SelectItem>
                   {inventory.map(i => <SelectItem key={i.id} value={String(i.id)}>{i.name}</SelectItem>)}
                 </SelectContent>
@@ -226,7 +226,7 @@ function WasteDialog({ inventory, menuItems, open, onClose, onSaved }: { invento
               <Label>Or Linked Menu Item</Label>
               <Select value={menuItemId || "none"} onValueChange={handleMenuChange}>
                 <SelectTrigger><SelectValue placeholder="Select item" /></SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[300px] overflow-y-auto">
                   <SelectItem value="none">None</SelectItem>
                   {menuItems.map(i => <SelectItem key={i.id} value={String(i.id)}>{i.name}</SelectItem>)}
                 </SelectContent>
