@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, inventoryItemsTable, inventoryLogsTable } from "@workspace/db";
+import { db, inventoryItemsTable, inventoryLogsTable, recipesTable, menuItemsTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import type { Response } from "express";
@@ -110,6 +110,28 @@ router.post("/inventory/:id/adjust", authenticate, async (req: AuthRequest, res:
     reason, changedBy: req.user?.username ?? "staff",
   });
   res.json(item);
+});
+
+// GET /api/inventory/usage-map
+// Returns { [inventoryItemId]: [{ id, name, isAvailable }, ...] }
+// Used by the Ingredients tab to show which menu items use each ingredient.
+router.get("/inventory/usage-map", authenticate, async (_req, res): Promise<void> => {
+  const rows = await db
+    .select({
+      inventoryItemId: recipesTable.inventoryItemId,
+      menuItemId: menuItemsTable.id,
+      menuItemName: menuItemsTable.name,
+      isAvailable: menuItemsTable.isAvailable,
+    })
+    .from(recipesTable)
+    .innerJoin(menuItemsTable, eq(recipesTable.menuItemId, menuItemsTable.id));
+
+  const map: Record<number, { id: number; name: string; isAvailable: boolean }[]> = {};
+  for (const row of rows) {
+    if (!map[row.inventoryItemId]) map[row.inventoryItemId] = [];
+    map[row.inventoryItemId].push({ id: row.menuItemId, name: row.menuItemName, isAvailable: row.isAvailable });
+  }
+  res.json(map);
 });
 
 export default router;

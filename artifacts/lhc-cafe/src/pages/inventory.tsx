@@ -242,6 +242,25 @@ export default function Inventory() {
   const adjustMut = useAdjustInventory();
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [usageMap, setUsageMap] = useState<Record<number, { id: number; name: string; isAvailable: boolean }[]>>({});
+
+  const loadUsageMap = async () => {
+    try {
+      const data = await APIJSON("/inventory/usage-map");
+      setUsageMap(data ?? {});
+    } catch { /* non-critical */ }
+  };
+
+  useEffect(() => { loadUsageMap(); }, []);
+
+  const toggleMenuItemAvailability = async (menuItemId: number, current: boolean) => {
+    try {
+      await APIJSON(`/menu-items/${menuItemId}`, "PATCH", { isAvailable: !current });
+      toast({ title: `Item ${!current ? "enabled" : "disabled"}` });
+      await loadUsageMap();
+      qc.invalidateQueries({ queryKey: ["menu-items"] });
+    } catch { toast({ title: "Failed to update item", variant: "destructive" }); }
+  };
 
   const [ingDialog, setIngDialog] = useState<{ open: boolean; item?: any }>({ open: false });
   const [adjustItem, setAdjustItem] = useState<any>(null);
@@ -355,9 +374,27 @@ export default function Inventory() {
                         <td className="px-5 py-3 text-muted-foreground text-sm">
                           {item.minStockLevel ? `${parseFloat(String(item.minStockLevel)).toFixed(1)} ${item.unit}` : "—"}
                         </td>
-                        <td className="px-5 py-3 text-xs text-muted-foreground max-w-32">
-                          {/* We can't easily join without recipes in the list response, so show "—" */}
-                          —
+                        <td className="px-5 py-3 max-w-56">
+                          {(usageMap[item.id] ?? []).length === 0 ? (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          ) : (
+                            <div className="flex flex-col gap-1">
+                              {usageMap[item.id].map(mi => (
+                                <button
+                                  key={mi.id}
+                                  onClick={() => toggleMenuItemAvailability(mi.id, mi.isAvailable)}
+                                  className={`text-xs px-2 py-0.5 rounded-full border text-left transition-colors ${
+                                    mi.isAvailable
+                                      ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
+                                      : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                                  }`}
+                                  title={isLow ? `${mi.name} — click to ${mi.isAvailable ? "mark unavailable" : "mark available"}` : mi.name}
+                                >
+                                  {mi.isAvailable ? "●" : "○"} {mi.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </td>
                         <td className="px-5 py-3">
                           {isLow ? (
