@@ -160,14 +160,12 @@ export default function POS() {
       {/* Left Side: Menu */}
       <div className="flex-1 flex flex-col gap-3 min-w-0">
         <div className="bg-card border rounded-lg p-2 shadow-sm">
-          <ScrollArea className="w-full whitespace-nowrap">
-            <div className="flex gap-2 p-1">
-              <Button variant={activeCategory === "all" ? "default" : "outline"} onClick={() => setActiveCategory("all")} className="rounded-full flex-shrink-0">All Items</Button>
-              {categories?.map(cat => (
-                <Button key={cat.id} variant={activeCategory === cat.id.toString() ? "default" : "outline"} onClick={() => setActiveCategory(cat.id.toString())} className="rounded-full flex-shrink-0">{cat.name}</Button>
-              ))}
-            </div>
-          </ScrollArea>
+          <div className="flex gap-2 p-1 overflow-x-auto" style={{ scrollbarWidth: "thin" }}>
+            <Button variant={activeCategory === "all" ? "default" : "outline"} onClick={() => setActiveCategory("all")} className="rounded-full flex-shrink-0">All Items</Button>
+            {categories?.map(cat => (
+              <Button key={cat.id} variant={activeCategory === cat.id.toString() ? "default" : "outline"} onClick={() => setActiveCategory(cat.id.toString())} className="rounded-full flex-shrink-0">{cat.name}</Button>
+            ))}
+          </div>
         </div>
 
         <ScrollArea className="flex-1 bg-muted/20 border rounded-lg p-4">
