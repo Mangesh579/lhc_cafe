@@ -12,7 +12,7 @@ export function comparePassword(password: string, hash: string): boolean {
 }
 
 export function signToken(payload: { id: number; username: string; role: string }): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: "2m" });
 }
 
 export function verifyToken(token: string): { id: number; username: string; role: string } | null {
