@@ -131,6 +131,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
   const feedRef = useRef<HTMLDivElement>(null);
   const catRefs = useRef<Record<number, HTMLElement|null>>({});
+  const itemRefs = useRef<Record<number, HTMLElement|null>>({});
 
   const switchTab = useCallback((tab: "menu"|"myorder") => {
     if (tab === activeTab) return;
@@ -231,6 +232,10 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     catRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const scrollToItem = (id: number) => {
+    itemRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
   const addToCart = (item: MenuItem, qty = 1) => {
     setCart(prev => {
       const ex = prev.find(i => i.id === item.id);
@@ -245,6 +250,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const subtotal = cart.reduce((s,i) => s + i.price*i.quantity, 0);
   const totalItems = cart.reduce((s,i) => s + i.quantity, 0);
   const activeMyOrders = myOrders.filter(o => !["completed","cancelled"].includes(o.orderStatus));
+  const bestsellerItems = categories.flatMap(c => c.items).filter(i => i.isBestseller);
 
   const placeOrder = async () => {
     if (!cart.length || isSubmitting || !sessionToken) return;
@@ -438,6 +444,42 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         )}
       </div>
 
+      {/* Most Popular — horizontal rail of bestsellers, tap to jump to that dish in the feed */}
+      {bestsellerItems.length > 0 && (
+        <div className="float-in-2" style={{ padding: "4px 0 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 16px", marginBottom: 10 }}>
+            <span style={{ fontSize: 13 }}>★</span>
+            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(245,238,225,0.55)", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 500 }}>Most Popular</p>
+          </div>
+          <div style={{ display: "flex", gap: 10, overflowX: "auto", padding: "0 16px" }}>
+            {bestsellerItems.map(item => {
+              const inCart = cartQty(item.id) > 0;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => scrollToItem(item.id)}
+                  style={{
+                    flexShrink: 0, width: 112, background: "none", border: "none", cursor: "pointer",
+                    padding: 0, textAlign: "left",
+                  }}
+                >
+                  <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", marginBottom: 6 }}>
+                    <DishMedia item={item} height={90} />
+                    {inCart && (
+                      <div style={{ position: "absolute", top: 5, right: 5, width: 18, height: 18, borderRadius: "50%", background: "#C8873A", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, color: "#1A0F0A", fontWeight: 700 }}>{cartQty(item.id)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <p style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 13.5, color: "rgba(245,238,225,0.85)", fontWeight: 400, lineHeight: 1.25, marginBottom: 2, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical" }}>{item.name}</p>
+                  <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "#C8873A", fontWeight: 600 }}>Rs {item.price}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Vertical snap feed */}
       <div ref={feedRef} className="feed-track">
         {categories.map((cat, catIdx) => (
@@ -446,7 +488,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
               const inCart = cartQty(item.id) > 0;
               const isFirstCardEver = catIdx === 0 && itemIdx === 0;
               return (
-                <div key={item.id} className="feed-card" style={{ padding: "8px 16px 16px" }}>
+                <div key={item.id} className="feed-card" ref={el => { itemRefs.current[item.id] = el; }} style={{ padding: "8px 16px 16px" }}>
                   <div
                     onClick={() => setSelectedItem(item)}
                     style={{ borderRadius: 18, overflow: "hidden", position: "relative", cursor: "pointer", height: "62vh", minHeight: 360, maxHeight: 560 }}
