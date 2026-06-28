@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable, bestsellerCacheTable } from "@workspace/db";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 import { randomBytes } from "crypto";
+import { publicOrderRateLimiter } from "../middlewares/rateLimit";
 
 const router = Router();
 
@@ -49,7 +50,7 @@ async function resolveSession(sessionToken: string) {
 }
 
 // POST /api/public/session/start
-router.post("/session/start", async (req, res): Promise<void> => {
+router.post("/session/start", publicOrderRateLimiter, async (req, res): Promise<void> => {
   try {
     const { tableToken } = req.body;
     if (!tableToken) { res.status(400).json({ error: "tableToken required" }); return; }
@@ -108,7 +109,7 @@ router.post("/session/start", async (req, res): Promise<void> => {
 });
 
 // GET /api/public/session/validate?sessionToken=xxx
-router.get("/session/validate", async (req, res): Promise<void> => {
+router.get("/session/validate", publicOrderRateLimiter, async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.set("Pragma", "no-cache");
   res.set("Expires", "0");
@@ -174,7 +175,7 @@ async function getBestsellerIds(): Promise<Set<number>> {
 
 // GET /api/public/menu?sessionToken=xxx
 // GET /api/public/menu?sessionToken=xxx
-router.get("/menu", async (req, res): Promise<void> => {
+router.get("/menu", publicOrderRateLimiter, async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.set("Pragma", "no-cache");
   res.set("Expires", "0");
@@ -191,7 +192,7 @@ router.get("/menu", async (req, res): Promise<void> => {
 });
 
 // GET /api/public/my-orders?sessionToken=xxx
-router.get("/my-orders", async (req, res): Promise<void> => {
+router.get("/my-orders", publicOrderRateLimiter, async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.set("Pragma", "no-cache");
   res.set("Expires", "0");
@@ -232,7 +233,7 @@ router.get("/my-orders", async (req, res): Promise<void> => {
 });
 
 // POST /api/public/order
-router.post("/order", async (req, res): Promise<void> => {
+router.post("/order", publicOrderRateLimiter, async (req, res): Promise<void> => {
   try {
     const { sessionToken, items, customerNote, paymentMethod } = req.body;
     const session = await resolveSession(sessionToken);

@@ -3,11 +3,12 @@ import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { hashPassword, comparePassword, signToken } from "../lib/auth";
 import { authenticate, requireAdmin, type AuthRequest } from "../middlewares/auth";
+import { authRateLimiter } from "../middlewares/rateLimit";
 import type { Response } from "express";
 
 const router = Router();
 
-router.post("/auth/login", async (req, res): Promise<void> => {
+router.post("/auth/login", authRateLimiter, async (req, res): Promise<void> => {
   const { username, password } = req.body;
   if (!username || !password) {
     res.status(400).json({ error: "Username and password required" });
@@ -33,7 +34,7 @@ router.get("/auth/me", authenticate, (req: AuthRequest, res: Response): void => 
   res.json({ id: req.user!.id, username: req.user!.username, role: req.user!.role });
 });
 
-router.post("/auth/change-password", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post("/auth/change-password", authRateLimiter, authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const { currentPassword, newPassword } = req.body;
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.user!.id));
   if (!user || !comparePassword(currentPassword, user.passwordHash)) {
@@ -78,7 +79,7 @@ router.delete("/auth/users/:id", authenticate, requireAdmin, async (req, res): P
   res.sendStatus(204);
 });
 
-router.post("/auth/users/:id/reset-password", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post("/auth/users/:id/reset-password", authRateLimiter, authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
   const { newPassword } = req.body;
   if (!newPassword || newPassword.length < 6) {

@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { sanitizeBody } from "./middlewares/sanitize";
+import { generalRateLimiter } from "./middlewares/rateLimit";
 import { logger } from "./lib/logger";
 
 
@@ -34,6 +35,7 @@ app.use(cors({
 app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 app.use(sanitizeBody);
+app.use("/api", generalRateLimiter);
 
 app.use("/api", router);
 
