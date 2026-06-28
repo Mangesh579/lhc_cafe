@@ -1,7 +1,14 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 
-const JWT_SECRET = process.env.SESSION_SECRET ?? "lhc-cafe-secret-key-2024";
+const SESSION_SECRET_ENV = process.env.SESSION_SECRET;
+if (!SESSION_SECRET_ENV || SESSION_SECRET_ENV.length < 32) {
+  throw new Error(
+    "SESSION_SECRET environment variable is missing or too short (must be at least 32 characters). " +
+    "Generate one with: node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\""
+  );
+}
+const JWT_SECRET: string = SESSION_SECRET_ENV;
 
 export function hashPassword(password: string): string {
   return bcrypt.hashSync(password, 10);
