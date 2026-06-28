@@ -7,7 +7,10 @@ import { createHmac, randomBytes } from "crypto";
 const router = Router();
 
 function tableToken(tableNumber: number): string {
-  const secret = process.env.SESSION_SECRET ?? "lhc-cafe-secret";
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) {
+    throw new Error("SESSION_SECRET environment variable is required to generate table tokens.");
+  }
   return createHmac("sha256", secret)
     .update(`table-${tableNumber}`)
     .digest("hex");
