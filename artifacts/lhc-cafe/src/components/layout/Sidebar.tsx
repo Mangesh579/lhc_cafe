@@ -11,7 +11,8 @@ import {
   Users, 
   UserCog,
   Settings, 
-  LogOut 
+  LogOut,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,7 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: Settings, roles: ["admin", "staff"] },
 ];
 
-export function Sidebar() {
+export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [location] = useLocation();
   const { user, logout } = useAuth();
 
@@ -39,48 +40,71 @@ export function Sidebar() {
   const role = user.role || UserRole.staff;
 
   return (
-    <aside className="w-64 flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
-      <div className="p-6">
-        <h1 className="text-2xl font-bold text-sidebar-primary">LHC Cafe</h1>
-        <p className="text-sm text-sidebar-foreground/70">Management System</p>
-      </div>
+    <>
+      {/* Backdrop — only visible/clickable when open, sits behind the sidebar */}
+      <div
+        onClick={onClose}
+        className={cn(
+          "fixed inset-0 z-40 bg-black/40 transition-opacity lg:hidden",
+          open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        )}
+      />
 
-      <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
-        {navItems
-          .filter(item => item.roles.includes(role))
-          .map((item) => {
-            const isActive = location === item.href;
-            const Icon = item.icon;
-            
-            return (
-              <Link key={item.href} href={item.href}>
-                <span
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer",
-                    isActive 
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground" 
-                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                  )}
-                >
-                  <Icon className="w-4 h-4" />
-                  {item.label}
-                </span>
-              </Link>
-            );
-          })}
-      </nav>
-
-      <div className="p-4 border-t border-sidebar-border bg-sidebar-accent/20">
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col">
-            <span className="text-sm font-medium">{user.username}</span>
-            <span className="text-xs text-sidebar-foreground/60 capitalize">{user.role}</span>
+      <aside
+        className={cn(
+          "fixed lg:static inset-y-0 left-0 z-50 w-64 flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-transform duration-200 ease-in-out",
+          "lg:translate-x-0",
+          open ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        <div className="p-6 flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-sidebar-primary">LHC Cafe</h1>
+            <p className="text-sm text-sidebar-foreground/70">Management System</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={() => logout()} className="text-sidebar-foreground/80 hover:text-destructive">
-            <LogOut className="w-4 h-4" />
+          <Button variant="ghost" size="icon" onClick={onClose} className="lg:hidden text-sidebar-foreground/70 -mr-2 -mt-1">
+            <X className="w-5 h-5" />
           </Button>
         </div>
-      </div>
-    </aside>
+
+        <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
+          {navItems
+            .filter(item => item.roles.includes(role))
+            .map((item) => {
+              const isActive = location === item.href;
+              const Icon = item.icon;
+
+              return (
+                <Link key={item.href} href={item.href}>
+                  <span
+                    onClick={onClose}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer",
+                      isActive
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {item.label}
+                  </span>
+                </Link>
+              );
+            })}
+        </nav>
+
+        <div className="p-4 border-t border-sidebar-border bg-sidebar-accent/20">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="text-sm font-medium">{user.username}</span>
+              <span className="text-xs text-sidebar-foreground/60 capitalize">{user.role}</span>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => logout()} className="text-sidebar-foreground/80 hover:text-destructive">
+              <LogOut className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </aside>
+    </>
   );
 }
