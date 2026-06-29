@@ -41,19 +41,18 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
 
   return (
     <>
-      {/* Backdrop — only visible/clickable when open, sits behind the sidebar */}
+      {/* Backdrop — visible/clickable whenever the sidebar is open, any screen size */}
       <div
         onClick={onClose}
         className={cn(
-          "fixed inset-0 z-40 bg-black/40 transition-opacity lg:hidden",
+          "fixed inset-0 z-40 bg-black/40 transition-opacity",
           open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         )}
       />
 
       <aside
         className={cn(
-          "fixed lg:static inset-y-0 left-0 z-50 w-64 flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-transform duration-200 ease-in-out",
-          "lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 w-64 flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-transform duration-200 ease-in-out",
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -62,7 +61,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             <h1 className="text-2xl font-bold text-sidebar-primary">LHC Cafe</h1>
             <p className="text-sm text-sidebar-foreground/70">Management System</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} className="lg:hidden text-sidebar-foreground/70 -mr-2 -mt-1">
+          <Button variant="ghost" size="icon" onClick={onClose} className="text-sidebar-foreground/70 -mr-2 -mt-1">
             <X className="w-5 h-5" />
           </Button>
         </div>

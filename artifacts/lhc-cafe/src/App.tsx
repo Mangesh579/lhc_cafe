@@ -31,8 +31,8 @@ function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen bg-background">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Mobile top bar with hamburger trigger */}
-        <div className="lg:hidden flex items-center gap-3 px-4 h-14 border-b bg-card shrink-0">
+        {/* Top bar with hamburger trigger — shown on every screen size */}
+        <div className="flex items-center gap-3 px-4 h-14 border-b bg-card shrink-0">
           <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)}>
             <Menu className="w-5 h-5" />
           </Button>
