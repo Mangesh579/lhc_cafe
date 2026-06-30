@@ -123,15 +123,18 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
     resolvedItems.push({ menuItemId: item.menuItemId, quantity: item.quantity, unitPrice, subtotal, notes: item.notes });
   }
 
+  const discountValue = discountAmount ? parseFloat(String(discountAmount)) : 0;
+  const finalTotal = Math.max(0, totalAmount - discountValue);
+
   const [order] = await db.insert(ordersTable).values({
     tableId: tableId ?? null,
-    totalAmount: String(totalAmount),
+    totalAmount: String(finalTotal),
     paymentMethod: paymentMethod ?? "cash",
     paymentStatus: "pending",
     orderStatus: "pending",
     loyaltyCustomerId: loyaltyCustomerId ?? null,
     notes: notes ?? null,
-    discountAmount: discountAmount ? String(discountAmount) : "0",
+    discountAmount: String(discountValue),
   }).returning();
 
   for (const item of resolvedItems) {

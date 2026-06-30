@@ -255,15 +255,31 @@ export default function Orders() {
           <div className="space-y-5 py-4 overflow-y-auto max-h-[60vh]">
             <div className="text-center">
               {(() => {
-                const base = parseFloat(String(paymentModalOrder?.totalAmount ?? 0));
+                // totalAmount already has any loyalty discount baked in from POS order creation.
+                // The staff % field here applies an ADDITIONAL discount on top of that, not a re-discount.
+                const alreadyDiscounted = parseFloat(String(paymentModalOrder?.totalAmount ?? 0));
+                const existingDiscount = parseFloat(String(paymentModalOrder?.discountAmount ?? 0));
+                const originalSubtotal = alreadyDiscounted + existingDiscount;
+
                 const pct = parseFloat(discount) || 0;
-                const discAmt = base * (pct / 100);
-                const final = base - discAmt;
+                const additionalDiscAmt = alreadyDiscounted * (pct / 100);
+                const final = alreadyDiscounted - additionalDiscAmt;
+
                 return (
                   <>
-                    {discAmt > 0 && <p className="text-sm line-through text-muted-foreground">Rs. {base.toFixed(0)}</p>}
+                    {existingDiscount > 0 && (
+                      <p className="text-sm line-through text-muted-foreground">Rs. {originalSubtotal.toFixed(0)}</p>
+                    )}
+                    {existingDiscount > 0 && (
+                      <p className="text-sm text-blue-600 font-medium mb-1">Loyalty discount applied: −Rs. {existingDiscount.toFixed(0)}</p>
+                    )}
+                    {additionalDiscAmt > 0 && pct > 0 && (
+                      <p className="text-sm line-through text-muted-foreground">Rs. {alreadyDiscounted.toFixed(0)}</p>
+                    )}
                     <p className="text-4xl font-bold text-primary">Rs. {final.toFixed(0)}</p>
-                    {discAmt > 0 && <p className="text-sm text-green-600 font-medium">Discount: {pct}% (−Rs. {discAmt.toFixed(0)})</p>}
+                    {additionalDiscAmt > 0 && (
+                      <p className="text-sm text-green-600 font-medium">Staff discount: {pct}% (−Rs. {additionalDiscAmt.toFixed(0)})</p>
+                    )}
                     {paymentModalOrder?.loyaltyCustomerName && <p className="text-sm text-muted-foreground mt-1">Customer: {paymentModalOrder.loyaltyCustomerName}</p>}
                   </>
                 );
@@ -271,7 +287,7 @@ export default function Orders() {
             </div>
             
             <div className="space-y-2">
-              <Label className="text-xs font-semibold text-muted-foreground uppercase">Discount %</Label>
+              <Label className="text-xs font-semibold text-muted-foreground uppercase">Additional Staff Discount %</Label>
               <div className="flex items-center gap-2">
                 <Input
                   type="number"
@@ -357,20 +373,27 @@ export default function Orders() {
             </div>
             <div className="flex justify-between font-bold">
               {(() => {
-                const base = parseFloat(String(paymentModalOrder.totalAmount));
+                const alreadyDiscounted = parseFloat(String(paymentModalOrder.totalAmount));
+                const existingDiscount = parseFloat(String(paymentModalOrder.discountAmount ?? 0));
+                const originalSubtotal = alreadyDiscounted + existingDiscount;
                 const pct = parseFloat(discount) || 0;
-                const discAmt = base * (pct / 100);
-                const final = base - discAmt;
+                const additionalDiscAmt = alreadyDiscounted * (pct / 100);
+                const final = alreadyDiscounted - additionalDiscAmt;
                 return (
                   <>
-                    {discAmt > 0 && (
+                    {existingDiscount > 0 && (
                       <div className="flex justify-between text-xs mb-1">
-                        <span>Subtotal</span><span>Rs. {base.toFixed(0)}</span>
+                        <span>Subtotal</span><span>Rs. {originalSubtotal.toFixed(0)}</span>
                       </div>
                     )}
-                    {discAmt > 0 && (
+                    {existingDiscount > 0 && (
                       <div className="flex justify-between text-xs mb-1 text-gray-600">
-                        <span>Discount ({pct}%)</span><span>−Rs. {discAmt.toFixed(0)}</span>
+                        <span>Loyalty discount</span><span>−Rs. {existingDiscount.toFixed(0)}</span>
+                      </div>
+                    )}
+                    {additionalDiscAmt > 0 && (
+                      <div className="flex justify-between text-xs mb-1 text-gray-600">
+                        <span>Staff discount ({pct}%)</span><span>−Rs. {additionalDiscAmt.toFixed(0)}</span>
                       </div>
                     )}
                     <div className="flex justify-between font-bold">
