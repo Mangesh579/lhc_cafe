@@ -8,7 +8,7 @@ import NotFound from "@/pages/not-found";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
-
+import Staff from "@/pages/staff";
 import Dashboard from "@/pages/dashboard";
 import POS from "@/pages/pos";
 import Orders from "@/pages/orders";
@@ -18,6 +18,7 @@ import Inventory from "@/pages/inventory";
 import Tables from "@/pages/tables";
 import Loyalty from "@/pages/loyalty";
 import Settings from "@/pages/settings";
+
 import Users from "@/pages/users";
 import Login from "@/pages/login";
 import PublicOrder from "@/pages/public-order";
@@ -89,6 +90,7 @@ function Router() {
         <Route path="/loyalty" component={Loyalty} />
         <Route path="/users" component={Users} />
         <Route path="/settings" component={Settings} />
+        <Route path="/staff" component={Staff} />
         <Route path="/" component={Dashboard} />
         <Route component={NotFound} />
       </Switch>

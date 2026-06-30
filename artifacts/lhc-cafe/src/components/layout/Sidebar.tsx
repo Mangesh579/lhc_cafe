@@ -13,6 +13,7 @@ import {
   Settings, 
   LogOut,
   X,
+  CalendarCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ const navItems = [
   { href: "/tables", label: "Tables", icon: Grid2X2, roles: ["admin"] },
   { href: "/loyalty", label: "Loyalty", icon: Users, roles: ["admin", "staff"] },
   { href: "/users", label: "Users", icon: UserCog, roles: ["admin"] },
+  { href: "/staff", label: "Staff", icon: CalendarCheck, roles: ["admin", "staff"] },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["admin", "staff"] },
 ];
 
