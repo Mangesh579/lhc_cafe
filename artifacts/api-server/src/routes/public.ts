@@ -3,8 +3,38 @@ import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, 
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { publicOrderRateLimiter } from "../middlewares/rateLimit";
+import type { Request, Response, NextFunction } from "express";
 
 const router = Router();
+
+// Only requests originating from the cafe's own Wi-Fi (static IP) may
+// start, validate, or use a table session. This is the actual physical
+// presence check — far more reliable than GPS and with zero permission
+// prompts for the customer.
+const ALLOWED_IPS = (process.env.CAFE_WIFI_IPS ?? "")
+  .split(",")
+  .map(ip => ip.trim())
+  .filter(Boolean);
+
+function getClientIp(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
+  return req.socket.remoteAddress ?? "";
+}
+
+function requireCafeWifi(req: Request, res: Response, next: NextFunction): void {
+  if (ALLOWED_IPS.length === 0) {
+    res.status(503).json({ error: "Ordering is temporarily unavailable. Please ask staff." });
+    return;
+  }
+  const clientIp = getClientIp(req);
+  const isAllowed = ALLOWED_IPS.some(allowed => clientIp === allowed || clientIp.includes(allowed));
+  if (!isAllowed) {
+    res.status(403).json({ error: "Please connect to the cafe Wi-Fi to place an order." });
+    return;
+  }
+  next();
+}
 
 const SESSION_IDLE_MINUTES = 30;
 const BESTSELLER_CACHE_DAYS = 30;
@@ -50,7 +80,7 @@ async function resolveSession(sessionToken: string) {
 }
 
 // POST /api/public/session/start
-router.post("/session/start", publicOrderRateLimiter, async (req, res): Promise<void> => {
+router.post("/session/start", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
   try {
     const { tableToken } = req.body;
     if (!tableToken) { res.status(400).json({ error: "tableToken required" }); return; }
@@ -109,7 +139,7 @@ router.post("/session/start", publicOrderRateLimiter, async (req, res): Promise<
 });
 
 // GET /api/public/session/validate?sessionToken=xxx
-router.get("/session/validate", publicOrderRateLimiter, async (req, res): Promise<void> => {
+router.get("/session/validate", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.set("Pragma", "no-cache");
   res.set("Expires", "0");
@@ -175,7 +205,7 @@ async function getBestsellerIds(): Promise<Set<number>> {
 
 // GET /api/public/menu?sessionToken=xxx
 // GET /api/public/menu?sessionToken=xxx
-router.get("/menu", publicOrderRateLimiter, async (req, res): Promise<void> => {
+router.get("/menu", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.set("Pragma", "no-cache");
   res.set("Expires", "0");
@@ -192,7 +222,7 @@ router.get("/menu", publicOrderRateLimiter, async (req, res): Promise<void> => {
 });
 
 // GET /api/public/my-orders?sessionToken=xxx
-router.get("/my-orders", publicOrderRateLimiter, async (req, res): Promise<void> => {
+router.get("/my-orders", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.set("Pragma", "no-cache");
   res.set("Expires", "0");
@@ -233,7 +263,7 @@ router.get("/my-orders", publicOrderRateLimiter, async (req, res): Promise<void>
 });
 
 // POST /api/public/order
-router.post("/order", publicOrderRateLimiter, async (req, res): Promise<void> => {
+router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
   try {
     const { sessionToken, items, customerNote, paymentMethod } = req.body;
     const session = await resolveSession(sessionToken);
