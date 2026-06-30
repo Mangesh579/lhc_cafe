@@ -76,6 +76,7 @@ export default function POS() {
   const [infoItemId, setInfoItemId] = useState<number | null>(null);
   const [tableNumber, setTableNumber] = useState("");
   const [redeemDiscount, setRedeemDiscount] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"menu" | "order">("menu");
 
   const { data: menuItems } = useListMenuItems({ available: true });
   const { data: categories } = useListMenuCategories();
@@ -94,7 +95,6 @@ export default function POS() {
     if (points >= 500) return { pct: 10, pointsNeeded: 500 };
     return null;
   };
-
 
   const filteredItems = useMemo(() => {
     if (!menuItems) return [];
@@ -128,7 +128,8 @@ export default function POS() {
   const discountTier = currentCustomer ? getDiscountTier(currentCustomer.totalPoints) : null;
   const discountAmount = redeemDiscount && discountTier ? subtotal * (discountTier.pct / 100) : 0;
   const finalTotal = subtotal - discountAmount;
-  
+  const cartItemCount = cart.reduce((sum, item) => sum + item.cartQuantity, 0);
+
   const handlePlaceOrder = async () => {
     if (cart.length === 0) return;
     try {
@@ -149,176 +150,206 @@ export default function POS() {
       toast({ title: "Order Placed", description: `Order #${result.id} created successfully.` });
       setCart([]); setPhone(""); setRedeemDiscount(false); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
       setIsReceiptOpen(true);
+      setMobileTab("menu");
       queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
     } catch (err: any) {
       toast({ title: "Error", description: err?.message ?? "Failed to place order.", variant: "destructive" });
     }
   };
 
-  return (
-    <div className="flex h-[calc(100vh-2rem)] p-4 gap-4">
-      {/* Left Side: Menu */}
-      <div className="flex-1 flex flex-col gap-3 min-w-0">
-        <div className="bg-card border rounded-lg p-2 shadow-sm">
-          <div className="flex gap-2 p-1 overflow-x-auto" style={{ scrollbarWidth: "thin" }}>
-            <Button variant={activeCategory === "all" ? "default" : "outline"} onClick={() => setActiveCategory("all")} className="rounded-full flex-shrink-0">All Items</Button>
-            {categories?.map(cat => (
-              <Button key={cat.id} variant={activeCategory === cat.id.toString() ? "default" : "outline"} onClick={() => setActiveCategory(cat.id.toString())} className="rounded-full flex-shrink-0">{cat.name}</Button>
-            ))}
-          </div>
+  const MenuPanel = (
+    <div className="flex-1 flex flex-col gap-3 min-w-0 min-h-0">
+      <div className="bg-card border rounded-lg p-2 shadow-sm shrink-0">
+        <div className="flex gap-2 p-1 overflow-x-auto" style={{ scrollbarWidth: "thin" }}>
+          <Button variant={activeCategory === "all" ? "default" : "outline"} onClick={() => setActiveCategory("all")} className="rounded-full flex-shrink-0">All Items</Button>
+          {categories?.map(cat => (
+            <Button key={cat.id} variant={activeCategory === cat.id.toString() ? "default" : "outline"} onClick={() => setActiveCategory(cat.id.toString())} className="rounded-full flex-shrink-0">{cat.name}</Button>
+          ))}
         </div>
-
-        <ScrollArea className="flex-1 bg-muted/20 border rounded-lg p-4">
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {filteredItems.map(item => (
-              <Card key={item.id} className="cursor-pointer hover:shadow-md transition-all active:scale-95 border-border/50 overflow-hidden" onClick={() => addToCart(item)}>
-                {/* Image placeholder */}
-                <div className="h-28 w-full bg-muted/60 flex items-center justify-center relative">
-                  {item.imageUrl ? (
-                    <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <Coffee className="w-10 h-10 text-muted-foreground/30" />
-                  )}
-                  <button
-                    className="absolute top-1 right-1 p-1 rounded-full bg-white/80 hover:bg-white shadow-sm"
-                    onClick={(e) => { e.stopPropagation(); setInfoItemId(item.id); }}
-                  >
-                    <Info className="w-3.5 h-3.5 text-muted-foreground" />
-                  </button>
-                </div>
-                <CardContent className="p-3">
-                  <h3 className="font-medium text-sm leading-tight">{item.name}</h3>
-                  <div className="flex items-center justify-between mt-1">
-                    <p className="text-primary font-bold">Rs. {item.price}</p>
-                    {item.calories && <span className="text-xs text-muted-foreground">{item.calories}kcal</span>}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </ScrollArea>
       </div>
 
-      {/* Right Side: Cart */}
-      <div className="w-96 flex flex-col bg-card border rounded-lg shadow-sm overflow-hidden h-full">
-        <div className="p-4 border-b bg-sidebar text-sidebar-foreground">
-          <h2 className="text-xl font-serif font-bold">Current Order</h2>
-        </div>
-
-        <ScrollArea className="flex-1 min-h-0 px-4">
-          {cart.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-muted-foreground pt-12 space-y-4">
-              <ShoppingBag className="w-12 h-12 opacity-20" />
-              <p>Cart is empty</p>
-            </div>
-          ) : (
-            <div className="space-y-3 pt-3">
-              {cart.map(item => (
-                <div key={item.id} className="p-3 bg-muted/30 rounded-md border border-border/50 space-y-2">
-                  <div className="flex justify-between items-start">
-                    <span className="font-medium text-sm">{item.name}</span>
-                    <span className="font-semibold text-sm text-primary">Rs. {(parseFloat(String(item.price)) * item.cartQuantity).toFixed(0)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1 bg-background border rounded-md">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQuantity(item.id, -1)}><Minus className="h-3 w-3" /></Button>
-                      <span className="w-5 text-center text-sm font-medium">{item.cartQuantity}</span>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQuantity(item.id, 1)}><Plus className="h-3 w-3" /></Button>
-                    </div>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeFromCart(item.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                  </div>
-                  <Input
-                    placeholder="Item notes..."
-                    value={item.cartNotes ?? ""}
-                    onChange={e => updateCartNotes(item.id, e.target.value)}
-                    className="h-7 text-xs"
-                    onClick={e => e.stopPropagation()}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-        </ScrollArea>
-
-        <div className="p-4 border-t space-y-2 bg-muted/10 overflow-y-auto max-h-72 shrink-0">
-          {/* Table number */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label className="text-xs font-semibold text-muted-foreground uppercase">Table # (opt.)</Label>
-              <Input placeholder="Table number" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="mt-1 h-8 text-sm" />
-            </div>
-            <div>
-              <Label className="text-xs font-semibold text-muted-foreground uppercase">Customer Phone</Label>
-              <div className="relative mt-1">
-                <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input placeholder="Phone..." value={phone} onChange={e => setPhone(e.target.value)} className="pl-7 h-8 text-sm" />
-              </div>
-            </div>
-          </div>
-          {currentCustomer && (
-            <div className="space-y-2">
-              <div className="text-sm bg-primary/10 text-primary p-2 rounded-md flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>{currentCustomer.name} — {currentCustomer.totalPoints} pts</span>
-              </div>
-              {discountTier && (
-                <button
-                  onClick={() => setRedeemDiscount(r => !r)}
-                  className={`w-full text-sm p-2 rounded-md border-2 transition-all text-left flex justify-between items-center ${
-                    redeemDiscount
-                      ? "border-green-500 bg-green-50 text-green-700"
-                      : "border-dashed border-amber-300 bg-amber-50 text-amber-700"
-                  }`}
-                >
-                  <span>
-                    {redeemDiscount ? "✓ " : ""}Redeem {discountTier.pct}% discount
-                    <span className="block text-xs opacity-70">Uses {discountTier.pointsNeeded} points</span>
-                  </span>
-                  {redeemDiscount && discountAmount > 0 && (
-                    <span className="font-bold">-Rs. {discountAmount.toFixed(0)}</span>
-                  )}
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Order notes */}
-          <div>
-            <Label className="text-xs font-semibold text-muted-foreground uppercase">Order Notes</Label>
-            <Textarea placeholder="Special instructions, allergies..." value={orderNotes} onChange={e => setOrderNotes(e.target.value)} className="mt-1 text-sm resize-none h-16" />
-          </div>
-
-          {/* Payment Method */}
-          <div>
-            <Label className="text-xs font-semibold text-muted-foreground uppercase">Payment</Label>
-            <Tabs value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as OrderInputPaymentMethod)} className="mt-1">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="cash">Cash</TabsTrigger>
-                <TabsTrigger value="nabil_qr">Nabil QR</TabsTrigger>
-              </TabsList>
-              <TabsContent value="nabil_qr" className="mt-1">
-                <div className="flex justify-center p-2 bg-white rounded-md border">
-                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=NabilBankLHCCafe" alt="Nabil QR" className="w-24 h-24" />
-                </div>
-              </TabsContent>
-            </Tabs>
-          </div>
-
-          <div className="pt-2 border-t">
-            <div className="flex justify-between items-center mb-3">
-              <span className="font-bold text-lg">Total</span>
-              <div className="text-right">
-                {discountAmount > 0 && (
-                  <p className="text-xs text-muted-foreground line-through">Rs. {subtotal.toFixed(0)}</p>
+      <ScrollArea className="flex-1 min-h-0 bg-muted/20 border rounded-lg p-4">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {filteredItems.map(item => (
+            <Card key={item.id} className="cursor-pointer hover:shadow-md transition-all active:scale-95 border-border/50 overflow-hidden" onClick={() => addToCart(item)}>
+              <div className="h-28 w-full bg-muted/60 flex items-center justify-center relative">
+                {item.imageUrl ? (
+                  <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                ) : (
+                  <Coffee className="w-10 h-10 text-muted-foreground/30" />
                 )}
-                <span className="font-bold text-2xl text-primary">Rs. {finalTotal.toFixed(0)}</span>
+                <button
+                  className="absolute top-1 right-1 p-1 rounded-full bg-white/80 hover:bg-white shadow-sm"
+                  onClick={(e) => { e.stopPropagation(); setInfoItemId(item.id); }}
+                >
+                  <Info className="w-3.5 h-3.5 text-muted-foreground" />
+                </button>
               </div>
+              <CardContent className="p-3">
+                <h3 className="font-medium text-sm leading-tight">{item.name}</h3>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-primary font-bold">Rs. {item.price}</p>
+                  {item.calories && <span className="text-xs text-muted-foreground">{item.calories}kcal</span>}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+
+  const CartPanel = (
+    <div className="w-full lg:w-96 flex flex-col bg-card border rounded-lg shadow-sm overflow-hidden h-full min-h-0">
+      <div className="p-4 border-b bg-sidebar text-sidebar-foreground shrink-0 hidden lg:block">
+        <h2 className="text-xl font-serif font-bold">Current Order</h2>
+      </div>
+
+      <ScrollArea className="flex-1 min-h-0 px-4">
+        {cart.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-muted-foreground pt-12 space-y-4">
+            <ShoppingBag className="w-12 h-12 opacity-20" />
+            <p>Cart is empty</p>
+          </div>
+        ) : (
+          <div className="space-y-3 pt-3">
+            {cart.map(item => (
+              <div key={item.id} className="p-3 bg-muted/30 rounded-md border border-border/50 space-y-2">
+                <div className="flex justify-between items-start">
+                  <span className="font-medium text-sm">{item.name}</span>
+                  <span className="font-semibold text-sm text-primary">Rs. {(parseFloat(String(item.price)) * item.cartQuantity).toFixed(0)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1 bg-background border rounded-md">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQuantity(item.id, -1)}><Minus className="h-3 w-3" /></Button>
+                    <span className="w-5 text-center text-sm font-medium">{item.cartQuantity}</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateQuantity(item.id, 1)}><Plus className="h-3 w-3" /></Button>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeFromCart(item.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                </div>
+                <Input
+                  placeholder="Item notes..."
+                  value={item.cartNotes ?? ""}
+                  onChange={e => updateCartNotes(item.id, e.target.value)}
+                  className="h-7 text-xs"
+                  onClick={e => e.stopPropagation()}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </ScrollArea>
+
+      <div className="p-4 border-t space-y-2 bg-muted/10 overflow-y-auto max-h-72 shrink-0">
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <Label className="text-xs font-semibold text-muted-foreground uppercase">Table # (opt.)</Label>
+            <Input placeholder="Table number" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="mt-1 h-8 text-sm" />
+          </div>
+          <div>
+            <Label className="text-xs font-semibold text-muted-foreground uppercase">Customer Phone</Label>
+            <div className="relative mt-1">
+              <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input placeholder="Phone..." value={phone} onChange={e => setPhone(e.target.value)} className="pl-7 h-8 text-sm" />
             </div>
-            <Button className="w-full h-12 text-base font-bold" disabled={cart.length === 0 || createOrder.isPending} onClick={handlePlaceOrder}>
-              {createOrder.isPending ? "Processing..." : "Place Order"}
-            </Button>
           </div>
         </div>
+        {currentCustomer && (
+          <div className="space-y-2">
+            <div className="text-sm bg-primary/10 text-primary p-2 rounded-md flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{currentCustomer.name} — {currentCustomer.totalPoints} pts</span>
+            </div>
+            {discountTier && (
+              <button
+                onClick={() => setRedeemDiscount(r => !r)}
+                className={`w-full text-sm p-2 rounded-md border-2 transition-all text-left flex justify-between items-center ${
+                  redeemDiscount
+                    ? "border-green-500 bg-green-50 text-green-700"
+                    : "border-dashed border-amber-300 bg-amber-50 text-amber-700"
+                }`}
+              >
+                <span>
+                  {redeemDiscount ? "✓ " : ""}Redeem {discountTier.pct}% discount
+                  <span className="block text-xs opacity-70">Uses {discountTier.pointsNeeded} points</span>
+                </span>
+                {redeemDiscount && discountAmount > 0 && (
+                  <span className="font-bold">-Rs. {discountAmount.toFixed(0)}</span>
+                )}
+              </button>
+            )}
+          </div>
+        )}
+
+        <div>
+          <Label className="text-xs font-semibold text-muted-foreground uppercase">Order Notes</Label>
+          <Textarea placeholder="Special instructions, allergies..." value={orderNotes} onChange={e => setOrderNotes(e.target.value)} className="mt-1 text-sm resize-none h-16" />
+        </div>
+
+        <div>
+          <Label className="text-xs font-semibold text-muted-foreground uppercase">Payment</Label>
+          <Tabs value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as OrderInputPaymentMethod)} className="mt-1">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="cash">Cash</TabsTrigger>
+              <TabsTrigger value="nabil_qr">Nabil QR</TabsTrigger>
+            </TabsList>
+            <TabsContent value="nabil_qr" className="mt-1">
+              <div className="flex justify-center p-2 bg-white rounded-md border">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=NabilBankLHCCafe" alt="Nabil QR" className="w-24 h-24" />
+              </div>
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        <div className="pt-2 border-t">
+          <div className="flex justify-between items-center mb-3">
+            <span className="font-bold text-lg">Total</span>
+            <div className="text-right">
+              {discountAmount > 0 && (
+                <p className="text-xs text-muted-foreground line-through">Rs. {subtotal.toFixed(0)}</p>
+              )}
+              <span className="font-bold text-2xl text-primary">Rs. {finalTotal.toFixed(0)}</span>
+            </div>
+          </div>
+          <Button className="w-full h-12 text-base font-bold" disabled={cart.length === 0 || createOrder.isPending} onClick={handlePlaceOrder}>
+            {createOrder.isPending ? "Processing..." : "Place Order"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col lg:flex-row h-[calc(100vh-2rem)] p-2 lg:p-4 gap-3 lg:gap-4">
+      {/* Mobile tab switcher — hidden on desktop */}
+      <div className="lg:hidden flex gap-2 shrink-0">
+        <Button
+          variant={mobileTab === "menu" ? "default" : "outline"}
+          className="flex-1 gap-2"
+          onClick={() => setMobileTab("menu")}
+        >
+          <Coffee className="w-4 h-4" /> Menu
+        </Button>
+        <Button
+          variant={mobileTab === "order" ? "default" : "outline"}
+          className="flex-1 gap-2 relative"
+          onClick={() => setMobileTab("order")}
+        >
+          <ShoppingBag className="w-4 h-4" /> Order
+          {cartItemCount > 0 && (
+            <Badge className="absolute -top-2 -right-2 h-5 min-w-5 px-1 flex items-center justify-center text-xs">
+              {cartItemCount}
+            </Badge>
+          )}
+        </Button>
+      </div>
+
+      {/* On mobile: show only the active panel. On desktop (lg+): show both side by side, ignore mobileTab */}
+      <div className={`flex-1 min-h-0 ${mobileTab === "menu" ? "flex" : "hidden"} lg:flex`}>
+        {MenuPanel}
+      </div>
+      <div className={`min-h-0 ${mobileTab === "order" ? "flex" : "hidden"} lg:flex`}>
+        {CartPanel}
       </div>
 
       {/* Item Info Dialog */}
