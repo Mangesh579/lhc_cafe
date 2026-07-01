@@ -1,9 +1,13 @@
 import { Router } from "express";
-import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable, bestsellerCacheTable } from "@workspace/db";
+import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable, bestsellerCacheTable, loyaltyEmailVerificationsTable, loyaltyCustomersTable } from "@workspace/db";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
-import { randomBytes } from "crypto";
+import { randomBytes, randomInt } from "crypto";
 import { publicOrderRateLimiter } from "../middlewares/rateLimit";
+import { Resend } from "resend";
 import type { Request, Response, NextFunction } from "express";
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "noreply@example.com";
 
 const router = Router();
 
@@ -334,6 +338,137 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to place order" });
+  }
+});
+
+// POST /api/public/loyalty/request-otp
+// Sends a 6-digit OTP to the customer's email for loyalty verification.
+// Rate limited to prevent spam — max 30/min by the existing publicOrderRateLimiter.
+router.post("/loyalty/request-otp", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
+  try {
+    const { phone, email } = req.body;
+    if (!phone || !email) { res.status(400).json({ error: "Phone and email are required" }); return; }
+
+    // Check the customer exists with this phone number
+    const [customer] = await db
+      .select()
+      .from(loyaltyCustomersTable)
+      .where(eq(loyaltyCustomersTable.phone, phone))
+      .limit(1);
+
+    if (!customer) {
+      res.status(404).json({ error: "No loyalty account found for this phone number. Please ask staff to register you." });
+      return;
+    }
+
+    // Generate 6-digit OTP
+    const otp = String(randomInt(100000, 999999));
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Delete any existing unused OTP for this phone+email pair
+    await db.delete(loyaltyEmailVerificationsTable)
+      .where(and(
+        eq(loyaltyEmailVerificationsTable.phone, phone),
+        eq(loyaltyEmailVerificationsTable.email, email)
+      ));
+
+    // Store new OTP
+    await db.insert(loyaltyEmailVerificationsTable).values({
+      phone,
+      email,
+      otp,
+      expiresAt,
+      verified: false,
+    });
+
+    // Send email via Resend
+    await resend.emails.send({
+      from: FROM_EMAIL,
+      to: email,
+      subject: "Your LHC Cafe loyalty verification code",
+      html: `
+        <div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:32px;background:#fdf8f0;border-radius:12px;">
+          <h2 style="color:#1A0F0A;margin-bottom:8px;">LHC Cafe</h2>
+          <p style="color:#5a4a3a;font-size:14px;margin-bottom:24px;">Sulimha Durbar · Patan</p>
+          <p style="color:#1A0F0A;font-size:15px;margin-bottom:16px;">Your verification code for loyalty points redemption:</p>
+          <div style="background:#C8873A;color:#fff;font-size:36px;font-weight:bold;letter-spacing:0.2em;text-align:center;padding:20px;border-radius:8px;margin-bottom:20px;">
+            ${otp}
+          </div>
+          <p style="color:#7a6a5a;font-size:13px;">This code expires in <strong>10 minutes</strong>.</p>
+          <p style="color:#7a6a5a;font-size:13px;">If you didn't request this, please ignore this email.</p>
+        </div>
+      `,
+    });
+
+    res.json({ success: true, message: "OTP sent to your email" });
+  } catch (err) {
+    console.error("OTP send error:", err);
+    res.status(500).json({ error: "Failed to send verification email. Please try again." });
+  }
+});
+
+// POST /api/public/loyalty/verify-otp
+// Verifies the OTP and returns the customer's loyalty points if correct.
+router.post("/loyalty/verify-otp", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
+  try {
+    const { phone, email, otp } = req.body;
+    if (!phone || !email || !otp) { res.status(400).json({ error: "Phone, email and OTP are required" }); return; }
+
+    const [verification] = await db
+      .select()
+      .from(loyaltyEmailVerificationsTable)
+      .where(and(
+        eq(loyaltyEmailVerificationsTable.phone, phone),
+        eq(loyaltyEmailVerificationsTable.email, email),
+        eq(loyaltyEmailVerificationsTable.verified, false)
+      ))
+      .limit(1);
+
+    if (!verification) {
+      res.status(400).json({ error: "No pending verification found. Please request a new code." });
+      return;
+    }
+
+    if (new Date() > verification.expiresAt) {
+      await db.delete(loyaltyEmailVerificationsTable).where(eq(loyaltyEmailVerificationsTable.id, verification.id));
+      res.status(400).json({ error: "Verification code has expired. Please request a new one." });
+      return;
+    }
+
+    if (verification.otp !== otp.trim()) {
+      res.status(400).json({ error: "Incorrect verification code. Please try again." });
+      return;
+    }
+
+    // Mark verified
+    await db.update(loyaltyEmailVerificationsTable)
+      .set({ verified: true })
+      .where(eq(loyaltyEmailVerificationsTable.id, verification.id));
+
+    // Return customer's loyalty info
+    const [customer] = await db
+      .select()
+      .from(loyaltyCustomersTable)
+      .where(eq(loyaltyCustomersTable.phone, phone))
+      .limit(1);
+
+    if (!customer) {
+      res.status(404).json({ error: "Loyalty account not found" });
+      return;
+    }
+
+    res.json({
+      success: true,
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        totalPoints: customer.totalPoints,
+      }
+    });
+  } catch (err) {
+    console.error("OTP verify error:", err);
+    res.status(500).json({ error: "Verification failed. Please try again." });
   }
 });
 
