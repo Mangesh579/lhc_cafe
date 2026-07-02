@@ -7,18 +7,46 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Star, DollarSign, ShoppingBag } from "lucide-react";
+import { Plus, Search, Star, DollarSign, ShoppingBag, Edit2 } from "lucide-react";
 import { format } from "date-fns";
 
 export default function Loyalty() {
   const [search, setSearch] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [formData, setFormData] = useState({ name: "", phone: "", email: "" });
+  const [editCustomer, setEditCustomer] = useState<any>(null);
+  const [editData, setEditData] = useState({ name: "", phone: "", email: "" });
+  const [editLoading, setEditLoading] = useState(false);
 
   const { data: customers, isLoading } = useListLoyaltyCustomers();
   const registerMutation = useRegisterLoyaltyCustomer();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const openEdit = (customer: any) => {
+    setEditCustomer(customer);
+    setEditData({ name: customer.name, phone: customer.phone, email: customer.email ?? "" });
+  };
+
+  const handleEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editCustomer) return;
+    setEditLoading(true);
+    try {
+      await fetch(`/api/loyalty/customers/${editCustomer.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+        body: JSON.stringify(editData),
+      });
+      queryClient.invalidateQueries({ queryKey: getListLoyaltyCustomersQueryKey() });
+      toast({ title: "Customer updated" });
+      setEditCustomer(null);
+    } catch {
+      toast({ title: "Failed to update", variant: "destructive" });
+    } finally {
+      setEditLoading(false);
+    }
+  };
 
   const filteredCustomers = customers?.filter(c => 
     c.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -68,6 +96,7 @@ export default function Loyalty() {
                 <th className="px-6 py-4 font-medium">Orders</th>
                 <th className="px-6 py-4 font-medium">Total Spent</th>
                 <th className="px-6 py-4 font-medium">Joined</th>
+                <th className="px-6 py-4 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -97,6 +126,11 @@ export default function Loyalty() {
                   </td>
                   <td className="px-6 py-4 text-muted-foreground">
                     {customer.createdAt ? format(new Date(customer.createdAt), 'MMM yyyy') : '-'}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(customer)}>
+                      <Edit2 className="w-4 h-4 text-muted-foreground" />
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -129,6 +163,32 @@ export default function Loyalty() {
             <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={registerMutation.isPending}>Register</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editCustomer} onOpenChange={o => !o && setEditCustomer(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Customer</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEdit} className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input required value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} />
+            </div>
+            <div className="space-y-2">
+              <Label>Phone</Label>
+              <Input required value={editData.phone} onChange={e => setEditData({...editData, phone: e.target.value})} />
+            </div>
+            <div className="space-y-2">
+              <Label>Email (Optional)</Label>
+              <Input type="email" value={editData.email} onChange={e => setEditData({...editData, email: e.target.value})} />
+            </div>
+            <DialogFooter className="pt-4">
+              <Button type="button" variant="outline" onClick={() => setEditCustomer(null)}>Cancel</Button>
+              <Button type="submit" disabled={editLoading}>Save Changes</Button>
             </DialogFooter>
           </form>
         </DialogContent>
