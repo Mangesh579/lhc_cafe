@@ -6,15 +6,6 @@ const SESSION_KEY = "lhc_session_token";
 const STATUS_POLL_MS = 15_000;
 const PAGE_MAX_WIDTH = 480;
 
-const [loyaltyOpen, setLoyaltyOpen] = useState(false);
-const [loyaltyPhone, setLoyaltyPhone] = useState("");
-const [loyaltyEmail, setLoyaltyEmail] = useState("");
-const [loyaltyOtp, setLoyaltyOtp] = useState("");
-const [loyaltyStep, setLoyaltyStep] = useState<"enter"|"verify"|"done">("enter");
-const [loyaltyCustomerData, setLoyaltyCustomerData] = useState<{id:number;name:string;phone:string;totalPoints:number}|null>(null);
-const [loyaltyLoading, setLoyaltyLoading] = useState(false);
-const [loyaltyError, setLoyaltyError] = useState("");
-
 type MenuItem = {
   id: number;
   name: string;
@@ -116,6 +107,15 @@ function DishMedia({ item, height }: { item: MenuItem; height: number | string }
 
 export default function PublicOrder({ params }: { params: { token: string } }) {
   const tableToken = params.token;
+
+  const [loyaltyOpen, setLoyaltyOpen] = useState(false);
+  const [loyaltyPhone, setLoyaltyPhone] = useState("");
+  const [loyaltyEmail, setLoyaltyEmail] = useState("");
+  const [loyaltyOtp, setLoyaltyOtp] = useState("");
+  const [loyaltyStep, setLoyaltyStep] = useState<"enter"|"verify"|"done">("enter");
+  const [loyaltyCustomerData, setLoyaltyCustomerData] = useState<{id:number;name:string;phone:string;totalPoints:number}|null>(null);
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false);
+  const [loyaltyError, setLoyaltyError] = useState("");
 
   const [sessionState, setSessionState] = useState<"loading"|"active"|"expired">("loading");
   const [sessionToken, setSessionToken] = useState<string|null>(null);
