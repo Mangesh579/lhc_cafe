@@ -6,7 +6,7 @@ export const loyaltyCustomersTable = pgTable("loyalty_customers", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   phone: text("phone").notNull().unique(),
-  email: text("email"),
+  email: text("email").notNull().unique(),
   totalPoints: integer("total_points").notNull().default(0),
   totalOrders: integer("total_orders").notNull().default(0),
   totalSpent: numeric("total_spent", { precision: 10, scale: 2 }).notNull().default("0"),

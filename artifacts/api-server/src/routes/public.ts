@@ -482,14 +482,25 @@ router.post("/loyalty/register", requireCafeWifi, publicOrderRateLimiter, async 
       return;
     }
 
-    const [existing] = await db
+    const [existingPhone] = await db
       .select()
       .from(loyaltyCustomersTable)
       .where(eq(loyaltyCustomersTable.phone, phone))
       .limit(1);
 
-    if (existing) {
+    if (existingPhone) {
       res.status(400).json({ error: "A loyalty account already exists for this phone number." });
+      return;
+    }
+
+    const [existingEmail] = await db
+      .select()
+      .from(loyaltyCustomersTable)
+      .where(eq(loyaltyCustomersTable.email, email))
+      .limit(1);
+
+    if (existingEmail) {
+      res.status(400).json({ error: "A loyalty account already exists for this email address." });
       return;
     }
 
