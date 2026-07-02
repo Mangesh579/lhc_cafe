@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Plus, Minus, X, Clock, CheckCircle2, ChefHat, Bell, ChevronDown } from "lucide-react";
+import { Plus, Minus, X, Clock, CheckCircle2, ChefHat, Bell, ChevronDown, Gift } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 const SESSION_KEY = "lhc_session_token";
@@ -116,6 +116,11 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [loyaltyCustomerData, setLoyaltyCustomerData] = useState<{id:number;name:string;phone:string;totalPoints:number}|null>(null);
   const [loyaltyLoading, setLoyaltyLoading] = useState(false);
   const [loyaltyError, setLoyaltyError] = useState("");
+  const [loyaltyMode, setLoyaltyMode] = useState<"main"|"signup">("main");
+  const [signupData, setSignupData] = useState({ name: "", phone: "", email: "" });
+  const [signupLoading, setSignupLoading] = useState(false);
+  const [signupError, setSignupError] = useState("");
+  const [redeemLoading, setRedeemLoading] = useState(false);
 
   const [sessionState, setSessionState] = useState<"loading"|"active"|"expired">("loading");
   const [sessionToken, setSessionToken] = useState<string|null>(null);
@@ -131,8 +136,12 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<"menu"|"myorder">("menu");
-  const [displayTab, setDisplayTab] = useState<"menu"|"myorder">("menu");
+  const [activeTab, setActiveTab] = useState<"menu"|"myorder"|"loyalty">("menu");
+  const [displayTab, setDisplayTab] = useState<"menu"|"myorder"|"loyalty">("menu");
+  // Loyalty session: persists for the whole table session, reset only on session expiry
+  const [loyaltyVerifiedCustomer, setLoyaltyVerifiedCustomer] = useState<{id:number;name:string;phone:string;totalPoints:number}|null>(null);
+  const [loyaltyRedeemed, setLoyaltyRedeemed] = useState(false);
+  const [loyaltyRedeemResult, setLoyaltyRedeemResult] = useState<{orderId:number;discountAmount:string;newTotal:string;remainingPoints:number}|null>(null);
   const [tabFade, setTabFade] = useState(true);
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const [activeCatId, setActiveCatId] = useState<number|null>(null);
@@ -142,7 +151,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const catRefs = useRef<Record<number, HTMLElement|null>>({});
   const itemRefs = useRef<Record<number, HTMLElement|null>>({});
 
-  const switchTab = useCallback((tab: "menu"|"myorder") => {
+  const switchTab = useCallback((tab: "menu"|"myorder"|"loyalty") => {
     if (tab === activeTab) return;
     setActiveTab(tab);
     setTabFade(false);
@@ -287,6 +296,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       const d = await r.json();
       if (!r.ok) { setLoyaltyError(d.error ?? "Verification failed"); return; }
       setLoyaltyCustomerData(d.customer);
+      setLoyaltyVerifiedCustomer(d.customer); // persist for whole session
       setLoyaltyStep("done");
     } catch { setLoyaltyError("Network error. Please try again."); }
     finally { setLoyaltyLoading(false); }
@@ -295,6 +305,55 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const resetLoyalty = () => {
     setLoyaltyOpen(false); setLoyaltyPhone(""); setLoyaltyEmail("");
     setLoyaltyOtp(""); setLoyaltyStep("enter"); setLoyaltyCustomerData(null); setLoyaltyError("");
+  };
+
+  const handleSignup = async () => {
+    if (!signupData.name || !signupData.phone || !signupData.email) {
+      setSignupError("All fields are required"); return;
+    }
+    setSignupLoading(true); setSignupError("");
+    try {
+      const r = await fetch(`${API_BASE}/api/public/loyalty/register`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(signupData),
+      });
+      const d = await r.json();
+      if (!r.ok) { setSignupError(d.error ?? "Registration failed"); return; }
+      setLoyaltyVerifiedCustomer(d.customer);
+      setLoyaltyMode("main");
+      setSignupData({ name: "", phone: "", email: "" });
+    } catch { setSignupError("Network error. Please try again."); }
+    finally { setSignupLoading(false); }
+  };
+
+  const getDiscountTier = (points: number) => {
+    if (points >= 2000) return { pct: 25, pointsNeeded: 2000, label: "25% off" };
+    if (points >= 1500) return { pct: 20, pointsNeeded: 1500, label: "20% off" };
+    if (points >= 1000) return { pct: 15, pointsNeeded: 1000, label: "15% off" };
+    if (points >= 500)  return { pct: 10, pointsNeeded: 500,  label: "10% off" };
+    return null;
+  };
+
+  const handleRedeem = async (tier: { pct: number; pointsNeeded: number }) => {
+    if (!sessionToken || !loyaltyVerifiedCustomer) return;
+    setRedeemLoading(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/public/loyalty/redeem`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionToken,
+          loyaltyCustomerId: loyaltyVerifiedCustomer.id,
+          discountPercent: tier.pct,
+          pointsToUse: tier.pointsNeeded,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { alert(d.error ?? "Redemption failed"); return; }
+      setLoyaltyRedeemed(true);
+      setLoyaltyRedeemResult(d);
+      setLoyaltyVerifiedCustomer(prev => prev ? { ...prev, totalPoints: d.remainingPoints } : prev);
+    } catch { alert("Network error. Please try again."); }
+    finally { setRedeemLoading(false); }
   };
 
   const placeOrder = async () => {
@@ -599,12 +658,6 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       </div>
 
       <div style={{ padding: "0 26px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-        <button
-          onClick={() => { setLoyaltyOpen(true); setLoyaltyStep("enter"); setLoyaltyError(""); }}
-          style={{ background: "rgba(200,135,58,0.12)", border: "1px solid rgba(200,135,58,0.3)", borderRadius: 20, padding: "8px 20px", color: "#C8873A", fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer", letterSpacing: "0.04em" }}
-        >
-          ★ Check My Loyalty Points
-        </button>
         <p style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontStyle: "italic", fontSize: 12, color: "rgba(200,135,58,0.22)" }}>
           Sulimha Durbar Heritage Hotel & Museum · Patan
         </p>
@@ -612,15 +665,150 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     </div>
   );
 
+  // ── Loyalty tab ──────────────────────────────────────────
+  const LoyaltyTab = (
+    <div style={{ padding: "28px 20px 24px", minHeight: "60vh" }}>
+      <p className="float-in" style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, color:"rgba(200,135,58,0.55)", letterSpacing:"0.18em", textTransform:"uppercase", marginBottom:8 }}>Table {tableNumber}</p>
+      <h1 className="float-in-2" style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:30, color:"rgba(245,238,225,0.95)", fontWeight:300, marginBottom:24 }}>Loyalty</h1>
+
+      {/* Already verified this session — show points + rewards */}
+      {loyaltyVerifiedCustomer ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <div style={{ padding:"24px", background:"rgba(200,135,58,0.08)", borderRadius:14, border:"1px solid rgba(200,135,58,0.2)", textAlign:"center" }}>
+            <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(200,135,58,0.7)", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>Welcome back</p>
+            <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:20, color:"rgba(245,238,225,0.95)", marginBottom:14 }}>{loyaltyVerifiedCustomer.name}</p>
+            <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:52, color:"#C8873A", fontWeight:600, lineHeight:1 }}>{loyaltyVerifiedCustomer.totalPoints}</p>
+            <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(245,238,225,0.4)", marginTop:6 }}>loyalty points</p>
+          </div>
+
+          {loyaltyRedeemed && loyaltyRedeemResult ? (
+            <div style={{ padding:"18px", background:"rgba(143,174,110,0.1)", border:"1px solid rgba(143,174,110,0.3)", borderRadius:12, textAlign:"center" }}>
+              <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"#8FAE6E", fontWeight:600, marginBottom:6 }}>✓ Discount Applied to Your Order!</p>
+              <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:18, color:"rgba(245,238,225,0.8)" }}>
+                −Rs. {parseFloat(loyaltyRedeemResult.discountAmount).toFixed(0)} off
+              </p>
+              <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(245,238,225,0.35)", marginTop:4 }}>
+                New order total: Rs. {parseFloat(loyaltyRedeemResult.newTotal).toFixed(0)}
+              </p>
+            </div>
+          ) : (
+            <>
+              <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"rgba(245,238,225,0.45)", textAlign:"center" }}>Available Rewards</p>
+              {(() => {
+                const tier = getDiscountTier(loyaltyVerifiedCustomer.totalPoints);
+                if (!tier) return (
+                  <div style={{ padding:"20px", border:"1px dashed rgba(245,238,225,0.1)", borderRadius:12, textAlign:"center" }}>
+                    <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:16, color:"rgba(245,238,225,0.35)", fontStyle:"italic" }}>You need at least 500 points to redeem a reward.</p>
+                    <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(245,238,225,0.25)", marginTop:8 }}>Keep ordering to earn more points!</p>
+                  </div>
+                );
+                return (
+                  <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                    {[
+                      { pct: 10, pointsNeeded: 500, label: "10% off" },
+                      { pct: 15, pointsNeeded: 1000, label: "15% off" },
+                      { pct: 20, pointsNeeded: 1500, label: "20% off" },
+                      { pct: 25, pointsNeeded: 2000, label: "25% off" },
+                    ].map(t => {
+                      const canRedeem = loyaltyVerifiedCustomer.totalPoints >= t.pointsNeeded;
+                      return (
+                        <div key={t.pct} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", background: canRedeem ? "rgba(200,135,58,0.08)" : "rgba(245,238,225,0.03)", border: `1px solid ${canRedeem ? "rgba(200,135,58,0.3)" : "rgba(245,238,225,0.08)"}`, borderRadius:10 }}>
+                          <div>
+                            <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:18, color: canRedeem ? "rgba(245,238,225,0.9)" : "rgba(245,238,225,0.3)", fontWeight:400 }}>{t.label}</p>
+                            <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, color:"rgba(245,238,225,0.3)", marginTop:2 }}>{t.pointsNeeded} points</p>
+                          </div>
+                          {canRedeem && (
+                            <button
+                              onClick={() => handleRedeem(t)}
+                              disabled={redeemLoading}
+                              style={{ background:"#C8873A", border:"none", borderRadius:20, padding:"8px 16px", color:"#1A0F0A", fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:700, cursor:redeemLoading?"wait":"pointer", opacity:redeemLoading?0.6:1 }}
+                            >
+                              Redeem
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </>
+          )}
+        </div>
+      ) : loyaltyMode === "signup" ? (
+        /* Signup form */
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(245,238,225,0.5)", lineHeight:1.6 }}>Join LHC Cafe's loyalty program and earn points on every order.</p>
+          <input type="text" placeholder="Full name *" value={signupData.name} onChange={e => setSignupData({...signupData, name: e.target.value})}
+            style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none" }} />
+          <input type="tel" placeholder="Phone number *" value={signupData.phone} onChange={e => setSignupData({...signupData, phone: e.target.value})}
+            style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none" }} />
+          <input type="email" placeholder="Email address *" value={signupData.email} onChange={e => setSignupData({...signupData, email: e.target.value})}
+            style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none" }} />
+          {signupError && <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"#C85A3A" }}>{signupError}</p>}
+          <button onClick={handleSignup} disabled={signupLoading}
+            style={{ background:"#C8873A", border:"none", borderRadius:24, padding:"14px", color:"#1A0F0A", fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:700, letterSpacing:"0.05em", textTransform:"uppercase", cursor:signupLoading?"wait":"pointer", opacity:signupLoading?0.6:1 }}>
+            {signupLoading ? "Registering…" : "Join Loyalty Program"}
+          </button>
+          <button onClick={() => { setLoyaltyMode("main"); setSignupError(""); }}
+            style={{ background:"none", border:"none", color:"rgba(200,135,58,0.55)", fontFamily:"'DM Sans',sans-serif", fontSize:12, cursor:"pointer" }}>
+            ← Back
+          </button>
+        </div>
+      ) : (
+        /* Main: check points or signup */
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          {/* Check existing points flow */}
+          {loyaltyStep === "enter" && (
+            <>
+              <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(245,238,225,0.5)", lineHeight:1.6 }}>Already a member? Enter your phone and email to check your points.</p>
+              <input type="tel" placeholder="Phone number" value={loyaltyPhone} onChange={e => setLoyaltyPhone(e.target.value)}
+                style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none" }} />
+              <input type="email" placeholder="Email address" value={loyaltyEmail} onChange={e => setLoyaltyEmail(e.target.value)}
+                style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none" }} />
+              {loyaltyError && <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"#C85A3A" }}>{loyaltyError}</p>}
+              <button onClick={requestLoyaltyOtp} disabled={loyaltyLoading}
+                style={{ background:"#C8873A", border:"none", borderRadius:24, padding:"14px", color:"#1A0F0A", fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:700, letterSpacing:"0.05em", textTransform:"uppercase", cursor:loyaltyLoading?"wait":"pointer", opacity:loyaltyLoading?0.6:1 }}>
+                {loyaltyLoading ? "Sending…" : "Send Verification Code"}
+              </button>
+              <div style={{ display:"flex", alignItems:"center", gap:10, margin:"4px 0" }}>
+                <div style={{ flex:1, height:1, background:"rgba(245,238,225,0.08)" }} />
+                <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(245,238,225,0.25)" }}>or</span>
+                <div style={{ flex:1, height:1, background:"rgba(245,238,225,0.08)" }} />
+              </div>
+              <button onClick={() => setLoyaltyMode("signup")}
+                style={{ background:"transparent", border:"1px solid rgba(200,135,58,0.3)", borderRadius:24, padding:"14px", color:"#C8873A", fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:600, cursor:"pointer" }}>
+                Join Loyalty Program
+              </button>
+            </>
+          )}
+
+          {loyaltyStep === "verify" && (
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+              <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(245,238,225,0.5)", lineHeight:1.6 }}>
+                A 6-digit code was sent to <strong style={{ color:"rgba(245,238,225,0.8)" }}>{loyaltyEmail}</strong>.
+              </p>
+              <input type="number" placeholder="6-digit code" value={loyaltyOtp} onChange={e => setLoyaltyOtp(e.target.value)}
+                style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, textAlign:"center", outline:"none", letterSpacing:"0.2em" }} />
+              {loyaltyError && <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"#C85A3A" }}>{loyaltyError}</p>}
+              <button onClick={verifyLoyaltyOtp} disabled={loyaltyLoading}
+                style={{ background:"#C8873A", border:"none", borderRadius:24, padding:"14px", color:"#1A0F0A", fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:700, letterSpacing:"0.05em", textTransform:"uppercase", cursor:loyaltyLoading?"wait":"pointer", opacity:loyaltyLoading?0.6:1 }}>
+                {loyaltyLoading ? "Verifying…" : "Verify Code"}
+              </button>
+              <button onClick={() => { setLoyaltyStep("enter"); setLoyaltyError(""); setLoyaltyOtp(""); }}
+                style={{ background:"none", border:"none", color:"rgba(200,135,58,0.55)", fontFamily:"'DM Sans',sans-serif", fontSize:12, cursor:"pointer" }}>
+                ← Use a different email
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   // ── My Order tab ─────────────────────────────────────────
   const MyOrderTab = (
     <div style={{ padding: "28px 20px 24px", minHeight: "60vh" }}>
-      <button
-        onClick={() => { setLoyaltyOpen(true); setLoyaltyStep("enter"); setLoyaltyError(""); }}
-        style={{ background: "rgba(200,135,58,0.12)", border: "1px solid rgba(200,135,58,0.3)", borderRadius: 20, padding: "8px 20px", color: "#C8873A", fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer", letterSpacing: "0.04em", marginBottom: 20 }}
-      >
-        ★ Check My Loyalty Points
-      </button>
       <p className="float-in" style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, color:"rgba(200,135,58,0.55)", letterSpacing:"0.18em", textTransform:"uppercase", marginBottom:8 }}>Table {tableNumber}</p>
       <h1 className="float-in-2" style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:30, color:"rgba(245,238,225,0.95)", fontWeight:300, marginBottom:24 }}>My Order</h1>
 
@@ -680,7 +868,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       <div style={{ minHeight: "100vh", width: "100%", background: "#0F0805", display: "flex", justifyContent: "center", paddingBottom: 70 }}>
         <div style={{ width: "100%", maxWidth: PAGE_MAX_WIDTH }}>
           <div className="tab-content" style={{ opacity: tabFade ? 1 : 0 }}>
-            {displayTab === "menu" ? MenuTab : MyOrderTab}
+            {displayTab === "menu" ? MenuTab : displayTab === "myorder" ? MyOrderTab : LoyaltyTab}
           </div>
         </div>
       </div>
@@ -754,90 +942,19 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
             </div>
             <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.06em", color:activeTab==="myorder"?"#C8873A":"rgba(245,238,225,0.3)" }}>MY ORDER</span>
           </button>
+          <button className="tab-btn" onClick={() => switchTab("loyalty")} style={{ flex:1, background:"none", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:4, position:"relative" }}>
+            <div style={{ position:"relative" }}>
+              <Gift size={18} color={activeTab==="loyalty"?"#C8873A":"rgba(245,238,225,0.3)"} strokeWidth={1.6} />
+              {loyaltyVerifiedCustomer && !loyaltyRedeemed && getDiscountTier(loyaltyVerifiedCustomer.totalPoints) && (
+                <div style={{ position:"absolute", top:-5, right:-7, width:14, height:14, borderRadius:"50%", background:"#C8873A", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:7, color:"#1A0F0A", fontWeight:700 }}>!</span>
+                </div>
+              )}
+            </div>
+            <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, letterSpacing:"0.06em", color:activeTab==="loyalty"?"#C8873A":"rgba(245,238,225,0.3)" }}>LOYALTY</span>
+          </button>
         </div>
       </div>
-      {/* Loyalty verification popup */}
-      {loyaltyOpen && (
-        <div style={{ position:"fixed", inset:0, zIndex:110, background:"rgba(8,4,2,0.85)", backdropFilter:"blur(10px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }}
-          onClick={resetLoyalty}>
-          <div style={{ width:"100%", maxWidth:PAGE_MAX_WIDTH, background:"#1A0F0A", borderTop:"1px solid rgba(200,135,58,0.25)", borderRadius:"20px 20px 0 0", padding:"28px 24px 44px", animation:"slideUp 0.38s cubic-bezier(0.22,1,0.36,1) both" }}
-            onClick={e => e.stopPropagation()}>
-
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-              <h3 style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:22, color:"rgba(245,238,225,0.95)", fontWeight:400 }}>Loyalty Points</h3>
-              <button onClick={resetLoyalty} style={{ background:"none", border:"none", color:"rgba(245,238,225,0.4)", cursor:"pointer", padding:4 }}><X size={18}/></button>
-            </div>
-
-            {loyaltyStep === "enter" && (
-              <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-                <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(245,238,225,0.5)", lineHeight:1.6 }}>Enter your registered phone and email to check your points balance.</p>
-                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                  <input
-                    type="tel" placeholder="Phone number" value={loyaltyPhone}
-                    onChange={e => setLoyaltyPhone(e.target.value)}
-                    style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none" }}
-                  />
-                  <input
-                    type="email" placeholder="Email address" value={loyaltyEmail}
-                    onChange={e => setLoyaltyEmail(e.target.value)}
-                    style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none" }}
-                  />
-                </div>
-                {loyaltyError && <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"#C85A3A" }}>{loyaltyError}</p>}
-                <button
-                  onClick={requestLoyaltyOtp} disabled={loyaltyLoading}
-                  style={{ background:"#C8873A", border:"none", borderRadius:24, padding:"14px", color:"#1A0F0A", fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:700, letterSpacing:"0.05em", textTransform:"uppercase", cursor:loyaltyLoading?"wait":"pointer", opacity:loyaltyLoading?0.6:1 }}
-                >
-                  {loyaltyLoading ? "Sending…" : "Send Verification Code"}
-                </button>
-              </div>
-            )}
-
-            {loyaltyStep === "verify" && (
-              <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-                <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(245,238,225,0.5)", lineHeight:1.6 }}>
-                  A 6-digit code was sent to <strong style={{ color:"rgba(245,238,225,0.8)" }}>{loyaltyEmail}</strong>. Enter it below.
-                </p>
-                <input
-                  type="number" placeholder="6-digit code" value={loyaltyOtp}
-                  onChange={e => setLoyaltyOtp(e.target.value)}
-                  style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:22, fontWeight:700, textAlign:"center", outline:"none", letterSpacing:"0.2em" }}
-                />
-                {loyaltyError && <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"#C85A3A" }}>{loyaltyError}</p>}
-                <button
-                  onClick={verifyLoyaltyOtp} disabled={loyaltyLoading}
-                  style={{ background:"#C8873A", border:"none", borderRadius:24, padding:"14px", color:"#1A0F0A", fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:700, letterSpacing:"0.05em", textTransform:"uppercase", cursor:loyaltyLoading?"wait":"pointer", opacity:loyaltyLoading?0.6:1 }}
-                >
-                  {loyaltyLoading ? "Verifying…" : "Verify Code"}
-                </button>
-                <button onClick={() => { setLoyaltyStep("enter"); setLoyaltyError(""); setLoyaltyOtp(""); }}
-                  style={{ background:"none", border:"none", color:"rgba(200,135,58,0.55)", fontFamily:"'DM Sans',sans-serif", fontSize:12, cursor:"pointer" }}>
-                  ← Use a different email
-                </button>
-              </div>
-            )}
-
-            {loyaltyStep === "done" && loyaltyCustomerData && (
-              <div style={{ display:"flex", flexDirection:"column", gap:16, textAlign:"center" }}>
-                <div style={{ padding:"24px", background:"rgba(200,135,58,0.08)", borderRadius:14, border:"1px solid rgba(200,135,58,0.2)" }}>
-                  <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"rgba(200,135,58,0.7)", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>Welcome back</p>
-                  <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:22, color:"rgba(245,238,225,0.95)", marginBottom:16 }}>{loyaltyCustomerData.name}</p>
-                  <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:48, color:"#C8873A", fontWeight:600, lineHeight:1 }}>{loyaltyCustomerData.totalPoints}</p>
-                  <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"rgba(245,238,225,0.4)", marginTop:6 }}>loyalty points</p>
-                </div>
-                <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"rgba(245,238,225,0.35)", lineHeight:1.7 }}>
-                  To redeem your points, ask your server and they'll apply your discount at checkout.
-                </p>
-                <button onClick={resetLoyalty}
-                  style={{ background:"none", border:"1px solid rgba(245,238,225,0.15)", borderRadius:24, padding:"12px", color:"rgba(245,238,225,0.5)", fontFamily:"'DM Sans',sans-serif", fontSize:12, cursor:"pointer" }}>
-                  Close
-                </button>
-              </div>
-            )}
-
-          </div>
-        </div>
-      )}
     </>
   );
 }

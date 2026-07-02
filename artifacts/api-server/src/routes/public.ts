@@ -472,4 +472,121 @@ router.post("/loyalty/verify-otp", requireCafeWifi, publicOrderRateLimiter, asyn
   }
 });
 
+// POST /api/public/loyalty/register
+// New customer signs up from the QR page.
+router.post("/loyalty/register", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
+  try {
+    const { name, phone, email } = req.body;
+    if (!name || !phone || !email) {
+      res.status(400).json({ error: "Name, phone and email are all required" });
+      return;
+    }
+
+    const [existing] = await db
+      .select()
+      .from(loyaltyCustomersTable)
+      .where(eq(loyaltyCustomersTable.phone, phone))
+      .limit(1);
+
+    if (existing) {
+      res.status(400).json({ error: "A loyalty account already exists for this phone number." });
+      return;
+    }
+
+    const [customer] = await db
+      .insert(loyaltyCustomersTable)
+      .values({ name, phone, email })
+      .returning();
+
+    res.status(201).json({ success: true, customer: { id: customer.id, name: customer.name, phone: customer.phone, totalPoints: customer.totalPoints } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Registration failed. Please try again." });
+  }
+});
+
+// POST /api/public/loyalty/redeem
+// Applies the customer's loyalty discount to their most recent active order on this table.
+router.post("/loyalty/redeem", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
+  try {
+    const { sessionToken, loyaltyCustomerId, discountPercent, pointsToUse } = req.body;
+    if (!sessionToken || !loyaltyCustomerId || !discountPercent || !pointsToUse) {
+      res.status(400).json({ error: "sessionToken, loyaltyCustomerId, discountPercent and pointsToUse are required" });
+      return;
+    }
+
+    const session = await resolveSession(sessionToken);
+    if (!session) {
+      res.status(401).json({ error: "Session expired. Please scan the QR code again." });
+      return;
+    }
+
+    // Find the most recent active (unpaid) order for this table
+    const [order] = await db
+      .select()
+      .from(ordersTable)
+      .where(and(
+        eq(ordersTable.tableId, session.tableId),
+        eq(ordersTable.paymentStatus, "pending")
+      ))
+      .orderBy(desc(ordersTable.createdAt))
+      .limit(1);
+
+    if (!order) {
+      res.status(404).json({ error: "No active order found for this table. Please place an order first." });
+      return;
+    }
+
+    if (order.discountAmount && parseFloat(String(order.discountAmount)) > 0) {
+      res.status(400).json({ error: "A discount has already been applied to this order." });
+      return;
+    }
+
+    // Check customer has enough points
+    const [customer] = await db
+      .select()
+      .from(loyaltyCustomersTable)
+      .where(eq(loyaltyCustomersTable.id, loyaltyCustomerId))
+      .limit(1);
+
+    if (!customer) {
+      res.status(404).json({ error: "Loyalty customer not found." });
+      return;
+    }
+
+    if (customer.totalPoints < pointsToUse) {
+      res.status(400).json({ error: "Insufficient points." });
+      return;
+    }
+
+    // Apply discount to the order
+    const baseAmount = parseFloat(String(order.totalAmount));
+    const discountAmount = baseAmount * (discountPercent / 100);
+    const newTotal = Math.max(0, baseAmount - discountAmount);
+
+    await db.update(ordersTable).set({
+      totalAmount: String(newTotal),
+      discountAmount: String(discountAmount),
+      loyaltyCustomerId: loyaltyCustomerId,
+      notes: [order.notes, `Loyalty discount: ${discountPercent}% (${pointsToUse} points redeemed)`].filter(Boolean).join(" | "),
+    }).where(eq(ordersTable.id, order.id));
+
+    // Deduct points from customer
+    await db.update(loyaltyCustomersTable).set({
+      totalPoints: customer.totalPoints - pointsToUse,
+    }).where(eq(loyaltyCustomersTable.id, loyaltyCustomerId));
+
+    res.json({
+      success: true,
+      orderId: order.id,
+      discountAmount: discountAmount.toFixed(2),
+      newTotal: newTotal.toFixed(2),
+      remainingPoints: customer.totalPoints - pointsToUse,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Redemption failed. Please try again." });
+  }
+});
+
 export default router;
