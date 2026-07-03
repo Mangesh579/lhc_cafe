@@ -146,6 +146,8 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const [activeCatId, setActiveCatId] = useState<number|null>(null);
   const [showSwipeHint, setShowSwipeHint] = useState(true);
+  const [showLoyaltyWelcome, setShowLoyaltyWelcome] = useState(false);
+  const loyaltyWelcomeShown = useRef(false);
 
   const feedRef = useRef<HTMLDivElement>(null);
   const catRefs = useRef<Record<number, HTMLElement|null>>({});
@@ -197,6 +199,11 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
           .filter((c:Category)=>c.items.length>0);
         setCategories(cats);
         if (cats.length > 0) setActiveCatId(cats[0].id);
+        // Show loyalty welcome popup once per session, after menu loads
+        if (!loyaltyWelcomeShown.current) {
+          loyaltyWelcomeShown.current = true;
+          setTimeout(() => setShowLoyaltyWelcome(true), 1200);
+        }
       })
       .catch(()=>setSessionState("expired"))
       .finally(()=>setMenuLoading(false));
@@ -1005,6 +1012,52 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
           </button>
         </div>
       </div>
+{/* One-time loyalty welcome popup — shown once per session after menu loads */}
+      {showLoyaltyWelcome && (
+        <div
+          style={{ position:"fixed", inset:0, zIndex:120, background:"rgba(8,4,2,0.88)", backdropFilter:"blur(12px)", display:"flex", alignItems:"center", justifyContent:"center", padding:"0 24px" }}
+          onClick={() => setShowLoyaltyWelcome(false)}
+        >
+          <div
+            style={{ width:"100%", maxWidth:PAGE_MAX_WIDTH, background:"#1A0F0A", border:"1px solid rgba(200,135,58,0.25)", borderRadius:20, padding:"32px 28px", animation:"slideUp 0.4s cubic-bezier(0.22,1,0.36,1) both", textAlign:"center" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ width:56, height:56, borderRadius:"50%", background:"rgba(200,135,58,0.1)", border:"1px solid rgba(200,135,58,0.3)", display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 18px" }}>
+              <Gift size={24} color="#C8873A" />
+            </div>
+            <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, color:"rgba(200,135,58,0.6)", letterSpacing:"0.18em", textTransform:"uppercase", marginBottom:8 }}>LHC Cafe Loyalty</p>
+            <h2 style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:26, color:"rgba(245,238,225,0.95)", fontWeight:300, marginBottom:10, lineHeight:1.2 }}>Earn rewards on every visit</h2>
+            <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(245,238,225,0.4)", lineHeight:1.7, marginBottom:24 }}>
+              Every Rs. 100 you spend earns <strong style={{ color:"#C8873A" }}>10 points</strong>. Unlock free drinks, combos, and exclusive rewards as you level up.
+            </p>
+            <div style={{ display:"flex", justifyContent:"center", gap:6, marginBottom:28, flexWrap:"wrap" }}>
+              {[
+                { lv:1, label:"Free Coffee", pts:"100 pts" },
+                { lv:2, label:"Premium Drink", pts:"250 pts" },
+                { lv:3, label:"Café Combo", pts:"450 pts" },
+              ].map(t => (
+                <div key={t.lv} style={{ padding:"8px 12px", background:"rgba(200,135,58,0.08)", border:"1px solid rgba(200,135,58,0.18)", borderRadius:10, minWidth:80 }}>
+                  <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, color:"rgba(200,135,58,0.6)", fontWeight:700, letterSpacing:"0.06em", marginBottom:3 }}>LV {t.lv}</p>
+                  <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:13, color:"rgba(245,238,225,0.8)" }}>{t.label}</p>
+                  <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, color:"rgba(245,238,225,0.3)", marginTop:2 }}>{t.pts}</p>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => { setShowLoyaltyWelcome(false); switchTab("loyalty"); }}
+              style={{ width:"100%", background:"#C8873A", border:"none", borderRadius:24, padding:"14px", color:"#1A0F0A", fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:700, letterSpacing:"0.05em", textTransform:"uppercase", cursor:"pointer", marginBottom:12 }}
+            >
+              Check My Points
+            </button>
+            <button
+              onClick={() => setShowLoyaltyWelcome(false)}
+              style={{ width:"100%", background:"none", border:"none", color:"rgba(245,238,225,0.3)", fontFamily:"'DM Sans',sans-serif", fontSize:12, cursor:"pointer", padding:"8px" }}
+            >
+              Maybe later
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
