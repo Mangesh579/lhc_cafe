@@ -1047,7 +1047,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
               onClick={() => { setShowLoyaltyWelcome(false); switchTab("loyalty"); }}
               style={{ width:"100%", background:"#C8873A", border:"none", borderRadius:24, padding:"14px", color:"#1A0F0A", fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:700, letterSpacing:"0.05em", textTransform:"uppercase", cursor:"pointer", marginBottom:12 }}
             >
-              Check My Points
+              Check My Points okay
             </button>
             <button
               onClick={() => setShowLoyaltyWelcome(false)}
