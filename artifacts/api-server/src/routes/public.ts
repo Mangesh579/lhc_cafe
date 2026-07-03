@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable, bestsellerCacheTable, loyaltyEmailVerificationsTable, loyaltyCustomersTable } from "@workspace/db";
+import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable, bestsellerCacheTable, loyaltyEmailVerificationsTable, loyaltyCustomersTable, loyaltyRedemptionsTable } from "@workspace/db";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 import { randomBytes, randomInt } from "crypto";
 import { publicOrderRateLimiter } from "../middlewares/rateLimit";
@@ -10,6 +10,14 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "noreply@example.com";
 
 const router = Router();
+
+const LOYALTY_TIERS = [
+  { level: 1, pointsRequired: 100,  reward: "Free Classic Coffee (Espresso/Americano) or Bakery Item (Cookie/Croissant)" },
+  { level: 2, pointsRequired: 250,  reward: "Free Premium Drink (Latte, Frappé, or Mocktail) + Free Extra Syrup/Topping" },
+  { level: 3, pointsRequired: 450,  reward: "Café Break Combo — Any standard beverage + any pastry or slice of cake" },
+  { level: 4, pointsRequired: 700,  reward: "Free Heavy Main Item — Sandwich, Burger, or Pasta (available when food menu launches)" },
+  { level: 5, pointsRequired: 1000, reward: "VIP Platter + Customized LHC Café Mug to take home (Loop 2+: Free Coffee for a Month or Secret Tasting Session)" },
+] as const;
 
 // Only requests originating from the cafe's own Wi-Fi (static IP) may
 // start, validate, or use a table session. This is the actual physical
@@ -464,6 +472,7 @@ router.post("/loyalty/verify-otp", requireCafeWifi, publicOrderRateLimiter, asyn
         name: customer.name,
         phone: customer.phone,
         totalPoints: customer.totalPoints,
+        loopNumber: customer.loopNumber ?? 1,
       }
     });
   } catch (err) {
@@ -509,7 +518,7 @@ router.post("/loyalty/register", requireCafeWifi, publicOrderRateLimiter, async 
       .values({ name, phone, email })
       .returning();
 
-    res.status(201).json({ success: true, customer: { id: customer.id, name: customer.name, phone: customer.phone, totalPoints: customer.totalPoints } });
+    res.status(201).json({ success: true, customer: { id: customer.id, name: customer.name, phone: customer.phone, totalPoints: customer.totalPoints, loopNumber: 1 } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Registration failed. Please try again." });
@@ -517,12 +526,11 @@ router.post("/loyalty/register", requireCafeWifi, publicOrderRateLimiter, async 
 });
 
 // POST /api/public/loyalty/redeem
-// Applies the customer's loyalty discount to their most recent active order on this table.
 router.post("/loyalty/redeem", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
   try {
-    const { sessionToken, loyaltyCustomerId, discountPercent, pointsToUse } = req.body;
-    if (!sessionToken || !loyaltyCustomerId || !discountPercent || !pointsToUse) {
-      res.status(400).json({ error: "sessionToken, loyaltyCustomerId, discountPercent and pointsToUse are required" });
+    const { sessionToken, loyaltyCustomerId, level } = req.body;
+    if (!sessionToken || !loyaltyCustomerId || !level) {
+      res.status(400).json({ error: "sessionToken, loyaltyCustomerId and level are required" });
       return;
     }
 
@@ -532,7 +540,40 @@ router.post("/loyalty/redeem", requireCafeWifi, publicOrderRateLimiter, async (r
       return;
     }
 
-    // Find the most recent active (unpaid) order for this table
+    const tier = LOYALTY_TIERS.find(t => t.level === level);
+    if (!tier) { res.status(400).json({ error: "Invalid reward level" }); return; }
+
+    const [customer] = await db
+      .select()
+      .from(loyaltyCustomersTable)
+      .where(eq(loyaltyCustomersTable.id, loyaltyCustomerId))
+      .limit(1);
+
+    if (!customer) { res.status(404).json({ error: "Loyalty customer not found" }); return; }
+
+    // Check customer has enough points for this tier
+    if (customer.totalPoints < tier.pointsRequired) {
+      res.status(400).json({ error: `You need ${tier.pointsRequired} points to unlock this reward. You have ${customer.totalPoints}.` });
+      return;
+    }
+
+    // Check this level hasn't already been redeemed in the current cycle
+    const [existingRedemption] = await db
+      .select()
+      .from(loyaltyRedemptionsTable)
+      .where(and(
+        eq(loyaltyRedemptionsTable.loyaltyCustomerId, loyaltyCustomerId),
+        eq(loyaltyRedemptionsTable.level, level),
+        eq(loyaltyRedemptionsTable.loopNumber, customer.loopNumber)
+      ))
+      .limit(1);
+
+    if (existingRedemption) {
+      res.status(400).json({ error: "You have already redeemed this reward in the current cycle." });
+      return;
+    }
+
+    // Find the most recent active unpaid order for this table
     const [order] = await db
       .select()
       .from(ordersTable)
@@ -548,55 +589,77 @@ router.post("/loyalty/redeem", requireCafeWifi, publicOrderRateLimiter, async (r
       return;
     }
 
-    if (order.discountAmount && parseFloat(String(order.discountAmount)) > 0) {
-      res.status(400).json({ error: "A discount has already been applied to this order." });
-      return;
+    // Build the reward note
+    const isLoop2Plus = customer.loopNumber >= 2 && level === 5;
+    const rewardNote = isLoop2Plus
+      ? `🏆 LEGACY REWARD (Loop ${customer.loopNumber}): Free Coffee for a Month (1/day) OR Secret Off-Menu Tasting Session for 2 — ask your server to apply`
+      : `🎁 Loyalty Reward Level ${level}: ${tier.reward} — please ask your server`;
+
+    // Append to order notes
+    const updatedNotes = [order.notes, rewardNote].filter(Boolean).join(" | ");
+    await db.update(ordersTable)
+      .set({
+        notes: updatedNotes,
+        loyaltyCustomerId: loyaltyCustomerId,
+      })
+      .where(eq(ordersTable.id, order.id));
+
+    // Record the redemption
+    const [redemption] = await db.insert(loyaltyRedemptionsTable).values({
+      loyaltyCustomerId,
+      level,
+      loopNumber: customer.loopNumber,
+      orderId: order.id,
+    }).returning();
+
+    // If Level 5: deduct 1000 points and increment loop
+    let updatedCustomer = customer;
+    if (level === 5) {
+      const newPoints = Math.max(0, customer.totalPoints - 1000);
+      const [updated] = await db.update(loyaltyCustomersTable)
+        .set({
+          totalPoints: newPoints,
+          loopNumber: customer.loopNumber + 1,
+        })
+        .where(eq(loyaltyCustomersTable.id, loyaltyCustomerId))
+        .returning();
+      updatedCustomer = updated;
     }
-
-    // Check customer has enough points
-    const [customer] = await db
-      .select()
-      .from(loyaltyCustomersTable)
-      .where(eq(loyaltyCustomersTable.id, loyaltyCustomerId))
-      .limit(1);
-
-    if (!customer) {
-      res.status(404).json({ error: "Loyalty customer not found." });
-      return;
-    }
-
-    if (customer.totalPoints < pointsToUse) {
-      res.status(400).json({ error: "Insufficient points." });
-      return;
-    }
-
-    // Apply discount to the order
-    const baseAmount = parseFloat(String(order.totalAmount));
-    const discountAmount = baseAmount * (discountPercent / 100);
-    const newTotal = Math.max(0, baseAmount - discountAmount);
-
-    await db.update(ordersTable).set({
-      totalAmount: String(newTotal),
-      discountAmount: String(discountAmount),
-      loyaltyCustomerId: loyaltyCustomerId,
-      notes: [order.notes, `Loyalty discount: ${discountPercent}% (${pointsToUse} points redeemed)`].filter(Boolean).join(" | "),
-    }).where(eq(ordersTable.id, order.id));
-
-    // Deduct points from customer
-    await db.update(loyaltyCustomersTable).set({
-      totalPoints: customer.totalPoints - pointsToUse,
-    }).where(eq(loyaltyCustomersTable.id, loyaltyCustomerId));
 
     res.json({
       success: true,
       orderId: order.id,
-      discountAmount: discountAmount.toFixed(2),
-      newTotal: newTotal.toFixed(2),
-      remainingPoints: customer.totalPoints - pointsToUse,
+      level,
+      reward: rewardNote,
+      remainingPoints: updatedCustomer.totalPoints,
+      loopNumber: updatedCustomer.loopNumber,
+      cycleComplete: level === 5,
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Redemption failed. Please try again." });
+  }
+});
+
+// GET /api/public/loyalty/redemptions?loyaltyCustomerId=x&loopNumber=x
+// Returns which levels have already been redeemed in the current cycle
+router.get("/loyalty/redemptions", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
+  try {
+    const { loyaltyCustomerId, loopNumber } = req.query;
+    if (!loyaltyCustomerId || !loopNumber) {
+      res.status(400).json({ error: "loyaltyCustomerId and loopNumber required" });
+      return;
+    }
+    const redemptions = await db
+      .select()
+      .from(loyaltyRedemptionsTable)
+      .where(and(
+        eq(loyaltyRedemptionsTable.loyaltyCustomerId, parseInt(loyaltyCustomerId as string)),
+        eq(loyaltyRedemptionsTable.loopNumber, parseInt(loopNumber as string))
+      ));
+    res.json(redemptions.map(r => r.level));
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch redemptions" });
   }
 });
 

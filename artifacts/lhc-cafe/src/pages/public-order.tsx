@@ -139,7 +139,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [activeTab, setActiveTab] = useState<"menu"|"myorder"|"loyalty">("menu");
   const [displayTab, setDisplayTab] = useState<"menu"|"myorder"|"loyalty">("menu");
   // Loyalty session: persists for the whole table session, reset only on session expiry
-  const [loyaltyVerifiedCustomer, setLoyaltyVerifiedCustomer] = useState<{id:number;name:string;phone:string;totalPoints:number}|null>(null);
+  const [loyaltyVerifiedCustomer, setLoyaltyVerifiedCustomer] = useState<{id:number;name:string;phone:string;totalPoints:number;loopNumber:number}|null>(null);
   const [loyaltyRedeemed, setLoyaltyRedeemed] = useState(false);
   const [loyaltyRedeemResult, setLoyaltyRedeemResult] = useState<{orderId:number;discountAmount:string;newTotal:string;remainingPoints:number}|null>(null);
   const [tabFade, setTabFade] = useState(true);
@@ -298,6 +298,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       setLoyaltyCustomerData(d.customer);
       setLoyaltyVerifiedCustomer(d.customer); // persist for whole session
       setLoyaltyStep("done");
+      loadRedeemedLevels(d.customer.id, d.customer.loopNumber ?? 1);
     } catch { setLoyaltyError("Network error. Please try again."); }
     finally { setLoyaltyLoading(false); }
   };
@@ -321,6 +322,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       if (!r.ok) { setSignupError(d.error ?? "Registration failed"); return; }
       setLoyaltyVerifiedCustomer(d.customer);
       setLoyaltyMode("main");
+      setRedeemedLevels([]);
       setSignupData({ name: "", phone: "", email: "" });
     } catch { setSignupError("Network error. Please try again."); }
     finally { setSignupLoading(false); }
@@ -334,7 +336,24 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     return null;
   };
 
-  const handleRedeem = async (tier: { pct: number; pointsNeeded: number }) => {
+  const LOYALTY_TIERS = [
+    { level: 1, pointsRequired: 100,  reward: "Free Classic Coffee or Bakery Item" },
+    { level: 2, pointsRequired: 250,  reward: "Free Premium Drink + Extra Topping" },
+    { level: 3, pointsRequired: 450,  reward: "Café Break Combo (drink + pastry/cake)" },
+    { level: 4, pointsRequired: 700,  reward: "Free Heavy Main Item (coming soon with food menu)" },
+    { level: 5, pointsRequired: 1000, reward: "VIP Platter + LHC Café Mug to take home" },
+  ];
+
+  const [redeemedLevels, setRedeemedLevels] = useState<number[]>([]);
+
+  const loadRedeemedLevels = async (customerId: number, loopNumber: number) => {
+    try {
+      const r = await fetch(`${API_BASE}/api/public/loyalty/redemptions?loyaltyCustomerId=${customerId}&loopNumber=${loopNumber}`);
+      if (r.ok) { const d = await r.json(); setRedeemedLevels(d); }
+    } catch { /* silent */ }
+  };
+
+  const handleRedeem = async (level: number) => {
     if (!sessionToken || !loyaltyVerifiedCustomer) return;
     setRedeemLoading(true);
     try {
@@ -343,15 +362,21 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         body: JSON.stringify({
           sessionToken,
           loyaltyCustomerId: loyaltyVerifiedCustomer.id,
-          discountPercent: tier.pct,
-          pointsToUse: tier.pointsNeeded,
+          level,
         }),
       });
       const d = await r.json();
       if (!r.ok) { alert(d.error ?? "Redemption failed"); return; }
-      setLoyaltyRedeemed(true);
-      setLoyaltyRedeemResult(d);
-      setLoyaltyVerifiedCustomer(prev => prev ? { ...prev, totalPoints: d.remainingPoints } : prev);
+      setRedeemedLevels(prev => [...prev, level]);
+      if (d.cycleComplete) {
+        setLoyaltyVerifiedCustomer(prev => prev ? {
+          ...prev,
+          totalPoints: d.remainingPoints,
+          loopNumber: d.loopNumber,
+        } : prev);
+        setRedeemedLevels([]);
+      }
+      alert(`✓ ${d.reward}`);
     } catch { alert("Network error. Please try again."); }
     finally { setRedeemLoading(false); }
   };
@@ -681,59 +706,84 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
             <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(245,238,225,0.4)", marginTop:6 }}>loyalty points</p>
           </div>
 
-          {loyaltyRedeemed && loyaltyRedeemResult ? (
-            <div style={{ padding:"18px", background:"rgba(143,174,110,0.1)", border:"1px solid rgba(143,174,110,0.3)", borderRadius:12, textAlign:"center" }}>
-              <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"#8FAE6E", fontWeight:600, marginBottom:6 }}>✓ Discount Applied to Your Order!</p>
-              <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:18, color:"rgba(245,238,225,0.8)" }}>
-                −Rs. {parseFloat(loyaltyRedeemResult.discountAmount).toFixed(0)} off
-              </p>
-              <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(245,238,225,0.35)", marginTop:4 }}>
-                New order total: Rs. {parseFloat(loyaltyRedeemResult.newTotal).toFixed(0)}
-              </p>
-            </div>
-          ) : (
-            <>
-              <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"rgba(245,238,225,0.45)", textAlign:"center" }}>Available Rewards</p>
-              {(() => {
-                const tier = getDiscountTier(loyaltyVerifiedCustomer.totalPoints);
-                if (!tier) return (
-                  <div style={{ padding:"20px", border:"1px dashed rgba(245,238,225,0.1)", borderRadius:12, textAlign:"center" }}>
-                    <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:16, color:"rgba(245,238,225,0.35)", fontStyle:"italic" }}>You need at least 500 points to redeem a reward.</p>
-                    <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(245,238,225,0.25)", marginTop:8 }}>Keep ordering to earn more points!</p>
+          {/* Progress bar */}
+          {(() => {
+            const pts = loyaltyVerifiedCustomer.totalPoints;
+            const nextTier = LOYALTY_TIERS.find(t => pts < t.pointsRequired);
+            const pct = nextTier ? Math.min(100, (pts / nextTier.pointsRequired) * 100) : 100;
+            return (
+              <div style={{ marginBottom: 4 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                  <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, color:"rgba(245,238,225,0.4)" }}>
+                    Loop {loyaltyVerifiedCustomer.loopNumber ?? 1}
+                  </span>
+                  {nextTier && (
+                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, color:"rgba(200,135,58,0.7)" }}>
+                      {nextTier.pointsRequired - pts} pts to Level {nextTier.level}
+                    </span>
+                  )}
+                </div>
+                <div style={{ height:6, background:"rgba(245,238,225,0.08)", borderRadius:3, overflow:"hidden" }}>
+                  <div style={{ height:"100%", width:`${pct}%`, background:"#C8873A", borderRadius:3, transition:"width 0.5s ease" }} />
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Reward tiers */}
+          <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(245,238,225,0.4)", letterSpacing:"0.1em", textTransform:"uppercase" }}>Rewards</p>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {LOYALTY_TIERS.map(tier => {
+              const unlocked = loyaltyVerifiedCustomer.totalPoints >= tier.pointsRequired;
+              const redeemed = redeemedLevels.includes(tier.level);
+              const isLoop2Plus = (loyaltyVerifiedCustomer.loopNumber ?? 1) >= 2 && tier.level === 5;
+              return (
+                <div key={tier.level} style={{
+                  padding:"14px 16px",
+                  background: redeemed ? "rgba(143,174,110,0.08)" : unlocked ? "rgba(200,135,58,0.08)" : "rgba(245,238,225,0.02)",
+                  border: `1px solid ${redeemed ? "rgba(143,174,110,0.3)" : unlocked ? "rgba(200,135,58,0.25)" : "rgba(245,238,225,0.07)"}`,
+                  borderRadius:10,
+                  display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:12,
+                }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                      <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, fontWeight:700,
+                        color: redeemed ? "#8FAE6E" : unlocked ? "#C8873A" : "rgba(245,238,225,0.25)",
+                        background: redeemed ? "rgba(143,174,110,0.15)" : unlocked ? "rgba(200,135,58,0.15)" : "rgba(245,238,225,0.05)",
+                        padding:"2px 8px", borderRadius:10,
+                      }}>
+                        LV {tier.level} · {tier.pointsRequired} pts
+                      </span>
+                      {redeemed && <span style={{ fontSize:12 }}>✓</span>}
+                    </div>
+                    <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:15,
+                      color: redeemed ? "rgba(143,174,110,0.7)" : unlocked ? "rgba(245,238,225,0.88)" : "rgba(245,238,225,0.25)",
+                      lineHeight:1.35,
+                    }}>
+                      {isLoop2Plus ? "Free Coffee for a Month (1/day) or Secret Tasting Session for 2" : tier.reward}
+                    </p>
                   </div>
-                );
-                return (
-                  <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                    {[
-                      { pct: 10, pointsNeeded: 500, label: "10% off" },
-                      { pct: 15, pointsNeeded: 1000, label: "15% off" },
-                      { pct: 20, pointsNeeded: 1500, label: "20% off" },
-                      { pct: 25, pointsNeeded: 2000, label: "25% off" },
-                    ].map(t => {
-                      const canRedeem = loyaltyVerifiedCustomer.totalPoints >= t.pointsNeeded;
-                      return (
-                        <div key={t.pct} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", background: canRedeem ? "rgba(200,135,58,0.08)" : "rgba(245,238,225,0.03)", border: `1px solid ${canRedeem ? "rgba(200,135,58,0.3)" : "rgba(245,238,225,0.08)"}`, borderRadius:10 }}>
-                          <div>
-                            <p style={{ fontFamily:"'Cormorant Garamond',Georgia,serif", fontSize:18, color: canRedeem ? "rgba(245,238,225,0.9)" : "rgba(245,238,225,0.3)", fontWeight:400 }}>{t.label}</p>
-                            <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:10, color:"rgba(245,238,225,0.3)", marginTop:2 }}>{t.pointsNeeded} points</p>
-                          </div>
-                          {canRedeem && (
-                            <button
-                              onClick={() => handleRedeem(t)}
-                              disabled={redeemLoading}
-                              style={{ background:"#C8873A", border:"none", borderRadius:20, padding:"8px 16px", color:"#1A0F0A", fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:700, cursor:redeemLoading?"wait":"pointer", opacity:redeemLoading?0.6:1 }}
-                            >
-                              Redeem
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-            </>
-          )}
+                  {unlocked && !redeemed && (
+                    <button
+                      onClick={() => handleRedeem(tier.level)}
+                      disabled={redeemLoading}
+                      style={{ flexShrink:0, background:"#C8873A", border:"none", borderRadius:18, padding:"8px 14px", color:"#1A0F0A", fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:700, cursor:redeemLoading?"wait":"pointer", opacity:redeemLoading?0.6:1 }}
+                    >
+                      Redeem
+                    </button>
+                  )}
+                  {redeemed && (
+                    <span style={{ flexShrink:0, fontFamily:"'DM Sans',sans-serif", fontSize:10, color:"#8FAE6E", fontWeight:600 }}>Claimed</span>
+                  )}
+                  {!unlocked && (
+                    <span style={{ flexShrink:0, fontFamily:"'DM Sans',sans-serif", fontSize:10, color:"rgba(245,238,225,0.2)" }}>
+                      {tier.pointsRequired - loyaltyVerifiedCustomer.totalPoints} pts away
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : loyaltyMode === "signup" ? (
         /* Signup form */

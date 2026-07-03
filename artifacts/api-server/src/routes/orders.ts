@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable } from "@workspace/db";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth";
 
@@ -271,6 +271,36 @@ router.patch("/orders/:id/cancel", authenticate, async (req, res): Promise<void>
       }
     }
   }
+
+  // If this order had loyalty redemptions, delete them so levels can be redeemed again
+  // Also reverse Level 5 point deduction if it was applied on this order
+  const level5Redemption = await db
+    .select()
+    .from(loyaltyRedemptionsTable)
+    .where(and(
+      eq(loyaltyRedemptionsTable.orderId, id),
+      eq(loyaltyRedemptionsTable.level, 5)
+    ))
+    .limit(1);
+
+  if (level5Redemption.length > 0) {
+    const r = level5Redemption[0];
+    // Get the order to find the customer
+    const [cancelledOrder] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+    if (cancelledOrder?.loyaltyCustomerId) {
+      const [cust] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, cancelledOrder.loyaltyCustomerId));
+      if (cust) {
+        // Reverse the loop increment and restore 1000 points
+        await db.update(loyaltyCustomersTable).set({
+          totalPoints: cust.totalPoints + 1000,
+          loopNumber: Math.max(1, cust.loopNumber - 1),
+        }).where(eq(loyaltyCustomersTable.id, cust.id));
+      }
+    }
+  }
+
+  // Delete all redemptions tied to this order
+  await db.delete(loyaltyRedemptionsTable).where(eq(loyaltyRedemptionsTable.orderId, id));
 
   await db.update(ordersTable).set({ orderStatus: "cancelled", paymentStatus: "cancelled" }).where(eq(ordersTable.id, id));
   const result = await getOrderWithItems(id);

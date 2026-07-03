@@ -13,3 +13,4 @@ export { tableSessionsTable } from "./tables";
 export { bestsellerCacheTable } from "./bestseller-cache";
 export { staffShiftsTable, attendancePunchesTable, attendanceCommentsTable } from "./staff";
 export { loyaltyEmailVerificationsTable } from "./loyalty-verification";
+export { loyaltyCustomersTable, loyaltyRedemptionsTable } from "./loyalty";
