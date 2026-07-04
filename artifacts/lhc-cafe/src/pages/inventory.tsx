@@ -398,6 +398,7 @@ export default function Inventory() {
           </div>
           <Card>
             <CardContent className="p-0">
+              <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="bg-muted/50 text-muted-foreground uppercase tracking-wider text-xs">
                   <tr>
@@ -474,6 +475,7 @@ export default function Inventory() {
                   )}
                 </tbody>
               </table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -485,6 +487,7 @@ export default function Inventory() {
           </div>
           <Card>
             <CardContent className="p-0">
+              <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="bg-muted/50 text-muted-foreground uppercase tracking-wider text-xs">
                   <tr>
@@ -523,6 +526,7 @@ export default function Inventory() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -535,6 +539,7 @@ export default function Inventory() {
           </div>
           <Card>
             <CardContent className="p-0">
+              <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="bg-muted/50 text-muted-foreground uppercase tracking-wider text-xs">
                   <tr>
@@ -561,6 +566,7 @@ export default function Inventory() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -572,6 +578,7 @@ export default function Inventory() {
           </div>
           <Card>
             <CardContent className="p-0">
+              <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="bg-muted/50 text-muted-foreground uppercase tracking-wider text-xs">
                   <tr>
@@ -605,6 +612,7 @@ export default function Inventory() {
                   })}
                 </tbody>
               </table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

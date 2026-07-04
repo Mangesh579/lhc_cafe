@@ -23,6 +23,7 @@ async function getOrderWithItems(orderId: number) {
       loyaltyCustomerName: loyaltyCustomersTable.name,
       loyaltyPointsEarned: ordersTable.loyaltyPointsEarned,
       discountAmount: ordersTable.discountAmount,
+      createdBy: ordersTable.createdBy,
       notes: ordersTable.notes,
       createdAt: ordersTable.createdAt,
       updatedAt: ordersTable.updatedAt,
@@ -76,6 +77,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
       loyaltyCustomerName: loyaltyCustomersTable.name,
       loyaltyPointsEarned: ordersTable.loyaltyPointsEarned,
       discountAmount: ordersTable.discountAmount,
+      createdBy: ordersTable.createdBy,
       notes: ordersTable.notes,
       createdAt: ordersTable.createdAt,
       updatedAt: ordersTable.updatedAt,
@@ -135,6 +137,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
     loyaltyCustomerId: loyaltyCustomerId ?? null,
     notes: notes ?? null,
     discountAmount: String(discountValue),
+    createdBy: (req as any).user?.username ?? null,
   }).returning();
 
   for (const item of resolvedItems) {
@@ -303,6 +306,15 @@ router.patch("/orders/:id/cancel", authenticate, async (req, res): Promise<void>
   await db.delete(loyaltyRedemptionsTable).where(eq(loyaltyRedemptionsTable.orderId, id));
 
   await db.update(ordersTable).set({ orderStatus: "cancelled", paymentStatus: "cancelled" }).where(eq(ordersTable.id, id));
+  const result = await getOrderWithItems(id);
+  if (!result) { res.status(404).json({ error: "Order not found" }); return; }
+  res.json(result);
+});
+
+router.patch("/orders/:id/notes", authenticate, async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  const { notes } = req.body;
+  await db.update(ordersTable).set({ notes: notes ?? null }).where(eq(ordersTable.id, id));
   const result = await getOrderWithItems(id);
   if (!result) { res.status(404).json({ error: "Order not found" }); return; }
   res.json(result);

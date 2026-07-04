@@ -13,6 +13,7 @@ export const ordersTable = pgTable("orders", {
   loyaltyPointsEarned: integer("loyalty_points_earned"),
   notes: text("notes"),
   discountAmount: numeric("discount_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
