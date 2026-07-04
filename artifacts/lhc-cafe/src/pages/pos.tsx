@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Minus, Trash2, Search, Printer, CheckCircle2, ShoppingBag, Coffee, Info } from "lucide-react";
+import { Plus, Minus, Trash2, Search, Printer, CheckCircle2, ShoppingBag, Coffee, Info, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -67,6 +67,7 @@ function ItemInfoDialog({ itemId, open, onClose }: { itemId: number | null; open
 
 export default function POS() {
   const [activeCategory, setActiveCategory] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [phone, setPhone] = useState("");
   const [orderNotes, setOrderNotes] = useState("");
@@ -98,9 +99,13 @@ export default function POS() {
 
   const filteredItems = useMemo(() => {
     if (!menuItems) return [];
-    if (activeCategory === "all") return menuItems;
-    return menuItems.filter(item => item.categoryId?.toString() === activeCategory);
-  }, [menuItems, activeCategory]);
+    let items = activeCategory === "all" ? menuItems : menuItems.filter(item => item.categoryId?.toString() === activeCategory);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      items = items.filter(item => item.name.toLowerCase().includes(q) || item.description?.toLowerCase().includes(q));
+    }
+    return items;
+  }, [menuItems, activeCategory, searchQuery]);
 
   const addToCart = (item: MenuItem) => {
     setCart(prev => {
@@ -159,7 +164,26 @@ export default function POS() {
 
   const MenuPanel = (
     <div className="flex-1 flex flex-col gap-3 min-w-0 min-h-0">
-      <div className="bg-card border rounded-lg p-2 shadow-sm shrink-0">
+      <div className="bg-card border rounded-lg p-2 shadow-sm shrink-0 space-y-2">
+        {/* Search bar */}
+        <div className="relative px-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search menu items…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="pl-9 h-9 text-sm"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        {/* Category chips */}
         <div className="flex gap-2 p-1 overflow-x-auto" style={{ scrollbarWidth: "thin" }}>
           <Button variant={activeCategory === "all" ? "default" : "outline"} onClick={() => setActiveCategory("all")} className="rounded-full flex-shrink-0">All Items</Button>
           {categories?.map(cat => (

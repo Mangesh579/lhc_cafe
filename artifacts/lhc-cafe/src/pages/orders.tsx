@@ -173,15 +173,15 @@ export default function Orders() {
             <Card key={order.id} className="overflow-hidden border-border/60 shadow-sm">
               {/* Card header — always visible */}
               <div
-                className="flex items-start justify-between p-4 gap-3 cursor-pointer hover:bg-muted/20"
+                className="p-4 cursor-pointer hover:bg-muted/20"
                 onClick={() => toggleExpand(order.id)}
               >
-                {/* Left: order number + meta */}
+                {/* Top row: order number + meta + expand chevron */}
                 <div className="flex items-start gap-3 min-w-0">
-                  <div className="flex flex-col items-center justify-center bg-muted w-12 h-12 rounded-md flex-shrink-0">
-                    <span className="text-xs text-muted-foreground">#{order.id}</span>
+                  <div className="flex flex-col items-center justify-center bg-muted w-11 h-11 rounded-md shrink-0">
+                    <span className="text-xs text-muted-foreground font-medium">#{order.id}</span>
                   </div>
-                  <div className="min-w-0">
+                  <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 mb-1">
                       <span className="font-semibold text-sm">
                         {order.tableNumber ? `Table ${order.tableNumber}` : 'Takeaway'}
@@ -213,30 +213,35 @@ export default function Orders() {
                       <p className="text-xs text-primary mt-0.5">{order.loyaltyCustomerName}</p>
                     )}
                   </div>
+                  <div className="shrink-0 pt-1">
+                    {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                  </div>
                 </div>
 
-                {/* Right: action buttons + expand */}
-                <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                {/* Action buttons — always on their own row, never overlapping */}
+                <div
+                  className="flex items-center gap-2 mt-3 ml-14 flex-wrap"
+                  onClick={e => e.stopPropagation()}
+                >
                   {order.orderStatus === 'pending' && (
-                    <Button size="sm" onClick={() => handleStatusChange(order.id, 'preparing')} className="text-xs h-8">Prepare</Button>
+                    <Button size="sm" onClick={() => handleStatusChange(order.id, 'preparing')} className="text-xs h-8 px-4">Prepare</Button>
                   )}
                   {order.orderStatus === 'preparing' && (
-                    <Button size="sm" onClick={() => handleStatusChange(order.id, 'ready')} className="text-xs h-8">Ready</Button>
+                    <Button size="sm" onClick={() => handleStatusChange(order.id, 'ready')} className="text-xs h-8 px-4">Ready</Button>
                   )}
                   {order.orderStatus === 'ready' && (
-                    <Button size="sm" variant={isPaymentPending ? "outline" : "default"} disabled={isPaymentPending} onClick={() => handleStatusChange(order.id, 'completed')} className="text-xs h-8">Done</Button>
+                    <Button size="sm" variant={isPaymentPending ? "outline" : "default"} disabled={isPaymentPending} onClick={() => handleStatusChange(order.id, 'completed')} className="text-xs h-8 px-4">Done</Button>
                   )}
                   {isPaymentPending && (
-                    <Button size="sm" variant="outline" onClick={() => openPaymentModal(order)} className="gap-1 text-xs h-8">
+                    <Button size="sm" variant="outline" onClick={() => openPaymentModal(order)} className="gap-1.5 text-xs h-8 px-4">
                       <CreditCard className="w-3 h-3" /> Pay
                     </Button>
                   )}
                   {['pending', 'preparing'].includes(order.orderStatus) && (
-                    <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive text-xs h-8" onClick={() => handleCancelOrder(order.id)}>
+                    <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive text-xs h-8 px-3" onClick={() => handleCancelOrder(order.id)}>
                       Cancel
                     </Button>
                   )}
-                  {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground ml-1" /> : <ChevronDown className="w-4 h-4 text-muted-foreground ml-1" />}
                 </div>
               </div>
 
