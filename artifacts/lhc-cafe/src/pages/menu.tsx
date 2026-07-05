@@ -67,9 +67,11 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader><DialogTitle>{item ? "Edit Menu Item" : "Add Menu Item"}</DialogTitle></DialogHeader>
-        <div className="grid grid-cols-2 gap-4 py-4">
+      <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
+        <DialogHeader className="shrink-0">
+          <DialogTitle>{item ? "Edit Menu Item" : "Add Menu Item"}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-4 overflow-y-auto flex-1 pr-1">
           <div className="col-span-2 space-y-1">
             <Label>Name *</Label>
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="Cappuccino" />
@@ -118,7 +120,7 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
             <Input placeholder="https://... (portrait MP4, under 10MB)" value={videoUrl} onChange={e => setVideoUrl(e.target.value)} />
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="shrink-0 pt-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending}>
             {item ? "Update" : "Create"}
