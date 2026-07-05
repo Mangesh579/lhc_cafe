@@ -83,23 +83,70 @@ const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }>
 // dropping in `imageUrl` or `videoUrl` later requires zero layout changes.
 function DishMedia({ item, height }: { item: MenuItem; height: number | string }) {
   const initial = item.name.trim().charAt(0).toUpperCase();
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (typeof IntersectionObserver === "undefined") { video.play().catch(() => {}); return; }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+          // Card is at least 50% visible — play the video
+          video.play().catch(() => {});
+        } else {
+          // Card scrolled away — pause and reset so it starts fresh next time
+          video.pause();
+          video.currentTime = 0;
+        }
+      },
+      {
+        threshold: [0, 0.5, 1.0],
+        rootMargin: "0px",
+      }
+    );
+
+    observer.observe(video);
+    return () => observer.disconnect();
+  }, [item.videoUrl]);
+
   if (item.videoUrl) {
     return (
-      <video
-        src={item.videoUrl} autoPlay loop muted playsInline
+      <div style={{ width: "100%", height, position: "relative", overflow: "hidden" }}>
+        {/* Poster image shows instantly while video loads — uses the same imageUrl */}
+        <video
+          ref={videoRef}
+          src={item.videoUrl}
+          poster={item.imageUrl ?? undefined}
+          loop
+          muted
+          playsInline
+          preload="none"
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+        />
+      </div>
+    );
+  }
+
+  if (item.imageUrl) {
+    return (
+      <img
+        src={item.imageUrl}
+        alt={item.name}
         style={{ width: "100%", height, objectFit: "cover", display: "block" }}
+        loading="lazy"
       />
     );
   }
-  if (item.imageUrl) {
-    return <img src={item.imageUrl} alt={item.name} style={{ width: "100%", height, objectFit: "cover", display: "block" }} />;
-  }
+
   return (
     <div style={{ width: "100%", height, background: dishGradient(item.name), position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <span style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: "min(120px, 30vh)", fontWeight: 300, color: "rgba(245,238,225,0.14)", lineHeight: 1 }}>{initial}</span>
       </div>
-      {/* soft vignette so overlaid text stays legible regardless of hue */}
       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 100%)" }} />
     </div>
   );
