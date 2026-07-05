@@ -36,6 +36,7 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
   const [calories, setCalories] = useState(item?.calories ? String(item.calories) : "");
   const [isAvailable, setIsAvailable] = useState(item?.isAvailable ?? true);
   const [imageUrl, setImageUrl] = useState(item?.imageUrl ?? "");
+  const [videoUrl, setVideoUrl] = useState((item as any)?.videoUrl ?? "");
   
   const createMutation = useCreateMenuItem();
   const updateMutation = useUpdateMenuItem();
@@ -47,12 +48,13 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
       setPrice(item?.price ? String(item.price) : ""); setCategoryId(item?.categoryId ? String(item.categoryId) : "");
       setCalories(item?.calories ? String(item.calories) : ""); setIsAvailable(item?.isAvailable ?? true);
       setImageUrl(item?.imageUrl ?? "");
+      setVideoUrl((item as any)?.videoUrl ?? "");
     }
   }, [open, item]);
 
   const handleSave = async () => {
     if (!name || !price) { toast({ title: "Name and price are required", variant: "destructive" }); return; }
-    const data = { name, description: description || undefined, price: parseFloat(price), categoryId: categoryId ? parseInt(categoryId) : undefined, calories: calories ? parseInt(calories) : undefined, isAvailable, imageUrl: imageUrl || undefined };
+    const data = { name, description: description || undefined, price: parseFloat(price), categoryId: categoryId ? parseInt(categoryId) : undefined, calories: calories ? parseInt(calories) : undefined, isAvailable, imageUrl: imageUrl || undefined, videoUrl: videoUrl || undefined };
     try {
       if (item) await updateMutation.mutateAsync({ id: item.id, data });
       else await createMutation.mutateAsync({ data: { ...data, imageUrl: imageUrl || undefined } as any });
@@ -106,14 +108,14 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
           </div>
           <div className="col-span-2 space-y-1">
             <Label>Image URL (optional)</Label>
-            <Input
-              placeholder="https://i.imgur.com/example.jpg"
-              value={imageUrl}
-              onChange={e => setImageUrl(e.target.value)}
-            />
+            <Input placeholder="https://... (1200×900px recommended)" value={imageUrl} onChange={e => setImageUrl(e.target.value)} />
             {imageUrl && (
               <img src={imageUrl} alt="Preview" className="h-24 rounded-lg object-cover mt-1" onError={e => (e.currentTarget.style.display = "none")} />
             )}
+          </div>
+          <div className="space-y-2">
+            <Label>Video URL <span className="text-xs text-muted-foreground font-normal">(optional — shows in QR menu feed, auto-plays on scroll)</span></Label>
+            <Input placeholder="https://... (portrait MP4, under 10MB)" value={videoUrl} onChange={e => setVideoUrl(e.target.value)} />
           </div>
         </div>
         <DialogFooter>

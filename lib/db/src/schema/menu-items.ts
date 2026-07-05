@@ -10,6 +10,7 @@ export const menuItemsTable = pgTable("menu_items", {
   categoryId: integer("category_id"),
   isAvailable: boolean("is_available").notNull().default(true),
   imageUrl: text("image_url"),
+  videoUrl: text("video_url"),
   calories: integer("calories"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
