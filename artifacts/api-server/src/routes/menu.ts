@@ -52,6 +52,7 @@ router.get("/menu-items", authenticate, async (req, res): Promise<void> => {
       categoryName: menuCategoriesTable.name,
       isAvailable: menuItemsTable.isAvailable,
       imageUrl: menuItemsTable.imageUrl,
+      videoUrl: menuItemsTable.videoUrl,
       calories: menuItemsTable.calories,
       createdAt: menuItemsTable.createdAt,
     })
@@ -68,12 +69,12 @@ router.get("/menu-items", authenticate, async (req, res): Promise<void> => {
 });
 
 router.post("/menu-items", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const { name, description, price, categoryId, isAvailable, imageUrl, calories } = req.body;
+  const { name, description, price, categoryId, isAvailable, imageUrl, videoUrl, calories } = req.body;
   if (!name || price === undefined) { res.status(400).json({ error: "Name and price required" }); return; }
   const [item] = await db.insert(menuItemsTable).values({
     name, description: description ?? null, price: String(price),
     categoryId: categoryId ?? null, isAvailable: isAvailable ?? true,
-    imageUrl: imageUrl ?? null, calories: calories ?? null,
+    imageUrl: imageUrl ?? null, videoUrl: videoUrl ?? null, calories: calories ?? null,
   }).returning();
   await db.insert(menuChangelogsTable).values({ menuItemId: item.id, action: "item_created", newValue: `${name} @ Rs.${price}`, changedBy: req.user?.username ?? "admin" });
   const [cat] = item.categoryId ? await db.select().from(menuCategoriesTable).where(eq(menuCategoriesTable.id, item.categoryId)) : [null];
@@ -92,6 +93,7 @@ router.get("/menu-items/:id", authenticate, async (req, res): Promise<void> => {
       categoryName: menuCategoriesTable.name,
       isAvailable: menuItemsTable.isAvailable,
       imageUrl: menuItemsTable.imageUrl,
+      videoUrl: menuItemsTable.videoUrl,
       calories: menuItemsTable.calories,
       createdAt: menuItemsTable.createdAt,
     })
@@ -118,19 +120,17 @@ router.get("/menu-items/:id", authenticate, async (req, res): Promise<void> => {
 
 router.patch("/menu-items/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const { name, description, price, categoryId, isAvailable, imageUrl, calories } = req.body;
+  const { name, description, price, categoryId, isAvailable, imageUrl, videoUrl, calories } = req.body;
   const updateData: Record<string, unknown> = {};
-  const { videoUrl } = req.body;
   console.log("PATCH menu-item body:", JSON.stringify(req.body));
   console.log("videoUrl value:", videoUrl);
-  if (videoUrl !== undefined) updateData.videoUrl = videoUrl;
   if (name !== undefined) updateData.name = name;
   if (description !== undefined) updateData.description = description;
   if (price !== undefined) updateData.price = String(price);
   if (categoryId !== undefined) updateData.categoryId = categoryId;
   if (isAvailable !== undefined) updateData.isAvailable = isAvailable;
   if (imageUrl !== undefined) updateData.imageUrl = imageUrl;
-  // if (videoUrl !== undefined) updateData.videoUrl = videoUrl;
+  if (videoUrl !== undefined) updateData.videoUrl = videoUrl;
   if (calories !== undefined) updateData.calories = calories;
 
   const [before] = await db.select().from(menuItemsTable).where(eq(menuItemsTable.id, id));

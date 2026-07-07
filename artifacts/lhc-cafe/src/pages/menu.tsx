@@ -44,12 +44,24 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
   const { toast } = useToast();
 
   useEffect(() => {
-    if (open) {
-      setName(item?.name ?? ""); setDescription(item?.description ?? "");
-      setPrice(item?.price ? String(item.price) : ""); setCategoryId(item?.categoryId ? String(item.categoryId) : "");
-      setCalories(item?.calories ? String(item.calories) : ""); setIsAvailable(item?.isAvailable ?? true);
-      setImageUrl(item?.imageUrl ?? "");
-      setVideoUrl((item as any)?.videoUrl ?? "");
+    if (open && item) {
+      setName(item.name ?? "");
+      setDescription(item.description ?? "");
+      setPrice(item.price ? String(item.price) : "");
+      setCategoryId(item.categoryId ? String(item.categoryId) : "");
+      setCalories(item.calories ? String(item.calories) : "");
+      setIsAvailable(item.isAvailable ?? true);
+      setImageUrl(item.imageUrl ?? "");
+      // Fetch fresh from server to get fields not in the generated client type
+      fetch(`/api/menu-items/${item.id}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setVideoUrl(d.videoUrl ?? ""); })
+        .catch(() => {});
+    } else if (open && !item) {
+      setName(""); setDescription(""); setPrice(""); setCategoryId("");
+      setCalories(""); setIsAvailable(true); setImageUrl(""); setVideoUrl("");
     }
   }, [open, item]);
 
