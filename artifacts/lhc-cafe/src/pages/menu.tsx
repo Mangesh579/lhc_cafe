@@ -32,6 +32,7 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
   const [name, setName] = useState(item?.name ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
   const [price, setPrice] = useState(item?.price ? String(item.price) : "");
+  const qc = useQueryClient();
   const [categoryId, setCategoryId] = useState(item?.categoryId ? String(item.categoryId) : "");
   const [calories, setCalories] = useState(item?.calories ? String(item.calories) : "");
   const [isAvailable, setIsAvailable] = useState(item?.isAvailable ?? true);
@@ -53,15 +54,36 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
   }, [open, item]);
 
   const handleSave = async () => {
-    if (!name || !price) { toast({ title: "Name and price are required", variant: "destructive" }); return; }
-    const data = { name, description: description || undefined, price: parseFloat(price), categoryId: categoryId ? parseInt(categoryId) : undefined, calories: calories ? parseInt(calories) : undefined, isAvailable, imageUrl: imageUrl || undefined, videoUrl: videoUrl || undefined };
+    if (!name || !price) { toast({ title: "Name and price required", variant: "destructive" }); return; }
     try {
-      if (item) await updateMutation.mutateAsync({ id: item.id, data });
-      else await createMutation.mutateAsync({ data: { ...data, imageUrl: imageUrl || undefined } as any });
+      const body: any = {
+        name,
+        description: description || undefined,
+        price: parseFloat(price),
+        categoryId: categoryId ? parseInt(categoryId) : undefined,
+        calories: calories ? parseInt(calories) : undefined,
+        imageUrl: imageUrl || undefined,
+        videoUrl: videoUrl || undefined,
+      };
+      if (item) {
+        await fetch(`/api/menu-items/${item.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+          body: JSON.stringify(body),
+        });
+      } else {
+        await fetch(`/api/menu-items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+          body: JSON.stringify(body),
+        });
+      }
+      qc.invalidateQueries({ queryKey: getListMenuItemsQueryKey() });
       toast({ title: item ? "Item updated" : "Item created" });
-      onSaved(); onClose();
-    } catch (err: any) {
-      toast({ title: "Error", description: err?.data?.error ?? "Failed to save", variant: "destructive" });
+      onSaved();
+      onClose();
+    } catch {
+      toast({ title: "Failed to save item", variant: "destructive" });
     }
   };
 
