@@ -78,9 +78,9 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
           body: JSON.stringify(body),
         });
       }
-      qc.invalidateQueries({ queryKey: getListMenuItemsQueryKey() });
       toast({ title: item ? "Item updated" : "Item created" });
       onSaved();
+      await qc.invalidateQueries({ queryKey: getListMenuItemsQueryKey() });
       onClose();
     } catch {
       toast({ title: "Failed to save item", variant: "destructive" });
