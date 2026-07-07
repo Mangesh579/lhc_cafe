@@ -121,13 +121,16 @@ router.patch("/menu-items/:id", authenticate, async (req: AuthRequest, res: Resp
   const { name, description, price, categoryId, isAvailable, imageUrl, calories } = req.body;
   const updateData: Record<string, unknown> = {};
   const { videoUrl } = req.body;
+  console.log("PATCH menu-item body:", JSON.stringify(req.body));
+  console.log("videoUrl value:", videoUrl);
+  if (videoUrl !== undefined) updateData.videoUrl = videoUrl;
   if (name !== undefined) updateData.name = name;
   if (description !== undefined) updateData.description = description;
   if (price !== undefined) updateData.price = String(price);
   if (categoryId !== undefined) updateData.categoryId = categoryId;
   if (isAvailable !== undefined) updateData.isAvailable = isAvailable;
   if (imageUrl !== undefined) updateData.imageUrl = imageUrl;
-  if (videoUrl !== undefined) updateData.videoUrl = videoUrl;
+  // if (videoUrl !== undefined) updateData.videoUrl = videoUrl;
   if (calories !== undefined) updateData.calories = calories;
 
   const [before] = await db.select().from(menuItemsTable).where(eq(menuItemsTable.id, id));
