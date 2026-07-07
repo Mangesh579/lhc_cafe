@@ -84,6 +84,7 @@ const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }>
 function DishMedia({ item, height }: { item: MenuItem; height: number | string }) {
   const initial = item.name.trim().charAt(0).toUpperCase();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [muted, setMuted] = useState(true);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -95,18 +96,14 @@ function DishMedia({ item, height }: { item: MenuItem; height: number | string }
         const entry = entries[0];
         if (!entry) return;
         if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
-          // Card is at least 50% visible — play the video
           video.play().catch(() => {});
         } else {
-          // Card scrolled away — pause and reset so it starts fresh next time
           video.pause();
           video.currentTime = 0;
+          setMuted(true); // reset to muted when scrolled away
         }
       },
-      {
-        threshold: [0, 0.5, 1.0],
-        rootMargin: "0px",
-      }
+      { threshold: [0, 0.5, 1.0] }
     );
 
     observer.observe(video);
@@ -116,17 +113,39 @@ function DishMedia({ item, height }: { item: MenuItem; height: number | string }
   if (item.videoUrl) {
     return (
       <div style={{ width: "100%", height, position: "relative", overflow: "hidden" }}>
-        {/* Poster image shows instantly while video loads — uses the same imageUrl */}
         <video
           ref={videoRef}
           src={item.videoUrl}
           poster={item.imageUrl ?? undefined}
           loop
-          muted
+          muted={muted}
           playsInline
           preload="none"
           style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
         />
+        {/* Tap to unmute/mute button */}
+        <button
+          onClick={() => setMuted(m => !m)}
+          style={{
+            position: "absolute", bottom: 56, right: 14,
+            width: 32, height: 32, borderRadius: "50%",
+            background: "rgba(15,8,5,0.55)", border: "none",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer", backdropFilter: "blur(4px)",
+          }}
+        >
+          {muted ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F5EEE1" strokeWidth="2">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+              <line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F5EEE1" strokeWidth="2">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            </svg>
+          )}
+        </button>
       </div>
     );
   }
