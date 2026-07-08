@@ -125,7 +125,7 @@ function DishMedia({ item, height }: { item: MenuItem; height: number | string }
         />
         {/* Tap to unmute/mute button */}
         <button
-          onClick={() => setMuted(m => !m)}
+          onClick={e => { e.stopPropagation(); setMuted(m => !m); }}
           style={{
             position: "absolute", bottom: 56, right: 14,
             width: 32, height: 32, borderRadius: "50%",
