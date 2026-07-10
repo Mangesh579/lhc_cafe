@@ -48,6 +48,7 @@ export function sanitizeBody(req: Request, res: Response, next: NextFunction): v
   if (req.body && typeof req.body === "object") {
     const error = validateValue(req.body, 0);
     if (error) {
+      console.error("sanitizeBody rejected:", JSON.stringify(req.body), "reason:", error);
       res.status(400).json({ error });
       return;
     }
