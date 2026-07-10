@@ -125,7 +125,8 @@ function DishMedia({ item, height }: { item: MenuItem; height: number | string }
         />
         {/* Tap to unmute/mute button */}
         <button
-          onClick={e => { e.stopPropagation(); setMuted(m => !m); }}
+          onClick={e => { e.stopPropagation(); e.preventDefault(); setMuted(m => !m); }}
+          onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); setMuted(m => !m); }}
           style={{
             position: "absolute", bottom: 56, right: 14,
             width: 32, height: 32, borderRadius: "50%",
@@ -692,7 +693,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
               return (
                 <div key={item.id} className="feed-card" ref={el => { itemRefs.current[item.id] = el; }} style={{ padding: "8px 16px 16px" }}>
                   <div
-                    onClick={() => setSelectedItem(item)}
+                    onClick={e => { if ((e.target as HTMLElement).closest('button')) return; setSelectedItem(item); }}
                     style={{ borderRadius: 18, overflow: "hidden", position: "relative", cursor: "pointer", height: "62vh", minHeight: 360, maxHeight: 560 }}
                   >
                     <DishMedia item={item} height="100%" />
