@@ -15,6 +15,7 @@ export default function OrderLog() {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [staffFilter, setStaffFilter] = useState("");
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
 
   const { data: orders, isLoading } = useListOrders({ date: dateFilter || undefined });
@@ -31,6 +32,13 @@ export default function OrderLog() {
     if (categoryFilter !== "all") {
       const catId = parseInt(categoryFilter);
       if (!order.items?.some((item: any) => itemCategoryMap.get(item.menuItemId) === catId)) return false;
+    }
+    if (staffFilter.trim()) {
+      const q = staffFilter.toLowerCase();
+      const matchesTable = order.tableNumber ? `table ${order.tableNumber}`.includes(q) : false;
+      const matchesStaff = (order as any).createdBy?.toLowerCase().includes(q) ?? false;
+      const matchesCustomer = order.loyaltyCustomerName?.toLowerCase().includes(q) ?? false;
+      if (!matchesTable && !matchesStaff && !matchesCustomer) return false;
     }
     return true;
   }) ?? [];
@@ -104,7 +112,19 @@ export default function OrderLog() {
       )}
 
       {/* Filters */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 p-3 bg-muted/20 rounded-lg border">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 p-3 bg-muted/20 rounded-lg border">
+        <div className="space-y-1 col-span-2 md:col-span-1">
+          <Label className="text-xs font-semibold text-muted-foreground uppercase">Table / Staff / Customer</Label>
+          <div className="flex gap-1">
+            <Input
+              placeholder="e.g. Table 3, Rojal, John..."
+              value={staffFilter}
+              onChange={e => setStaffFilter(e.target.value)}
+              className="text-sm h-9"
+            />
+            {staffFilter && <Button variant="ghost" size="sm" onClick={() => setStaffFilter("")} className="h-9 px-2">✕</Button>}
+          </div>
+        </div>
         <div className="space-y-1">
           <Label className="text-xs font-semibold text-muted-foreground uppercase">Date</Label>
           <div className="flex gap-1">
@@ -195,11 +215,14 @@ export default function OrderLog() {
             {expandedOrders.has(order.id) && (
               <div className="px-4 pb-4 border-t bg-muted/10 space-y-1 pt-3">
                 {order.items?.map((item: any) => (
-                  <div key={item.id} className="flex justify-between text-sm text-muted-foreground">
-                    <span>{item.quantity}× {item.menuItemName}</span>
-                    <span>Rs. {parseFloat(String(item.subtotal)).toFixed(0)}</span>
-                  </div>
-                ))}
+                    <div key={item.id} className="text-sm text-muted-foreground">
+                      <div className="flex justify-between">
+                        <span>{item.quantity}× {item.menuItemName}</span>
+                        <span>Rs. {parseFloat(String(item.subtotal)).toFixed(0)}</span>
+                      </div>
+                      {item.notes && <p className="text-xs text-amber-600 italic ml-4 mt-0.5">↳ {item.notes}</p>}
+                    </div>
+                  ))}
                 {order.notes && <p className="text-xs mt-2 text-amber-700 italic">Note: {order.notes}</p>}
                 {parseFloat(String((order as any).discountAmount ?? 0)) > 0 && (
                   <p className="text-xs text-blue-600">Discount: −Rs. {parseFloat(String((order as any).discountAmount)).toFixed(0)}</p>
@@ -272,9 +295,12 @@ export default function OrderLog() {
                         <td colSpan={7} className="px-8 py-3">
                           <div className="space-y-1">
                             {order.items?.map((item: any) => (
-                              <div key={item.id} className="flex justify-between text-sm text-muted-foreground">
-                                <span>{item.quantity}× {item.menuItemName}</span>
-                                <span>Rs. {parseFloat(String(item.subtotal)).toFixed(0)}</span>
+                              <div key={item.id} className="text-sm text-muted-foreground">
+                                <div className="flex justify-between">
+                                  <span>{item.quantity}× {item.menuItemName}</span>
+                                  <span>Rs. {parseFloat(String(item.subtotal)).toFixed(0)}</span>
+                                </div>
+                                {item.notes && <p className="text-xs text-amber-600 italic ml-4 mt-0.5">↳ {item.notes}</p>}
                               </div>
                             ))}
                             {order.notes && <p className="text-xs mt-1 text-amber-700 italic">Note: {order.notes}</p>}
