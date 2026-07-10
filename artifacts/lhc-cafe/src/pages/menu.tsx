@@ -53,7 +53,8 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
       setIsAvailable(item.isAvailable ?? true);
       setImageUrl(item.imageUrl ?? "");
       // Fetch fresh from server to get fields not in the generated client type
-      fetch(`/api/menu-items/${item.id}`, {
+      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+      fetch(`${API_BASE}/api/menu-items/${item.id}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }
       })
         .then(r => r.ok ? r.json() : null)
@@ -77,18 +78,21 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
         imageUrl: imageUrl || undefined,
         videoUrl: videoUrl || undefined,
       };
+      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
       if (item) {
-        await fetch(`/api/menu-items/${item.id}`, {
+        const r = await fetch(`${API_BASE}/api/menu-items/${item.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
           body: JSON.stringify(body),
         });
+        if (!r.ok) { const e = await r.json(); throw new Error(e.error ?? "Failed"); }
       } else {
-        await fetch(`/api/menu-items`, {
+        const r = await fetch(`${API_BASE}/api/menu-items`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
           body: JSON.stringify(body),
         });
+        if (!r.ok) { const e = await r.json(); throw new Error(e.error ?? "Failed"); }
       }
       toast({ title: item ? "Item updated" : "Item created" });
       onSaved();
