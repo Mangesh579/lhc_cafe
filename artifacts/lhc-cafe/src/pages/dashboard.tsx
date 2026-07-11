@@ -1,14 +1,53 @@
 import { useGetDashboardStats, useGetDashboardActivity, useGetSalesByDay, useGetTopMenuItems } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { AlertCircle, Coffee, DollarSign, Package, ShoppingBag, Users } from "lucide-react";
+import { AlertCircle, Coffee, DollarSign, Package, ShoppingBag, Users, ExternalLink, Activity } from "lucide-react";
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 import { format } from "date-fns";
+import { useState, useEffect } from "react";
+
+type SystemHealth = {
+  cloudinary: { storageUsedGB: number; storageLimitGB: number; bandwidthUsedGB: number; bandwidthLimitGB: number; creditsUsed: number; creditsLimit: number; creditsPercent: number } | null;
+  email: { sentThisMonth: number; limitPerMonth: number; percent: number };
+  database: { pretty: string; bytes: number; limitBytes: number };
+  links: { railway: string; vercel: string; resend: string; cloudinary: string };
+};
+
+function UsageBar({ used, total, label, color = "bg-primary" }: { used: number; total: number; label: string; color?: string }) {
+  const pct = Math.min(100, Math.round((used / total) * 100));
+  const isWarning = pct >= 70;
+  const isDanger = pct >= 90;
+  const barColor = isDanger ? "bg-destructive" : isWarning ? "bg-amber-500" : color;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className={`font-medium ${isDanger ? "text-destructive" : isWarning ? "text-amber-600" : ""}`}>{pct}%</span>
+      </div>
+      <div className="h-2 bg-muted rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { data: stats } = useGetDashboardStats();
   const { data: activityItems } = useGetDashboardActivity({ limit: 10 });
   const { data: salesByDay } = useGetSalesByDay({ days: 7 });
   const { data: topItems } = useGetTopMenuItems();
+  const [health, setHealth] = useState<SystemHealth | null>(null);
+  const [healthLoading, setHealthLoading] = useState(true);
+
+  useEffect(() => {
+    const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+    fetch(`${API_BASE}/api/system/health`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setHealth(d); })
+      .catch(() => {})
+      .finally(() => setHealthLoading(false));
+  }, []);
 
   const formatCurrency = (val: number) => `Rs. ${val.toLocaleString()}`;
 
@@ -130,6 +169,89 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+      
+      {/* System Health */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2"><Activity className="w-5 h-5" /> System Health</CardTitle>
+            <CardDescription>Platform usage across all services</CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {healthLoading ? (
+            <p className="text-sm text-muted-foreground">Loading usage data…</p>
+          ) : !health ? (
+            <p className="text-sm text-muted-foreground">Could not load usage data.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+              {/* Cloudinary */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold">Cloudinary Media</h4>
+                  <a href={health.links.cloudinary} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+                    Dashboard <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+                {health.cloudinary ? (
+                  <div className="space-y-3">
+                    <UsageBar used={health.cloudinary.creditsUsed} total={health.cloudinary.creditsLimit} label={`Credits: ${health.cloudinary.creditsUsed.toFixed(1)} / ${health.cloudinary.creditsLimit}`} />
+                    <UsageBar used={health.cloudinary.storageUsedGB} total={health.cloudinary.storageLimitGB} label={`Storage: ${health.cloudinary.storageUsedGB.toFixed(2)} GB / ${health.cloudinary.storageLimitGB} GB`} />
+                    <UsageBar used={health.cloudinary.bandwidthUsedGB} total={health.cloudinary.bandwidthLimitGB} label={`Bandwidth: ${health.cloudinary.bandwidthUsedGB.toFixed(2)} GB / ${health.cloudinary.bandwidthLimitGB} GB`} />
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Configure CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET in Railway to see usage.</p>
+                )}
+              </div>
+
+              {/* Email + Database */}
+              <div className="space-y-6">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold">Resend Email</h4>
+                    <a href={health.links.resend} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+                      Dashboard <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <UsageBar used={health.email.sentThisMonth} total={health.email.limitPerMonth} label={`OTPs sent: ${health.email.sentThisMonth} / ${health.email.limitPerMonth} this month`} />
+                  <p className="text-xs text-muted-foreground">Free tier: 3,000 emails/month</p>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold">PostgreSQL Database</h4>
+                  <UsageBar used={health.database.bytes} total={health.database.limitBytes} label={`Size: ${health.database.pretty} / 1 GB`} />
+                </div>
+              </div>
+
+              {/* Railway + Vercel links */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold">Platform Links</h4>
+                <p className="text-xs text-muted-foreground">These platforms don't expose public usage APIs — check their dashboards directly.</p>
+                <div className="space-y-2">
+                  <a href={health.links.railway} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center justify-between p-3 rounded-md border hover:bg-muted/50 transition-colors">
+                    <div>
+                      <p className="text-sm font-medium">Railway</p>
+                      <p className="text-xs text-muted-foreground">API server · PostgreSQL hosting</p>
+                    </div>
+                    <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                  </a>
+                  <a href={health.links.vercel} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center justify-between p-3 rounded-md border hover:bg-muted/50 transition-colors">
+                    <div>
+                      <p className="text-sm font-medium">Vercel</p>
+                      <p className="text-xs text-muted-foreground">Frontend hosting · Bandwidth</p>
+                    </div>
+                    <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                  </a>
+                </div>
+              </div>
+
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Recent Activity */}
       <Card>

@@ -11,6 +11,7 @@ import publicRouter from "./public";
 import equipmentRouter from "./equipment";
 import wasteRouter from "./waste";
 import staffRouter from "./staff";
+import systemRouter from "./system";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use("/public", publicRouter);
 router.use(equipmentRouter);
 router.use(wasteRouter);
 router.use(staffRouter);
+router.use(systemRouter);
 
 export default router;
