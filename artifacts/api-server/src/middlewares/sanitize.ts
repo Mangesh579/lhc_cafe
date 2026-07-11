@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 
-const MAX_STRING_LENGTH = 2000;
+const MAX_STRING_LENGTH = 500000; // large enough for base64 images and video URLs
 const MAX_ARRAY_LENGTH = 200;
 const MAX_OBJECT_DEPTH = 6;
 
@@ -48,7 +48,7 @@ export function sanitizeBody(req: Request, res: Response, next: NextFunction): v
   if (req.body && typeof req.body === "object") {
     const error = validateValue(req.body, 0);
     if (error) {
-      console.error("sanitizeBody rejected:", JSON.stringify(req.body), "reason:", error);
+      // console.error("sanitizeBody rejected:", JSON.stringify(req.body), "reason:", error);
       res.status(400).json({ error });
       return;
     }
