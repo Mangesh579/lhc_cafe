@@ -119,6 +119,7 @@ router.get("/menu-items/:id", authenticate, async (req, res): Promise<void> => {
 });
 
 router.patch("/menu-items/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  console.log("PATCH menu-items body:", JSON.stringify(req.body));
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
   const { name, description, price, categoryId, isAvailable, imageUrl, videoUrl, calories } = req.body;
   const updateData: Record<string, unknown> = {};
