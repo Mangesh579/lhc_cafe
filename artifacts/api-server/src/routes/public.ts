@@ -354,6 +354,10 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
 // Rate limited to prevent spam — max 30/min by the existing publicOrderRateLimiter.
 router.post("/loyalty/request-otp", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
   try {
+    // Clean up old verified OTPs to keep the table small
+    await db.delete(loyaltyEmailVerificationsTable)
+      .where(eq(loyaltyEmailVerificationsTable.verified, true));
+
     const { phone, email } = req.body;
     if (!phone || !email) { res.status(400).json({ error: "Phone and email are required" }); return; }
 
@@ -373,7 +377,26 @@ router.post("/loyalty/request-otp", requireCafeWifi, publicOrderRateLimiter, asy
     const otp = String(randomInt(100000, 999999));
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    // Delete any existing unused OTP for this phone+email pair
+    // Check if a valid unexpired OTP already exists — don't send another one
+    const [existingOtp] = await db
+      .select()
+      .from(loyaltyEmailVerificationsTable)
+      .where(and(
+        eq(loyaltyEmailVerificationsTable.phone, phone),
+        eq(loyaltyEmailVerificationsTable.email, email),
+        eq(loyaltyEmailVerificationsTable.verified, false)
+      ))
+      .limit(1);
+
+    if (existingOtp && new Date() < existingOtp.expiresAt) {
+      const minutesLeft = Math.ceil((existingOtp.expiresAt.getTime() - Date.now()) / 60000);
+      res.status(429).json({
+        error: `A verification code was already sent to your email. Please check your inbox or wait ${minutesLeft} minute${minutesLeft === 1 ? "" : "s"} before requesting a new one.`
+      });
+      return;
+    }
+
+    // Delete any expired OTP for this pair before creating new one
     await db.delete(loyaltyEmailVerificationsTable)
       .where(and(
         eq(loyaltyEmailVerificationsTable.phone, phone),
