@@ -693,8 +693,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
               return (
                 <div key={item.id} className="feed-card" ref={el => { itemRefs.current[item.id] = el; }} style={{ padding: "8px 16px 16px" }}>
                   <div
-                    onClick={e => { if ((e.target as HTMLElement).closest('button')) return; setSelectedItem(item); }}
-                    style={{ borderRadius: 18, overflow: "hidden", position: "relative", cursor: "pointer", height: "62vh", minHeight: 360, maxHeight: 560 }}
+                    style={{ borderRadius: 18, overflow: "hidden", position: "relative", height: "62vh", minHeight: 360, maxHeight: 560 }}
                   >
                     <DishMedia item={item} height="100%" />
 
@@ -715,8 +714,8 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
                     {/* Overlaid info panel */}
                     <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "20px 18px 18px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <h3 style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 22, color: "#F5EEE1", fontWeight: 400, lineHeight: 1.15, marginBottom: 4, textShadow: "0 2px 8px rgba(0,0,0,0.5)" }}>{item.name}</h3>
+                      <div style={{ minWidth: 0, cursor: "pointer" }} onClick={() => setSelectedItem(item)}>
+                        <h3 style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 22, color: "#F5EEE1", fontWeight: 400, lineHeight: 1.15, marginBottom: 4, textShadow: "0 2px 8px rgba(0,0,0,0.5)", textDecoration: "underline", textDecorationColor: "rgba(245,238,225,0.2)", textUnderlineOffset: 3 }}>{item.name}</h3>
                         {item.description && (
                           <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11.5, color: "rgba(245,238,225,0.65)", lineHeight: 1.5, fontWeight: 300, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", textShadow: "0 1px 4px rgba(0,0,0,0.5)" }}>{item.description}</p>
                         )}
