@@ -354,14 +354,9 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
 // Rate limited to prevent spam — max 30/min by the existing publicOrderRateLimiter.
 router.post("/loyalty/request-otp", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
   try {
-    // Clean up old verified OTPs to keep the table small
-    await db.delete(loyaltyEmailVerificationsTable)
-      .where(eq(loyaltyEmailVerificationsTable.verified, true));
-
     const { phone, email } = req.body;
     if (!phone || !email) { res.status(400).json({ error: "Phone and email are required" }); return; }
 
-    // Check the customer exists with this phone number
     const [customer] = await db
       .select()
       .from(loyaltyCustomersTable)
@@ -373,46 +368,73 @@ router.post("/loyalty/request-otp", requireCafeWifi, publicOrderRateLimiter, asy
       return;
     }
 
-    // Generate 6-digit OTP
-    const otp = String(randomInt(100000, 999999));
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const RESET_WINDOW_MS = 60 * 60 * 1000; // 1 hour — if last request was over 1hr ago, reset count
 
-    // Check if a valid unexpired OTP already exists — don't send another one
-    const [existingOtp] = await db
+    // Find existing record for this phone+email pair (verified or not)
+    const [existing] = await db
       .select()
       .from(loyaltyEmailVerificationsTable)
       .where(and(
         eq(loyaltyEmailVerificationsTable.phone, phone),
-        eq(loyaltyEmailVerificationsTable.email, email),
-        eq(loyaltyEmailVerificationsTable.verified, false)
+        eq(loyaltyEmailVerificationsTable.email, email)
       ))
       .limit(1);
 
-    if (existingOtp && new Date() < existingOtp.expiresAt) {
-      const minutesLeft = Math.ceil((existingOtp.expiresAt.getTime() - Date.now()) / 60000);
-      res.status(429).json({
-        error: `A verification code was already sent to your email. Please check your inbox or wait ${minutesLeft} minute${minutesLeft === 1 ? "" : "s"} before requesting a new one.`
-      });
-      return;
+    let requestCount = 1;
+
+    if (existing) {
+      const timeSinceLastRequest = Date.now() - new Date(existing.lastRequestedAt).getTime();
+
+      if (timeSinceLastRequest < RESET_WINDOW_MS) {
+        // Within the 1-hour window — check cooldown
+        // If previous OTP is still unexpired and unverified, enforce cooldown
+        if (!existing.verified && new Date() < existing.expiresAt) {
+          const minutesLeft = Math.ceil((existing.expiresAt.getTime() - Date.now()) / 60000);
+          res.status(429).json({
+            error: `A verification code was already sent. Please wait ${minutesLeft} minute${minutesLeft === 1 ? "" : "s"} before requesting a new one.`
+          });
+          return;
+        }
+
+        // Previous OTP expired or was verified — apply escalating cooldown based on request count
+        requestCount = existing.requestCount + 1;
+        const cooldownMinutes = (requestCount - 1) * 10; // 0, 10, 20, 30... minutes
+
+        if (cooldownMinutes > 0) {
+          const cooldownEndsAt = new Date(existing.lastRequestedAt).getTime() + cooldownMinutes * 60 * 1000;
+          const msLeft = cooldownEndsAt - Date.now();
+          if (msLeft > 0) {
+            const minutesLeft = Math.ceil(msLeft / 60000);
+            res.status(429).json({
+              error: `Too many verification requests. Please wait ${minutesLeft} more minute${minutesLeft === 1 ? "" : "s"} before requesting a new code.`
+            });
+            return;
+          }
+        }
+      } else {
+        // Over 1 hour since last request — reset the count
+        requestCount = 1;
+      }
+
+      // Delete old record before inserting fresh one
+      await db.delete(loyaltyEmailVerificationsTable)
+        .where(eq(loyaltyEmailVerificationsTable.id, existing.id));
     }
 
-    // Delete any expired OTP for this pair before creating new one
-    await db.delete(loyaltyEmailVerificationsTable)
-      .where(and(
-        eq(loyaltyEmailVerificationsTable.phone, phone),
-        eq(loyaltyEmailVerificationsTable.email, email)
-      ));
+    // Generate new OTP
+    const otp = String(randomInt(100000, 999999));
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Store new OTP
     await db.insert(loyaltyEmailVerificationsTable).values({
       phone,
       email,
       otp,
       expiresAt,
       verified: false,
+      requestCount,
+      lastRequestedAt: new Date(),
     });
 
-    // Send email via Resend
     await resend.emails.send({
       from: FROM_EMAIL,
       to: email,

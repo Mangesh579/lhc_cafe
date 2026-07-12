@@ -1,4 +1,4 @@
-import { pgTable, serial, text, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, boolean, timestamp, integer } from "drizzle-orm/pg-core";
 
 export const loyaltyEmailVerificationsTable = pgTable("loyalty_email_verifications", {
   id: serial("id").primaryKey(),
@@ -7,6 +7,8 @@ export const loyaltyEmailVerificationsTable = pgTable("loyalty_email_verificatio
   otp: text("otp").notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   verified: boolean("verified").notNull().default(false),
+  requestCount: integer("request_count").notNull().default(1),
+  lastRequestedAt: timestamp("last_requested_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
