@@ -127,20 +127,19 @@ function PunchWidget({ punches, onPunched }: { punches: Punch[]; onPunched: () =
 }
 
 // ── Comment box for a given date ─────────────────────────────────────────
-function CommentBox({ comments, onSaved }: { comments: CommentEntry[]; onSaved: () => void }) {
-  const today = format(new Date(), "yyyy-MM-dd");
-  const existing = comments.find(c => c.commentDate === today);
+function CommentBox({ comments, onSaved, selectedDate, onDateChange }: { comments: CommentEntry[]; onSaved: () => void; selectedDate: string; onDateChange: (d: string) => void }) {
+  const existing = comments.find(c => c.commentDate === selectedDate);
   const [text, setText] = useState(existing?.comment ?? "");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
-  useEffect(() => { setText(existing?.comment ?? ""); }, [existing?.comment]);
+  useEffect(() => { setText(existing?.comment ?? ""); }, [existing?.comment, selectedDate]);
 
   const handleSave = async () => {
     if (!text.trim()) return;
     setLoading(true);
     try {
-      await APIJSON("/staff/comments", "POST", { date: today, comment: text });
+      await APIJSON("/staff/comments", "POST", { date: selectedDate, comment: text });
       toast({ title: "Comment saved" });
       onSaved();
     } catch { toast({ title: "Failed to save comment", variant: "destructive" }); }
@@ -150,9 +149,10 @@ function CommentBox({ comments, onSaved }: { comments: CommentEntry[]; onSaved: 
   return (
     <Card>
       <CardContent className="p-5 space-y-3">
-        <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">Today's Comment</h3>
+        <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">Add / Edit Comment</h3>
+        <Input type="date" value={selectedDate} onChange={e => onDateChange(e.target.value)} className="h-9 text-sm" />
         <Textarea
-          placeholder="Anything to note for today? (e.g. came in late, left early, special task...)"
+          placeholder="Anything to note for this day? (e.g. came in late, left early, special task...)"
           value={text}
           onChange={e => setText(e.target.value)}
           className="resize-none h-20"
@@ -166,8 +166,14 @@ function CommentBox({ comments, onSaved }: { comments: CommentEntry[]; onSaved: 
 }
 
 // ── Attendance history table ──────────────────────────────────────────────
-function AttendanceHistory({ punches, comments }: { punches: Punch[]; comments: CommentEntry[] }) {
-  // Group punches by date
+function AttendanceHistory({ punches, comments, onSaved, isAdmin }: { punches: Punch[]; comments: CommentEntry[]; onSaved: () => void; isAdmin: boolean }) {
+  const now = new Date();
+  const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1);
+  const [filterYear, setFilterYear] = useState(now.getFullYear());
+  const [editingComment, setEditingComment] = useState<Record<string, string>>({});
+  const [savingComment, setSavingComment] = useState<string | null>(null);
+  const { toast } = useToast();
+
   const byDate: Record<string, Punch[]> = {};
   punches.forEach(p => {
     const date = format(new Date(p.punchedAt), "yyyy-MM-dd");
@@ -175,45 +181,128 @@ function AttendanceHistory({ punches, comments }: { punches: Punch[]; comments: 
     byDate[date].push(p);
   });
 
-  const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
+  const allDates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
+  const filteredDates = allDates.filter(date => {
+    const d = new Date(date);
+    return d.getMonth() + 1 === filterMonth && d.getFullYear() === filterYear;
+  });
+
+  // Also show dates that have comments but no punches for the filtered month
+  comments.forEach(c => {
+    const d = new Date(c.commentDate);
+    if (d.getMonth() + 1 === filterMonth && d.getFullYear() === filterYear) {
+      if (!filteredDates.includes(c.commentDate)) filteredDates.push(c.commentDate);
+    }
+  });
+  filteredDates.sort((a, b) => b.localeCompare(a));
+
+  const years = Array.from({ length: 3 }, (_, i) => now.getFullYear() - i);
+  const months = [
+    "January","February","March","April","May","June",
+    "July","August","September","October","November","December"
+  ];
+
+  const handleSaveComment = async (date: string) => {
+    const text = editingComment[date];
+    if (!text?.trim()) return;
+    setSavingComment(date);
+    try {
+      await APIJSON("/staff/comments", "POST", { date, comment: text });
+      toast({ title: "Comment saved" });
+      setEditingComment(prev => { const n = { ...prev }; delete n[date]; return n; });
+      onSaved();
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setSavingComment(null); }
+  };
 
   return (
-    <Card>
-      <CardContent className="p-0">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-muted/50 text-muted-foreground uppercase tracking-wider text-xs">
-            <tr>
-              <th className="px-5 py-3">Date</th>
-              <th className="px-5 py-3">Punches</th>
-              <th className="px-5 py-3">Comment</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {dates.length === 0 ? (
-              <tr><td colSpan={3} className="px-5 py-8 text-center text-muted-foreground">No attendance recorded yet.</td></tr>
-            ) : dates.map(date => {
-              const dayPunches = byDate[date].sort((a, b) => new Date(a.punchedAt).getTime() - new Date(b.punchedAt).getTime());
-              const comment = comments.find(c => c.commentDate === date);
-              return (
-                <tr key={date} className="hover:bg-muted/20">
-                  <td className="px-5 py-3 font-medium">{format(new Date(date), "MMM d, yyyy")}</td>
-                  <td className="px-5 py-3">
-                    <div className="flex flex-wrap gap-1.5">
-                      {dayPunches.map(p => (
-                        <Badge key={p.id} variant="secondary" className={p.punchType === "in" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}>
-                          {p.punchType === "in" ? "In" : "Out"} {format(new Date(p.punchedAt), "h:mm a")}
-                        </Badge>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-5 py-3 text-muted-foreground text-xs max-w-64">{comment?.comment ?? "—"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
+    <div className="space-y-3">
+      {/* Month/Year filter */}
+      <div className="flex gap-2 flex-wrap">
+        <Select value={String(filterMonth)} onValueChange={v => setFilterMonth(parseInt(v))}>
+          <SelectTrigger className="w-36 h-9 text-sm"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {months.map((m, i) => <SelectItem key={i+1} value={String(i+1)}>{m}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={String(filterYear)} onValueChange={v => setFilterYear(parseInt(v))}>
+          <SelectTrigger className="w-28 h-9 text-sm"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {years.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <span className="text-xs text-muted-foreground self-center">{filteredDates.length} day{filteredDates.length !== 1 ? "s" : ""} found</span>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-muted/50 text-muted-foreground uppercase tracking-wider text-xs">
+              <tr>
+                <th className="px-5 py-3">Date</th>
+                <th className="px-5 py-3">Punches</th>
+                <th className="px-5 py-3">Comment</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filteredDates.length === 0 ? (
+                <tr><td colSpan={3} className="px-5 py-8 text-center text-muted-foreground">No attendance recorded for this period.</td></tr>
+              ) : filteredDates.map(date => {
+                const dayPunches = (byDate[date] ?? []).sort((a, b) => new Date(a.punchedAt).getTime() - new Date(b.punchedAt).getTime());
+                const comment = comments.find(c => c.commentDate === date);
+                const isEditingThisRow = editingComment[date] !== undefined;
+                const currentText = isEditingThisRow ? editingComment[date] : (comment?.comment ?? "");
+                return (
+                  <tr key={date} className="hover:bg-muted/20">
+                    <td className="px-5 py-3 font-medium whitespace-nowrap">{format(new Date(date), "MMM d, yyyy")}</td>
+                    <td className="px-5 py-3">
+                      <div className="flex flex-wrap gap-1.5">
+                        {dayPunches.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : dayPunches.map(p => (
+                          <Badge key={p.id} variant="secondary" className={p.punchType === "in" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}>
+                            {p.punchType === "in" ? "In" : "Out"} {format(new Date(p.punchedAt), "h:mm a")}
+                          </Badge>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 max-w-72">
+                      {isEditingThisRow ? (
+                        <div className="flex gap-2 items-start">
+                          <Textarea
+                            value={currentText}
+                            onChange={e => setEditingComment(prev => ({ ...prev, [date]: e.target.value }))}
+                            className="resize-none h-16 text-xs flex-1"
+                            autoFocus
+                          />
+                          <div className="flex flex-col gap-1">
+                            <Button size="sm" className="h-7 text-xs" disabled={savingComment === date} onClick={() => handleSaveComment(date)}>
+                              {savingComment === date ? "…" : "Save"}
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingComment(prev => { const n = { ...prev }; delete n[date]; return n; })}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          className="text-xs text-muted-foreground cursor-pointer hover:text-foreground group flex items-start gap-2"
+                          onClick={() => setEditingComment(prev => ({ ...prev, [date]: comment?.comment ?? "" }))}
+                          title="Click to edit comment"
+                        >
+                          <span className="flex-1">{comment?.comment ?? <span className="italic">Click to add comment…</span>}</span>
+                          <span className="opacity-0 group-hover:opacity-100 text-xs text-primary shrink-0">Edit</span>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -252,6 +341,7 @@ export default function Staff() {
   useEffect(() => { loadData(); }, [isAdmin, selectedUserId]);
 
   const myPunches = !isAdmin ? punches : [];
+  const [commentDate, setCommentDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-5">
@@ -270,7 +360,7 @@ export default function Staff() {
       {!isAdmin && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <PunchWidget punches={myPunches} onPunched={loadData} />
-          <CommentBox comments={comments} onSaved={loadData} />
+          <CommentBox comments={comments} onSaved={loadData} selectedDate={commentDate} onDateChange={setCommentDate} />
         </div>
       )}
 
@@ -281,7 +371,7 @@ export default function Staff() {
             <TabsTrigger value="schedule">Shift Schedule</TabsTrigger>
           </TabsList>
           <TabsContent value="history" className="mt-4">
-            <AttendanceHistory punches={punches} comments={comments} />
+            <AttendanceHistory punches={punches} comments={comments} onSaved={loadData} isAdmin={true} />
           </TabsContent>
           <TabsContent value="schedule" className="mt-4">
             <ShiftEditor userId={selectedUserId} />
@@ -290,7 +380,7 @@ export default function Staff() {
       )}
 
       {!isAdmin && (
-        <AttendanceHistory punches={punches} comments={comments} />
+        <AttendanceHistory punches={punches} comments={comments} onSaved={loadData} isAdmin={false} />
       )}
     </div>
   );
