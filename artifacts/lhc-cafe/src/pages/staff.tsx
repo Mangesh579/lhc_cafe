@@ -166,7 +166,7 @@ function CommentBox({ comments, onSaved, selectedDate, onDateChange }: { comment
 }
 
 // ── Attendance history table ──────────────────────────────────────────────
-function AttendanceHistory({ punches, comments, onSaved, isAdmin }: { punches: Punch[]; comments: CommentEntry[]; onSaved: () => void; isAdmin: boolean }) {
+function AttendanceHistory({ punches, comments, onSaved, isAdmin, targetUserId }: { punches: Punch[]; comments: CommentEntry[]; onSaved: () => void; isAdmin: boolean; targetUserId?: number }) {
   const now = new Date();
   const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1);
   const [filterYear, setFilterYear] = useState(now.getFullYear());
@@ -207,7 +207,11 @@ function AttendanceHistory({ punches, comments, onSaved, isAdmin }: { punches: P
     if (!text?.trim()) return;
     setSavingComment(date);
     try {
-      await APIJSON("/staff/comments", "POST", { date, comment: text });
+      await APIJSON("/staff/comments", "POST", {
+        date,
+        comment: text,
+        ...(isAdmin && targetUserId ? { targetUserId } : {}),
+      });
       toast({ title: "Comment saved" });
       setEditingComment(prev => { const n = { ...prev }; delete n[date]; return n; });
       onSaved();
@@ -371,7 +375,7 @@ export default function Staff() {
             <TabsTrigger value="schedule">Shift Schedule</TabsTrigger>
           </TabsList>
           <TabsContent value="history" className="mt-4">
-            <AttendanceHistory punches={punches} comments={comments} onSaved={loadData} isAdmin={true} />
+            <AttendanceHistory punches={punches} comments={comments} onSaved={loadData} isAdmin={true} targetUserId={selectedUserId ?? undefined} />
           </TabsContent>
           <TabsContent value="schedule" className="mt-4">
             <ShiftEditor userId={selectedUserId} />
