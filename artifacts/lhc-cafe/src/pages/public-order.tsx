@@ -86,6 +86,16 @@ function DishMedia({ item, height, muted = true, onToggleMute }: { item: MenuIte
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = muted;
+  
+      if (!muted) {
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [muted]);
+
+  useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     if (typeof IntersectionObserver === "undefined") { video.play().catch(() => {}); return; }
@@ -99,7 +109,7 @@ function DishMedia({ item, height, muted = true, onToggleMute }: { item: MenuIte
         } else {
           video.pause();
           video.currentTime = 0;
-          setMuted(true); // reset to muted when scrolled away
+          //setMuted(true); // reset to muted when scrolled away
         }
       },
       { threshold: [0, 0.5, 1.0] }
