@@ -81,10 +81,9 @@ const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }>
 // ── Placeholder "video" surface — a living gradient + monogram standing in   ──
 // for the real food video/photo this dish will eventually have. Built so that
 // dropping in `imageUrl` or `videoUrl` later requires zero layout changes.
-function DishMedia({ item, height }: { item: MenuItem; height: number | string }) {
+function DishMedia({ item, height, muted = true, onToggleMute }: { item: MenuItem; height: number | string; muted?: boolean; onToggleMute?: (e: React.MouseEvent | React.TouchEvent) => void }) {
   const initial = item.name.trim().charAt(0).toUpperCase();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [muted, setMuted] = useState(true);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -125,8 +124,8 @@ function DishMedia({ item, height }: { item: MenuItem; height: number | string }
         />
         {/* Tap to unmute/mute button */}
         <button
-          onClick={e => { e.stopPropagation(); e.preventDefault(); setMuted(m => !m); }}
-          onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); setMuted(m => !m); }}
+          onClick={e => { e.stopPropagation(); e.preventDefault(); onToggleMute?.(e); }}
+          onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); onToggleMute?.(e); }}
           style={{
             position: "absolute", bottom: 56, right: 14,
             width: 32, height: 32, borderRadius: "50%",
@@ -188,6 +187,9 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [signupLoading, setSignupLoading] = useState(false);
   const [signupError, setSignupError] = useState("");
   const [redeemLoading, setRedeemLoading] = useState(false);
+
+  const [mutedItems, setMutedItems] = useState<Record<number, boolean>>({});
+  const toggleMute = (itemId: number) => setMutedItems(prev => ({ ...prev, [itemId]: prev[itemId] !== false ? false : true }));
 
   const [sessionState, setSessionState] = useState<"loading"|"active"|"expired">("loading");
   const [sessionToken, setSessionToken] = useState<string|null>(null);
@@ -577,7 +579,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     <div className="detail-overlay" onClick={() => setSelectedItem(null)}>
       <div className="detail-sheet" onClick={e => e.stopPropagation()}>
         <div style={{ flexShrink: 0, position: "relative" }}>
-          <DishMedia item={selectedItem} height={220} />
+          <DishMedia item={selectedItem} height={220} muted={selectedItem ? (mutedItems[selectedItem.id] !== false) : true} onToggleMute={() => selectedItem && toggleMute(selectedItem.id)} />
           <button onClick={() => setSelectedItem(null)} style={{ position:"absolute", top:14, right:14, width:32, height:32, borderRadius:"50%", background:"rgba(15,8,5,0.6)", border:"none", color:"#F5EEE1", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer" }}>
             <X size={16} />
           </button>
@@ -690,12 +692,13 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
             {cat.items.map((item, itemIdx) => {
               const inCart = cartQty(item.id) > 0;
               const isFirstCardEver = catIdx === 0 && itemIdx === 0;
+              const isMuted = mutedItems[item.id] !== false; // default muted
               return (
                 <div key={item.id} className="feed-card" ref={el => { itemRefs.current[item.id] = el; }} style={{ padding: "8px 16px 16px" }}>
                   <div
                     style={{ borderRadius: 18, overflow: "hidden", position: "relative", height: "62vh", minHeight: 360, maxHeight: 560 }}
                   >
-                    <DishMedia item={item} height="100%" />
+                    <DishMedia item={item} height="100%" muted={isMuted} onToggleMute={() => toggleMute(item.id)} />
 
                     {/* Bestseller badge */}
                     {item.isBestseller && (
