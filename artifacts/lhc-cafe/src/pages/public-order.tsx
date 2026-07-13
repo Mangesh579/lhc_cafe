@@ -199,7 +199,25 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [redeemLoading, setRedeemLoading] = useState(false);
 
   const [mutedItems, setMutedItems] = useState<Record<number, boolean>>({});
-  const toggleMute = (itemId: number) => setMutedItems(prev => ({ ...prev, [itemId]: prev[itemId] !== false ? false : true }));
+  const toggleMute = (itemId: number) => {
+    setMutedItems(prev => {
+      const nextMuted = prev[itemId] !== false ? false : true;
+  
+      console.log(
+        "toggleMute",
+        itemId,
+        "old:",
+        prev[itemId],
+        "new:",
+        nextMuted
+      );
+  
+      return {
+        ...prev,
+        [itemId]: nextMuted,
+      };
+    });
+  };
 
   const [sessionState, setSessionState] = useState<"loading"|"active"|"expired">("loading");
   const [sessionToken, setSessionToken] = useState<string|null>(null);
