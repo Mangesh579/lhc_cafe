@@ -95,11 +95,16 @@ router.get("/staff/punches", authenticate, async (req: AuthRequest, res: Respons
 
 // POST /api/staff/comments — staff adds/updates their own comment for a date
 router.post("/staff/comments", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const { date, comment } = req.body;
+  const { date, comment, targetUserId } = req.body;
   if (!date || !comment) { res.status(400).json({ error: "date and comment required" }); return; }
 
+  // Admin can pass targetUserId to save comment for a specific staff member
+  // Staff can only save their own comments
+  const isAdmin = req.user!.role === "admin";
+  const userId = isAdmin && targetUserId ? parseInt(targetUserId) : req.user!.id;
+
   const [existing] = await db.select().from(attendanceCommentsTable)
-    .where(and(eq(attendanceCommentsTable.userId, req.user!.id), eq(attendanceCommentsTable.commentDate, date)));
+    .where(and(eq(attendanceCommentsTable.userId, userId), eq(attendanceCommentsTable.commentDate, date)));
 
   if (existing) {
     const [updated] = await db.update(attendanceCommentsTable)
@@ -111,7 +116,7 @@ router.post("/staff/comments", authenticate, async (req: AuthRequest, res: Respo
   }
 
   const [created] = await db.insert(attendanceCommentsTable).values({
-    userId: req.user!.id,
+    userId,
     commentDate: date,
     comment,
   }).returning();
