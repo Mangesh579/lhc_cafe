@@ -134,10 +134,15 @@ function DishMedia({ item, height, muted = true, onToggleMute }: { item: MenuIte
         />
         {/* Tap to unmute/mute button */}
         <button
-          onClick={e => { e.stopPropagation(); e.preventDefault(); onToggleMute?.(e); }}
+          onClick={e => {
+            console.log("Mute button clicked");
+            e.stopPropagation();
+            e.preventDefault();
+            onToggleMute?.(e);
+          }}
           onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); onToggleMute?.(e); }}
           style={{
-            position: "absolute", bottom: 56, right: 14,
+            position: "absolute", bottom: 56, right: 14, zIndex: 100,
             width: 32, height: 32, borderRadius: "50%",
             background: "rgba(15,8,5,0.55)", border: "none",
             display: "flex", alignItems: "center", justifyContent: "center",
