@@ -16,6 +16,7 @@ export default function OrderLog() {
   const [dateFilter, setDateFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [staffFilter, setStaffFilter] = useState("");
+  const [customerFilter, setCustomerFilter] = useState("");
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
 
   const { data: orders, isLoading } = useListOrders({ date: dateFilter || undefined });
@@ -39,6 +40,13 @@ export default function OrderLog() {
       const matchesStaff = (order as any).createdBy?.toLowerCase().includes(q) ?? false;
       const matchesCustomer = order.loyaltyCustomerName?.toLowerCase().includes(q) ?? false;
       if (!matchesTable && !matchesStaff && !matchesCustomer) return false;
+    }
+    if (customerFilter.trim()) {
+      const q = customerFilter.toLowerCase();
+      const matchesName = (order as any).loyaltyCustomerName?.toLowerCase().includes(q) ?? false;
+      const matchesPhone = (order as any).loyaltyCustomerPhone?.toLowerCase().includes(q) ?? false;
+      const matchesEmail = (order as any).loyaltyCustomerEmail?.toLowerCase().includes(q) ?? false;
+      if (!matchesName && !matchesPhone && !matchesEmail) return false;
     }
     return true;
   }) ?? [];
@@ -112,7 +120,7 @@ export default function OrderLog() {
       )}
 
       {/* Filters */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 p-3 bg-muted/20 rounded-lg border">
+      <div className="grid grid-cols-2 md:grid-cols-7 gap-3 p-3 bg-muted/20 rounded-lg border">
         <div className="space-y-1 col-span-2 md:col-span-1">
           <Label className="text-xs font-semibold text-muted-foreground uppercase">Table / Staff / Customer</Label>
           <div className="flex gap-1">
@@ -123,6 +131,18 @@ export default function OrderLog() {
               className="text-sm h-9"
             />
             {staffFilter && <Button variant="ghost" size="sm" onClick={() => setStaffFilter("")} className="h-9 px-2">✕</Button>}
+          </div>
+        </div>
+        <div className="space-y-1 col-span-2 md:col-span-1">
+          <Label className="text-xs font-semibold text-muted-foreground uppercase">Loyalty Customer</Label>
+          <div className="flex gap-1">
+            <Input
+              placeholder="Name, phone, or email…"
+              value={customerFilter}
+              onChange={e => setCustomerFilter(e.target.value)}
+              className="text-sm h-9"
+            />
+            {customerFilter && <Button variant="ghost" size="sm" onClick={() => setCustomerFilter("")} className="h-9 px-2">✕</Button>}
           </div>
         </div>
         <div className="space-y-1">
@@ -224,6 +244,13 @@ export default function OrderLog() {
                     </div>
                   ))}
                 {order.notes && <p className="text-xs mt-2 text-amber-700 italic">Note: {order.notes}</p>}
+                {(order as any).loyaltyCustomerName && (
+                  <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                    <p className="font-medium">{(order as any).loyaltyCustomerName}</p>
+                    {(order as any).loyaltyCustomerPhone && <p>{(order as any).loyaltyCustomerPhone}</p>}
+                    {(order as any).loyaltyCustomerEmail && <p>{(order as any).loyaltyCustomerEmail}</p>}
+                  </div>
+                )}
                 {parseFloat(String((order as any).discountAmount ?? 0)) > 0 && (
                   <p className="text-xs text-blue-600">Discount: −Rs. {parseFloat(String((order as any).discountAmount)).toFixed(0)}</p>
                 )}
@@ -244,7 +271,8 @@ export default function OrderLog() {
                   <th className="px-4 py-3 w-8"></th>
                   <th className="px-4 py-3">Order</th>
                   <th className="px-4 py-3">Date/Time</th>
-                  <th className="px-4 py-3">Table / Customer / Staff</th>
+                  <th className="px-4 py-3">Table / Staff</th>
+                  <th className="px-4 py-3">Loyalty Customer</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Payment</th>
                   <th className="px-4 py-3 text-right">Total</th>
@@ -252,9 +280,9 @@ export default function OrderLog() {
               </thead>
               <tbody className="divide-y divide-border">
                 {isLoading ? (
-                  <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Loading...</td></tr>
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">Loading...</td></tr>
                 ) : filteredOrders.length === 0 ? (
-                  <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">No orders found.</td></tr>
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">No orders found.</td></tr>
                 ) : filteredOrders.map(order => (
                   <Fragment key={order.id}>
                     <tr className="hover:bg-muted/20 cursor-pointer" onClick={() => toggleExpand(order.id)}>
@@ -267,7 +295,6 @@ export default function OrderLog() {
                         <span className="block font-medium">
                           {order.tableNumber ? `Table ${order.tableNumber}` : 'Takeaway'}
                         </span>
-                        {order.loyaltyCustomerName && <span className="block text-xs text-muted-foreground">{order.loyaltyCustomerName}</span>}
                         {(order as any).createdBy && (
                           <span className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
                             <User className="w-3 h-3" /> {(order as any).createdBy}
@@ -275,6 +302,17 @@ export default function OrderLog() {
                         )}
                         {!(order as any).createdBy && !order.tableNumber && (
                           <span className="text-xs text-muted-foreground">QR / Walk-in</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {(order as any).loyaltyCustomerName ? (
+                          <div className="space-y-0.5">
+                            <span className="block text-sm font-medium">{(order as any).loyaltyCustomerName}</span>
+                            {(order as any).loyaltyCustomerPhone && <span className="block text-xs text-muted-foreground">{(order as any).loyaltyCustomerPhone}</span>}
+                            {(order as any).loyaltyCustomerEmail && <span className="block text-xs text-muted-foreground">{(order as any).loyaltyCustomerEmail}</span>}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
