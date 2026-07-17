@@ -152,7 +152,7 @@ export default function Orders() {
           <Badge variant="outline" className="text-sm px-3 py-1">{activeOrders.length} Active</Badge>
           <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <RefreshCw className="w-3.5 h-3.5 animate-pulse text-primary" />
-            <span className="hidden sm:inline">Refresh in </span>
+            <span className="hidden sm:inline">Refresh it </span>
             <span className="font-semibold text-foreground tabular-nums">{secondsToRefresh}s</span>
           </div>
           <Button variant="outline" size="sm" onClick={() => { refetch(); setSecondsToRefresh(POLL_INTERVAL / 1000); }} className="gap-1.5">
