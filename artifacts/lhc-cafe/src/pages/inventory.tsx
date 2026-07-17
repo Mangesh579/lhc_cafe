@@ -22,8 +22,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Edit2, Trash2, AlertCircle, RefreshCw, PackageX, Wrench, ClipboardList } from "lucide-react";
 import { format } from "date-fns";
 
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const APIJSON = (path: string, method = "GET", body?: object) =>
-  fetch(`/api${path}`, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }, body: body ? JSON.stringify(body) : undefined }).then(r => r.ok ? r.json() : Promise.reject(r));
+  fetch(`${API_BASE}/api${path}`, {
+    method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }, body: body ? JSON.stringify(body) : undefined }).then(r => r.ok ? r.json() : Promise.reject(r));
 
 // ─── Ingredient Form Dialog ────────────────────────────────────────────────────
 function IngredientDialog({ item, open, onClose, onSaved }: { item?: any; open: boolean; onClose: () => void; onSaved: () => void }) {

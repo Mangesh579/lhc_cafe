@@ -11,8 +11,10 @@ import { Plus, Edit2, Trash2, UserCheck, UserX, KeyRound } from "lucide-react";
 import { format } from "date-fns";
 import { useAuth } from "@/contexts/auth";
 
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const APIJSON = (path: string, method = "GET", body?: object) =>
-  fetch(`/api${path}`, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }, body: body ? JSON.stringify(body) : undefined }).then(r => r.ok ? r.json() : r.json().then((d: any) => Promise.reject(d)));
+  fetch(`${API_BASE}/api${path}`, {
+    method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }, body: body ? JSON.stringify(body) : undefined }).then(r => r.ok ? r.json() : r.json().then((d: any) => Promise.reject(d)));
 
 function UserDialog({ user, open, onClose, onSaved }: { user?: any; open: boolean; onClose: () => void; onSaved: () => void }) {
   const [username, setUsername] = useState(user?.username ?? "");

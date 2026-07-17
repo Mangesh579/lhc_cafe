@@ -24,8 +24,10 @@ import { Plus, Edit2, Trash2, ChefHat, FolderPlus, BookOpen, RefreshCw, Coffee }
 import { format } from "date-fns";
 
 const API = (path: string) => fetch(`/api${path}`, { headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const APIJSON = (path: string, method = "GET", body?: object) =>
-  fetch(`/api${path}`, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }, body: body ? JSON.stringify(body) : undefined }).then(r => r.json());
+  fetch(`${API_BASE}/api${path}`, {
+    method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }, body: body ? JSON.stringify(body) : undefined }).then(r => r.json());
 
 // ─── Item Form Dialog ─────────────────────────────────────────────────────────
 function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; categories: any[]; open: boolean; onClose: () => void; onSaved: () => void }) {
