@@ -55,6 +55,23 @@ router.get("/system/health", authenticate, requireAdmin, async (_req, res): Prom
       limitBytes: 1024 ** 3,
     };
 
+    // Neon DB size (same query, already connected)
+    const neonSize = {
+      pretty: dbSize.pretty,
+      bytes: dbSize.bytes,
+      limitBytes: 512 * 1024 * 1024, // 0.5 GiB Neon free limit
+      percentUsed: Math.round((dbSize.bytes / (512 * 1024 * 1024)) * 100),
+    };
+
+    // Render wake status — measure how fast this very response is
+    // (the fact we got here means Render is awake; we track startup time via a flag)
+    const renderStatus = {
+      awake: true,
+      region: "Singapore (ap-southeast-1)",
+      plan: "Free — sleeps after 15min idle",
+      dashboardUrl: "https://dashboard.render.com",
+    };
+
     res.json({
       cloudinary,
       email: {
@@ -62,10 +79,13 @@ router.get("/system/health", authenticate, requireAdmin, async (_req, res): Prom
         limitPerMonth: 3000,
         percent: Math.round((emailsSentThisMonth / 3000) * 100),
       },
-      database: dbSize,
+      database: neonSize,
+      render: renderStatus,
       links: {
         railway: "https://railway.com/dashboard",
         vercel: "https://vercel.com/dashboard",
+        render: "https://dashboard.render.com",
+        neon: "https://console.neon.tech",
         resend: "https://resend.com/emails",
         cloudinary: "https://console.cloudinary.com",
       }

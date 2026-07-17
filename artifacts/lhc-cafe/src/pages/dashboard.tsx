@@ -9,7 +9,8 @@ type SystemHealth = {
   cloudinary: { storageUsedGB: number; storageLimitGB: number; bandwidthUsedGB: number; bandwidthLimitGB: number; creditsUsed: number; creditsLimit: number; creditsPercent: number } | null;
   email: { sentThisMonth: number; limitPerMonth: number; percent: number };
   database: { pretty: string; bytes: number; limitBytes: number };
-  links: { railway: string; vercel: string; resend: string; cloudinary: string };
+  render?: { awake: boolean; region: string; plan: string; dashboardUrl: string };
+  links: { railway: string; vercel: string; resend: string; cloudinary: string; render?: string; neon?: string };
 };
 
 function UsageBar({ used, total, label, color = "bg-primary" }: { used: number; total: number; label: string; color?: string }) {
@@ -219,8 +220,18 @@ export default function Dashboard() {
                 </div>
 
                 <div className="space-y-3">
-                  <h4 className="text-sm font-semibold">PostgreSQL Database</h4>
-                  <UsageBar used={health.database.bytes} total={health.database.limitBytes} label={`Size: ${health.database.pretty} / 1 GB`} />
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold">Neon PostgreSQL</h4>
+                    <a href={(health as any).links?.neon ?? "https://console.neon.tech"} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+                      Dashboard <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <UsageBar
+                    used={(health.database as any).bytes}
+                    total={(health.database as any).limitBytes ?? 512 * 1024 * 1024}
+                    label={`Size: ${health.database.pretty} / 0.5 GB`}
+                  />
+                  <p className="text-xs text-muted-foreground">Free tier: 0.5 GiB storage, no expiry</p>
                 </div>
               </div>
 
@@ -229,11 +240,14 @@ export default function Dashboard() {
                 <h4 className="text-sm font-semibold">Platform Links</h4>
                 <p className="text-xs text-muted-foreground">These platforms don't expose public usage APIs — check their dashboards directly.</p>
                 <div className="space-y-2">
-                  <a href={health.links.railway} target="_blank" rel="noopener noreferrer"
+                  <a href={(health as any).render?.dashboardUrl ?? "https://dashboard.render.com"} target="_blank" rel="noopener noreferrer"
                     className="flex items-center justify-between p-3 rounded-md border hover:bg-muted/50 transition-colors">
                     <div>
-                      <p className="text-sm font-medium">Railway</p>
-                      <p className="text-xs text-muted-foreground">API server · PostgreSQL hosting</p>
+                      <p className="text-sm font-medium flex items-center gap-2">
+                        Render
+                        <span className="text-xs font-normal px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">● Awake</span>
+                      </p>
+                      <p className="text-xs text-muted-foreground">{(health as any).render?.region} · {(health as any).render?.plan}</p>
                     </div>
                     <ExternalLink className="w-4 h-4 text-muted-foreground" />
                   </a>
@@ -241,7 +255,15 @@ export default function Dashboard() {
                     className="flex items-center justify-between p-3 rounded-md border hover:bg-muted/50 transition-colors">
                     <div>
                       <p className="text-sm font-medium">Vercel</p>
-                      <p className="text-xs text-muted-foreground">Frontend hosting · Bandwidth</p>
+                      <p className="text-xs text-muted-foreground">Frontend hosting · Bandwidth · Free tier</p>
+                    </div>
+                    <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                  </a>
+                  <a href={health.links.railway} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center justify-between p-3 rounded-md border hover:bg-muted/50 transition-colors opacity-60">
+                    <div>
+                      <p className="text-sm font-medium">Railway</p>
+                      <p className="text-xs text-muted-foreground">Previous hosting — kept for reference</p>
                     </div>
                     <ExternalLink className="w-4 h-4 text-muted-foreground" />
                   </a>
