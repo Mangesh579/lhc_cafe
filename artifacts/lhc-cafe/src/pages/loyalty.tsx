@@ -31,13 +31,19 @@ export default function Loyalty() {
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editCustomer) return;
+    const phoneError = validatePhone(editData.phone);
+    if (phoneError) { toast({ title: phoneError, variant: "destructive" }); return; }
+    const emailError = validateEmail(editData.email);
+    if (emailError) { toast({ title: emailError, variant: "destructive" }); return; }
     setEditLoading(true);
     try {
-      await fetch(`/api/loyalty/customers/${editCustomer.id}`, {
+      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+      const r = await fetch(`${API_BASE}/api/loyalty/customers/${editCustomer.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
         body: JSON.stringify(editData),
       });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.error ?? "Failed to update"); }
       queryClient.invalidateQueries({ queryKey: getListLoyaltyCustomersQueryKey() });
       toast({ title: "Customer updated" });
       setEditCustomer(null);
@@ -53,16 +59,33 @@ export default function Loyalty() {
     c.phone.includes(search)
   ) ?? [];
 
+  const validatePhone = (phone: string): string | null => {
+    const cleaned = phone.replace(/[\s\-().+]/g, "");
+    if (!/^\d{7,15}$/.test(cleaned)) return "Phone must be 7–15 digits (international numbers allowed).";
+    return null;
+  };
+
+  const validateEmail = (email: string): string | null => {
+    if (!email) return null; // optional
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Please enter a valid email address.";
+    return null;
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    const phoneError = validatePhone(formData.phone);
+    if (phoneError) { toast({ title: phoneError, variant: "destructive" }); return; }
+    const emailError = validateEmail(formData.email);
+    if (emailError) { toast({ title: emailError, variant: "destructive" }); return; }
     try {
       await registerMutation.mutateAsync({ data: formData });
       queryClient.invalidateQueries({ queryKey: getListLoyaltyCustomersQueryKey() });
       toast({ title: "Customer registered" });
       setIsAddOpen(false);
       setFormData({ name: "", phone: "", email: "" });
-    } catch (err) {
-      toast({ title: "Registration failed", variant: "destructive" });
+    } catch (err: any) {
+      const msg = err?.data?.error ?? err?.message ?? "Registration failed";
+      toast({ title: msg, variant: "destructive" });
     }
   };
 
@@ -157,8 +180,8 @@ export default function Loyalty() {
               <Input required value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
             </div>
             <div className="space-y-2">
-              <Label>Email (Optional)</Label>
-              <Input type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+              <Label>Email</Label>
+              <Input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
             </div>
             <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
@@ -183,8 +206,8 @@ export default function Loyalty() {
               <Input required value={editData.phone} onChange={e => setEditData({...editData, phone: e.target.value})} />
             </div>
             <div className="space-y-2">
-              <Label>Email (Optional)</Label>
-              <Input type="email" value={editData.email} onChange={e => setEditData({...editData, email: e.target.value})} />
+              <Label>Email</Label>
+              <Input required type="email" value={editData.email} onChange={e => setEditData({...editData, email: e.target.value})} />
             </div>
             <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={() => setEditCustomer(null)}>Cancel</Button>
