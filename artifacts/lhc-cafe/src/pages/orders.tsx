@@ -78,11 +78,13 @@ export default function Orders() {
     }
   };
 
+  const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+
   const handleSaveNotes = async (id: number) => {
     const notes = editingNotes[id] ?? "";
     setSavingNotes(prev => new Set(prev).add(id));
     try {
-      await fetch(`/api/orders/${id}/notes`, {
+      await fetch(`${API_BASE}/api/orders/${id}/notes`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
         body: JSON.stringify({ notes }),
@@ -102,7 +104,7 @@ export default function Orders() {
     try {
       const discountValue = parseFloat(discount) || 0;
       if (discountValue > 0) {
-        await fetch(`/api/orders/${paymentModalOrder.id}/discount`, {
+        await fetch(`${API_BASE}/api/orders/${paymentModalOrder.id}/discount`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
           body: JSON.stringify({ discountPercent: discountValue }),
@@ -123,7 +125,7 @@ export default function Orders() {
   const handleCancelOrder = async (id: number) => {
     if (!confirm("Cancel this order?")) return;
     try {
-      await fetch(`/api/orders/${id}/cancel`, { method: "PATCH", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      await fetch(`${API_BASE}/api/orders/${id}/cancel`, { method: "PATCH", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
       queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
       toast({ title: "Order cancelled" });
     } catch {

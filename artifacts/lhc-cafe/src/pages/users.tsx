@@ -78,7 +78,7 @@ function ResetPasswordDialog({ user, open, onClose }: { user: any; open: boolean
     if (!newPassword || newPassword.length < 6) { toast({ title: "Password must be at least 6 characters", variant: "destructive" }); return; }
     setLoading(true);
     try {
-      const r = await fetch(`/api/auth/users/${user.id}/reset-password`, {
+      const r = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/auth/users/${user.id}/reset-password`, {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
         body: JSON.stringify({ newPassword })
       });
@@ -126,7 +126,7 @@ export default function Users() {
     if (!deleteUser) return;
     if (deleteUser.id === currentUser?.id) { toast({ title: "Cannot delete your own account", variant: "destructive" }); setDeleteUser(null); return; }
     try {
-      await fetch(`/api/auth/users/${deleteUser.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/auth/users/${deleteUser.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
       toast({ title: "User deleted" }); setDeleteUser(null); await loadUsers();
     } catch { toast({ title: "Failed to delete user", variant: "destructive" }); }
   };

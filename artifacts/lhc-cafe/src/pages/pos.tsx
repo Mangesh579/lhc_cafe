@@ -146,7 +146,7 @@ export default function POS() {
         items: cart.map(item => ({ menuItemId: item.id, quantity: item.cartQuantity, notes: item.cartNotes }))
       };
       if (tableNumber) {
-        const tables = await fetch("/api/tables", { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } }).then(r => r.json());
+        const tables = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/tables`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } }).then(r => r.json());
         const t = tables.find((t: any) => t.tableNumber === parseInt(tableNumber));
         if (t) orderData.tableId = t.id;
       }

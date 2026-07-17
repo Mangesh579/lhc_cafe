@@ -362,7 +362,7 @@ export default function Inventory() {
   const handleDeleteEquipment = async (id: number) => {
     if (!confirm("Delete this equipment?")) return;
     try {
-      const r = await fetch(`/api/equipment/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      const r = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/equipment/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
       if (!r.ok) throw new Error("Failed");
       setEquipment(prev => prev.filter(e => e.id !== id)); toast({ title: "Equipment removed" });
     } catch { toast({ title: "Failed to delete", variant: "destructive" }); }

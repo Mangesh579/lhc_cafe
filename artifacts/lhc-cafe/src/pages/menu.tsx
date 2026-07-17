@@ -216,7 +216,7 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
   const handleDelete = async (ingredientId: number) => {
     setLoading(true);
     try {
-      const r = await fetch(`/api/menu-items/${item.id}/recipes/${ingredientId}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      const r = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/menu-items/${item.id}/recipes/${ingredientId}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
       if (!r.ok) throw new Error("Failed");
       toast({ title: "Ingredient removed" });
       const updated = await APIJSON(`/menu-items/${item.id}/recipes`);
@@ -372,7 +372,7 @@ export default function Menu() {
   const handleDeleteCategory = async () => {
     if (!deleteCat) return;
     try {
-      await fetch(`/api/menu-categories/${deleteCat.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/menu-categories/${deleteCat.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
       qc.invalidateQueries({ queryKey: getListMenuCategoriesQueryKey() });
       toast({ title: "Category deleted" }); setDeleteCat(null);
     } catch { toast({ title: "Failed to delete category", variant: "destructive" }); }
