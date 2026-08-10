@@ -215,7 +215,10 @@ export default function OrderLog() {
                       {order.paymentStatus}
                     </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground">{format(new Date(order.createdAt), 'MMM d, h:mm a')}</p>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    {format(new Date((order as any).backdatedAt ?? order.createdAt), 'MMM d, h:mm a')}
+                    {(order as any).backdatedAt && <span className="text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded text-xs">backdated</span>}
+                  </p>
                   <p className="text-sm mt-1">
                     {order.tableNumber ? `Table ${order.tableNumber}` : 'Takeaway'}
                     {order.loyaltyCustomerName && <span className="text-muted-foreground ml-2 text-xs">{order.loyaltyCustomerName}</span>}
@@ -290,7 +293,10 @@ export default function OrderLog() {
                         {expandedOrders.has(order.id) ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
                       </td>
                       <td className="px-4 py-3 font-medium">#{order.id}</td>
-                      <td className="px-4 py-3 text-muted-foreground text-xs">{format(new Date(order.createdAt), 'MMM d, h:mm a')}</td>
+                      <td className="px-4 py-3 text-xs">
+                        <span className="text-muted-foreground">{format(new Date((order as any).backdatedAt ?? order.createdAt), 'MMM d, h:mm a')}</span>
+                        {(order as any).backdatedAt && <span className="ml-1.5 text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded text-xs">backdated</span>}
+                      </td>
                       <td className="px-4 py-3">
                         <span className="block font-medium">
                           {order.tableNumber ? `Table ${order.tableNumber}` : 'Takeaway'}

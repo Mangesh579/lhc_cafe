@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Minus, Trash2, Search, Printer, CheckCircle2, ShoppingBag, Coffee, Info, X } from "lucide-react";
+import { Plus, Minus, Trash2, Search, Printer, CheckCircle2, ShoppingBag, Coffee, Info, X, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -82,6 +82,9 @@ export default function POS() {
   const { data: menuItems } = useListMenuItems({ available: true });
   const { data: categories } = useListMenuCategories();
   const { data: loyaltyCustomers } = useListLoyaltyCustomers({ phone: phone.length > 4 ? phone : undefined });
+
+  const [missedOrderOpen, setMissedOrderOpen] = useState(false);
+  const [missedDateTime, setMissedDateTime] = useState("");
 
   const createOrder = useCreateOrder();
   const queryClient = useQueryClient();
@@ -345,6 +348,13 @@ export default function POS() {
 
   return (
     <div className="flex flex-col lg:flex-row h-[calc(100vh-2rem)] p-2 lg:p-4 gap-3 lg:gap-4">
+      {/* Log missed order button */}
+      <div className="flex justify-end shrink-0 px-0">
+        <Button variant="outline" size="sm" className="gap-2 text-xs border-dashed text-muted-foreground" onClick={() => { setMissedOrderOpen(true); setMissedDateTime(""); }}>
+          <Clock className="w-3.5 h-3.5" /> Log Missed Order
+        </Button>
+      </div>
+
       {/* Mobile tab switcher — hidden on desktop */}
       <div className="lg:hidden flex gap-2 shrink-0">
         <Button
@@ -449,6 +459,69 @@ export default function POS() {
               }, 500);
               }} className="gap-2">
               <Printer className="w-4 h-4" /> Print
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Missed order dialog */}
+      <Dialog open={missedOrderOpen} onOpenChange={setMissedOrderOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Log Missed Order</DialogTitle>
+            <DialogDescription>
+              Enter the date and time this order actually occurred. It will appear in Order Log in the correct chronological position.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase">Actual Date & Time of Order</Label>
+              <Input
+                type="datetime-local"
+                value={missedDateTime}
+                onChange={e => setMissedDateTime(e.target.value)}
+                max={new Date().toISOString().slice(0, 16)}
+              />
+              <p className="text-xs text-muted-foreground">Must be in the past. The order will be sorted by this time in Order Log.</p>
+            </div>
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-md">
+              <p className="text-xs text-amber-800">
+                <strong>Current cart:</strong> {cart.length === 0 ? "Empty — add items to your cart first, then click Log Missed Order." : `${cartItemCount} item${cartItemCount !== 1 ? "s" : ""} · Rs. ${finalTotal.toFixed(0)}`}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMissedOrderOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!missedDateTime || cart.length === 0 || createOrder.isPending}
+              onClick={async () => {
+                if (!missedDateTime || cart.length === 0) return;
+                try {
+                  const orderData: any = {
+                    paymentMethod,
+                    loyaltyCustomerId: currentCustomer?.id,
+                    notes: [orderNotes, "⚠️ Backdated order — entered late"].filter(Boolean).join(" | "),
+                    discountAmount: discountAmount > 0 ? discountAmount : undefined,
+                    backdatedAt: new Date(missedDateTime).toISOString(),
+                    items: cart.map(i => ({ menuItemId: i.id, quantity: i.cartQuantity, notes: i.cartNotes })),
+                  };
+                  if (tableNumber) {
+                    const tables = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/tables`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } }).then(r => r.json());
+                    const t = tables.find((t: any) => t.tableNumber === parseInt(tableNumber));
+                    if (t) orderData.tableId = t.id;
+                  }
+                  const result = await createOrder.mutateAsync({ data: orderData });
+                  setLastOrderDetails({ ...result, cartItems: [...cart], subtotal, customer: currentCustomer });
+                  toast({ title: "Missed order logged", description: `Backdated to ${new Date(missedDateTime).toLocaleString()}` });
+                  setCart([]); setPhone(""); setRedeemDiscount(false); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
+                  setMissedOrderOpen(false);
+                  setIsReceiptOpen(true);
+                  queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
+                } catch (err: any) {
+                  toast({ title: "Error", description: err?.message ?? "Failed to log missed order", variant: "destructive" });
+                }
+              }}
+            >
+              {createOrder.isPending ? "Logging…" : "Log Missed Order"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable } from "@workspace/db";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth";
 
 const router = Router();
@@ -27,6 +27,7 @@ async function getOrderWithItems(orderId: number) {
       discountAmount: ordersTable.discountAmount,
       createdBy: ordersTable.createdBy,
       notes: ordersTable.notes,
+      backdatedAt: ordersTable.backdatedAt,
       createdAt: ordersTable.createdAt,
       updatedAt: ordersTable.updatedAt,
     })
@@ -83,6 +84,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
       discountAmount: ordersTable.discountAmount,
       createdBy: ordersTable.createdBy,
       notes: ordersTable.notes,
+      backdatedAt: ordersTable.backdatedAt,
       createdAt: ordersTable.createdAt,
       updatedAt: ordersTable.updatedAt,
     })
@@ -90,7 +92,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
     .leftJoin(cafeTablesTable, eq(ordersTable.tableId, cafeTablesTable.id))
     .leftJoin(loyaltyCustomersTable, eq(ordersTable.loyaltyCustomerId, loyaltyCustomersTable.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(ordersTable.createdAt));
+    .orderBy(desc(sql`COALESCE(${ordersTable.backdatedAt}, ${ordersTable.createdAt})`));
 
   const ordersWithItems = await Promise.all(
     ordersList.map(async (order) => {
@@ -115,7 +117,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
 });
 
 router.post("/orders", authenticate, async (req, res): Promise<void> => {
-  const { tableId, paymentMethod, loyaltyCustomerId, notes, items, discountAmount } = req.body;
+  const { tableId, paymentMethod, loyaltyCustomerId, notes, items, discountAmount, backdatedAt } = req.body;
   if (!items?.length) { res.status(400).json({ error: "Order must have at least one item" }); return; }
 
   let totalAmount = 0;
@@ -142,6 +144,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
     notes: notes ?? null,
     discountAmount: String(discountValue),
     createdBy: (req as any).user?.username ?? null,
+    backdatedAt: backdatedAt ? new Date(backdatedAt) : null,
   }).returning();
 
   for (const item of resolvedItems) {
