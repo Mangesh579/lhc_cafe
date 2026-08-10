@@ -228,6 +228,21 @@ export default function POS() {
 
   const CartPanel = (
     <div className="w-full lg:w-96 flex flex-col bg-card border rounded-lg shadow-sm overflow-hidden h-full min-h-0">
+      {/* Desktop missed order button */}
+      <div className="hidden lg:flex justify-end px-3 pt-3 pb-1">
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2 text-xs border-dashed text-muted-foreground"
+          onClick={() => {
+            setMissedOrderOpen(true);
+            setMissedDateTime("");
+          }}
+        >
+          <Clock className="w-3.5 h-3.5" /> Log Missed Order
+        </Button>
+      </div>
+      
       <div className="p-4 border-b bg-sidebar text-sidebar-foreground shrink-0 hidden lg:block">
         <h2 className="text-xl font-serif font-bold">Current Order</h2>
       </div>
@@ -348,9 +363,17 @@ export default function POS() {
 
   return (
     <div className="flex flex-col lg:flex-row h-[calc(100vh-2rem)] p-2 lg:p-4 gap-3 lg:gap-4">
-      {/* Log missed order button */}
-      <div className="flex justify-end shrink-0 px-0">
-        <Button variant="outline" size="sm" className="gap-2 text-xs border-dashed text-muted-foreground" onClick={() => { setMissedOrderOpen(true); setMissedDateTime(""); }}>
+      {/* Log missed order button — mobile only */}
+      <div className="lg:hidden flex justify-end shrink-0 px-0">
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2 text-xs border-dashed text-muted-foreground"
+          onClick={() => {
+            setMissedOrderOpen(true);
+            setMissedDateTime("");
+          }}
+        >
           <Clock className="w-3.5 h-3.5" /> Log Missed Order
         </Button>
       </div>
