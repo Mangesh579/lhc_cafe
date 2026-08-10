@@ -6,10 +6,30 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import NepaliDate from "nepali-date-converter";
 import { format } from "date-fns";
 import { ChevronDown, ChevronUp, User } from "lucide-react";
 
+function toNepaliDate(dateStr: string): string {
+  try {
+    const nd = new NepaliDate(new Date(dateStr));
+    const months = ["Baisakh","Jestha","Ashadh","Shrawan","Bhadra","Ashwin","Kartik","Mangsir","Poush","Magh","Falgun","Chaitra"];
+    return `${nd.getDate()} ${months[nd.getMonth()]} ${nd.getYear()}`;
+  } catch { return dateStr; }
+}
+
+function toNepaliDateTime(dateStr: string): string {
+  try {
+    const d = new Date(dateStr);
+    const nd = new NepaliDate(d);
+    const months = ["Baisakh","Jestha","Ashadh","Shrawan","Bhadra","Ashwin","Kartik","Mangsir","Poush","Magh","Falgun","Chaitra"];
+    const time = format(d, "h:mm a");
+    return `${nd.getDate()} ${months[nd.getMonth()]} ${nd.getYear()}, ${time}`;
+  } catch { return dateStr; }
+}
+
 export default function OrderLog() {
+  const [useNepaliDate, setUseNepaliDate] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
@@ -89,7 +109,19 @@ export default function OrderLog() {
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-5">
-      <h1 className="text-2xl md:text-3xl font-serif font-bold">Order Log</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-2xl md:text-3xl font-serif font-bold">Order Log</h1>
+        <div className="flex items-center gap-2 text-sm">
+          <span className={`text-xs ${!useNepaliDate ? "text-foreground font-medium" : "text-muted-foreground"}`}>AD</span>
+          <button
+            onClick={() => setUseNepaliDate(n => !n)}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${useNepaliDate ? "bg-primary" : "bg-muted"}`}
+          >
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${useNepaliDate ? "translate-x-4" : "translate-x-1"}`} />
+          </button>
+          <span className={`text-xs ${useNepaliDate ? "text-foreground font-medium" : "text-muted-foreground"}`}>BS</span>
+        </div>
+      </div>
 
       {/* Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -147,10 +179,15 @@ export default function OrderLog() {
         </div>
         <div className="space-y-1">
           <Label className="text-xs font-semibold text-muted-foreground uppercase">Date</Label>
-          <div className="flex gap-1">
-            <Input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} className="text-sm h-9" />
-            {dateFilter && <Button variant="ghost" size="sm" onClick={() => setDateFilter("")} className="h-9 px-2">✕</Button>}
-          </div>
+          <div className="flex gap-1 flex-col">
+              <div className="flex gap-1">
+                <Input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} className="text-sm h-9" />
+                {dateFilter && <Button variant="ghost" size="sm" onClick={() => setDateFilter("")} className="h-9 px-2">✕</Button>}
+              </div>
+              {dateFilter && useNepaliDate && (
+                <p className="text-xs text-muted-foreground">BS: {toNepaliDate(dateFilter)}</p>
+              )}
+            </div>
         </div>
         <div className="space-y-1">
           <Label className="text-xs font-semibold text-muted-foreground uppercase">Category</Label>
@@ -215,9 +252,11 @@ export default function OrderLog() {
                       {order.paymentStatus}
                     </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                    {format(new Date((order as any).backdatedAt ?? order.createdAt), 'MMM d, h:mm a')}
-                    {(order as any).backdatedAt && <span className="text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded text-xs">backdated</span>}
+                  <p className="text-xs text-muted-foreground">
+                    {useNepaliDate
+                      ? toNepaliDateTime((order as any).backdatedAt ?? order.createdAt)
+                      : format(new Date((order as any).backdatedAt ?? order.createdAt), 'MMM d, h:mm a')}
+                    {(order as any).backdatedAt && <span className="ml-1.5 text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded text-xs">backdated</span>}
                   </p>
                   <p className="text-sm mt-1">
                     {order.tableNumber ? `Table ${order.tableNumber}` : 'Takeaway'}
@@ -294,7 +333,11 @@ export default function OrderLog() {
                       </td>
                       <td className="px-4 py-3 font-medium">#{order.id}</td>
                       <td className="px-4 py-3 text-xs">
-                        <span className="text-muted-foreground">{format(new Date((order as any).backdatedAt ?? order.createdAt), 'MMM d, h:mm a')}</span>
+                        <span className="text-muted-foreground">
+                          {useNepaliDate
+                            ? toNepaliDateTime((order as any).backdatedAt ?? order.createdAt)
+                            : format(new Date((order as any).backdatedAt ?? order.createdAt), 'MMM d, h:mm a')}
+                        </span>
                         {(order as any).backdatedAt && <span className="ml-1.5 text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded text-xs">backdated</span>}
                       </td>
                       <td className="px-4 py-3">

@@ -73,5 +73,8 @@
     "vite": "catalog:",
     "wouter": "^3.3.5",
     "zod": "catalog:"
+  },
+  "dependencies": {
+    "nepali-date-converter": "^3.4.0"
   }
 }
