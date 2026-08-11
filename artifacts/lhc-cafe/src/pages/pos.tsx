@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Minus, Trash2, Search, Printer, CheckCircle2, ShoppingBag, Coffee, Info, X, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import NepaliDate from "nepali-date-converter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 
 interface CartItem extends MenuItem {
@@ -85,6 +86,11 @@ export default function POS() {
 
   const [missedOrderOpen, setMissedOrderOpen] = useState(false);
   const [missedDateTime, setMissedDateTime] = useState("");
+  const [missedUseBS, setMissedUseBS] = useState(false);
+  const [bsYear, setBsYear] = useState("");
+  const [bsMonth, setBsMonth] = useState("");
+  const [bsDay, setBsDay] = useState("");
+  const [missedTime, setMissedTime] = useState("");
 
   const createOrder = useCreateOrder();
   const queryClient = useQueryClient();
@@ -137,6 +143,21 @@ export default function POS() {
   const discountAmount = redeemDiscount && discountTier ? subtotal * (discountTier.pct / 100) : 0;
   const finalTotal = subtotal - discountAmount;
   const cartItemCount = cart.reduce((sum, item) => sum + item.cartQuantity, 0);
+
+  const MONTHS_BS_POS = ["Baisakh","Jestha","Ashadh","Shrawan","Bhadra","Ashwin","Kartik","Mangsir","Poush","Magh","Falgun","Chaitra"];
+  function bsToAD(year: number, month0: number, day: number, timeStr: string): string {
+    try {
+      const nd = new NepaliDate(year, month0, day);
+      const adDate = nd.toJsDate();
+      if (timeStr) {
+        const [h, m] = timeStr.split(":").map(Number);
+        adDate.setHours(h, m, 0, 0);
+      }
+      // Format as datetime-local string
+      const pad = (n: number) => String(n).padStart(2, "0");
+      return `${adDate.getFullYear()}-${pad(adDate.getMonth()+1)}-${pad(adDate.getDate())}T${pad(adDate.getHours())}:${pad(adDate.getMinutes())}`;
+    } catch { return ""; }
+  }
 
   const handlePlaceOrder = async () => {
     if (cart.length === 0) return;
@@ -497,14 +518,98 @@ export default function POS() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label className="text-xs font-semibold text-muted-foreground uppercase">Actual Date & Time of Order</Label>
-              <Input
-                type="datetime-local"
-                value={missedDateTime}
-                onChange={e => setMissedDateTime(e.target.value)}
-                max={new Date().toISOString().slice(0, 16)}
-              />
-              <p className="text-xs text-muted-foreground">Must be in the past. The order will be sorted by this time in Order Log.</p>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase">Actual Date & Time of Order</Label>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs ${!missedUseBS ? "font-medium text-foreground" : "text-muted-foreground"}`}>AD</span>
+                  <button
+                    type="button"
+                    onClick={() => { setMissedUseBS(b => !b); setBsYear(""); setBsMonth(""); setBsDay(""); setMissedTime(""); }}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${missedUseBS ? "bg-primary" : "bg-muted"}`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${missedUseBS ? "translate-x-4" : "translate-x-1"}`} />
+                  </button>
+                  <span className={`text-xs ${missedUseBS ? "font-medium text-foreground" : "text-muted-foreground"}`}>BS</span>
+                </div>
+              </div>
+
+              {!missedUseBS ? (
+                <Input
+                  type="datetime-local"
+                  value={missedDateTime}
+                  onChange={e => setMissedDateTime(e.target.value)}
+                  max={new Date().toISOString().slice(0, 16)}
+                />
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">BS Year</Label>
+                      <Input
+                        placeholder="2081"
+                        value={bsYear}
+                        onChange={e => {
+                          setBsYear(e.target.value);
+                          if (bsMonth && bsDay && e.target.value && missedTime) {
+                            setMissedDateTime(bsToAD(parseInt(e.target.value), parseInt(bsMonth)-1, parseInt(bsDay), missedTime));
+                          }
+                        }}
+                        className="text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">BS Month</Label>
+                      <select
+                        value={bsMonth}
+                        onChange={e => {
+                          setBsMonth(e.target.value);
+                          if (bsYear && bsDay && e.target.value && missedTime) {
+                            setMissedDateTime(bsToAD(parseInt(bsYear), parseInt(e.target.value)-1, parseInt(bsDay), missedTime));
+                          }
+                        }}
+                        className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm"
+                      >
+                        <option value="">Month</option>
+                        {MONTHS_BS_POS.map((m, i) => <option key={i} value={String(i+1)}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">BS Day</Label>
+                      <Input
+                        placeholder="1–32"
+                        value={bsDay}
+                        onChange={e => {
+                          setBsDay(e.target.value);
+                          if (bsYear && bsMonth && e.target.value && missedTime) {
+                            setMissedDateTime(bsToAD(parseInt(bsYear), parseInt(bsMonth)-1, parseInt(e.target.value), missedTime));
+                          }
+                        }}
+                        className="text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Time</Label>
+                    <Input
+                      type="time"
+                      value={missedTime}
+                      onChange={e => {
+                        setMissedTime(e.target.value);
+                        if (bsYear && bsMonth && bsDay && e.target.value) {
+                          setMissedDateTime(bsToAD(parseInt(bsYear), parseInt(bsMonth)-1, parseInt(bsDay), e.target.value));
+                        }
+                      }}
+                      className="text-sm"
+                    />
+                  </div>
+                  {missedDateTime && (
+                    <p className="text-xs text-muted-foreground">
+                      AD equivalent: {new Date(missedDateTime).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">Must be in the past. The order will appear in Order Log in chronological position.</p>
             </div>
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-md">
               <p className="text-xs text-amber-800">
