@@ -124,6 +124,23 @@ router.post("/staff/comments", authenticate, async (req: AuthRequest, res: Respo
 });
 
 // GET /api/staff/comments — staff sees own, admin sees all (optionally filtered by userId)
+// DELETE /api/staff/comments/:id
+router.delete("/staff/comments/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  const isAdmin = req.user!.role === "admin";
+
+  const [existing] = await db.select().from(attendanceCommentsTable).where(eq(attendanceCommentsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Comment not found" }); return; }
+
+  // Staff can only delete their own comments
+  if (!isAdmin && existing.userId !== req.user!.id) {
+    res.status(403).json({ error: "Not allowed" }); return;
+  }
+
+  await db.delete(attendanceCommentsTable).where(eq(attendanceCommentsTable.id, id));
+  res.sendStatus(204);
+});
+
 router.get("/staff/comments", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const isAdmin = req.user!.role === "admin";
   const queryUserId = req.query.userId ? parseInt(req.query.userId as string, 10) : undefined;
