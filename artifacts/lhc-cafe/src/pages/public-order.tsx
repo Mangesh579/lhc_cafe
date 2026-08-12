@@ -78,6 +78,29 @@ const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }>
   cancelled: { label: "Cancelled",       icon: X,            color: "#C85A3A" },
 };
 
+const COUNTRY_CODES = [
+  { code: "+977", name: "Nepal 🇳🇵" },
+  { code: "+91", name: "India 🇮🇳" },
+  { code: "+1", name: "USA/Canada 🇺🇸" },
+  { code: "+44", name: "UK 🇬🇧" },
+  { code: "+61", name: "Australia 🇦🇺" },
+  { code: "+86", name: "China 🇨🇳" },
+  { code: "+971", name: "UAE 🇦🇪" },
+  { code: "+65", name: "Singapore 🇸🇬" },
+  { code: "+81", name: "Japan 🇯🇵" },
+  { code: "+49", name: "Germany 🇩🇪" },
+  { code: "+33", name: "France 🇫🇷" },
+  { code: "+82", name: "South Korea 🇰🇷" },
+  { code: "+60", name: "Malaysia 🇲🇾" },
+  { code: "+66", name: "Thailand 🇹🇭" },
+  { code: "+880", name: "Bangladesh 🇧🇩" },
+  { code: "+94", name: "Sri Lanka 🇱🇰" },
+  { code: "+92", name: "Pakistan 🇵🇰" },
+  { code: "+7", name: "Russia 🇷🇺" },
+  { code: "+55", name: "Brazil 🇧🇷" },
+  { code: "+27", name: "South Africa 🇿🇦" },
+];
+
 // ── Placeholder "video" surface — a living gradient + monogram standing in   ──
 // for the real food video/photo this dish will eventually have. Built so that
 // dropping in `imageUrl` or `videoUrl` later requires zero layout changes.
@@ -198,7 +221,8 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [loyaltyLoading, setLoyaltyLoading] = useState(false);
   const [loyaltyError, setLoyaltyError] = useState("");
   const [loyaltyMode, setLoyaltyMode] = useState<"main"|"signup">("main");
-  const [signupData, setSignupData] = useState({ name: "", phone: "", email: "" });
+  const [signupData, setSignupData] = useState({ name: "", phone: "", email: "", countryCode: "+977" });
+  const [loyaltyCountryCode, setLoyaltyCountryCode] = useState("+977");
   const [signupLoading, setSignupLoading] = useState(false);
   const [signupError, setSignupError] = useState("");
   const [redeemLoading, setRedeemLoading] = useState(false);
@@ -385,7 +409,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     try {
       const r = await fetch(`${API_BASE}/api/public/loyalty/request-otp`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: loyaltyPhone, email: loyaltyEmail }),
+        body: JSON.stringify({ phone: `${loyaltyCountryCode}${loyaltyPhone}`, email: loyaltyEmail }),
       });
       const d = await r.json();
       if (!r.ok) { setLoyaltyError(d.error ?? "Failed to send OTP"); return; }
@@ -423,16 +447,17 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     }
     setSignupLoading(true); setSignupError("");
     try {
+      const combinedPhone = `${signupData.countryCode}${signupData.phone}`;
       const r = await fetch(`${API_BASE}/api/public/loyalty/register`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signupData),
+        body: JSON.stringify({ ...signupData, phone: combinedPhone }),
       });
       const d = await r.json();
       if (!r.ok) { setSignupError(d.error ?? "Registration failed"); return; }
       setLoyaltyVerifiedCustomer(d.customer);
       setLoyaltyMode("main");
       setRedeemedLevels([]);
-      setSignupData({ name: "", phone: "", email: "" });
+      setSignupData({ name: "", phone: "", email: "", countryCode: "+977" });
     } catch { setSignupError("Network error. Please try again."); }
     finally { setSignupLoading(false); }
   };
@@ -900,8 +925,19 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
           <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(245,238,225,0.5)", lineHeight:1.6 }}>Join LHC Cafe's loyalty program and earn points on every order.</p>
           <input type="text" placeholder="Full name *" value={signupData.name} onChange={e => setSignupData({...signupData, name: e.target.value})}
             style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none" }} />
-          <input type="tel" placeholder="Phone number *" value={signupData.phone} onChange={e => setSignupData({...signupData, phone: e.target.value})}
-            style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none" }} />
+          <div style={{ display:"flex", gap:8 }}>
+            <select
+              value={signupData.countryCode}
+              onChange={e => setSignupData({...signupData, countryCode: e.target.value})}
+              style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 10px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:13, outline:"none", width:130, flexShrink:0 }}
+            >
+              {COUNTRY_CODES.map(c => (
+                <option key={c.code} value={c.code} style={{ background:"#1A0F0A" }}>{c.name} {c.code}</option>
+              ))}
+            </select>
+            <input type="tel" placeholder="Phone number *" value={signupData.phone} onChange={e => setSignupData({...signupData, phone: e.target.value})}
+              style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none", flex:1 }} />
+          </div>
           <input type="email" placeholder="Email address *" value={signupData.email} onChange={e => setSignupData({...signupData, email: e.target.value})}
             style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none" }} />
           {signupError && <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"#C85A3A" }}>{signupError}</p>}
@@ -921,8 +957,19 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
           {loyaltyStep === "enter" && (
             <>
               <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(245,238,225,0.5)", lineHeight:1.6 }}>Already a member? Enter your phone and email to check your points.</p>
-              <input type="tel" placeholder="Phone number" value={loyaltyPhone} onChange={e => setLoyaltyPhone(e.target.value)}
-                style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none" }} />
+              <div style={{ display:"flex", gap:8 }}>
+                <select
+                  value={loyaltyCountryCode}
+                  onChange={e => setLoyaltyCountryCode(e.target.value)}
+                  style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 10px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:13, outline:"none", width:130, flexShrink:0 }}
+                >
+                  {COUNTRY_CODES.map(c => (
+                    <option key={c.code} value={c.code} style={{ background:"#1A0F0A" }}>{c.name} {c.code}</option>
+                  ))}
+                </select>
+                <input type="tel" placeholder="Phone number" value={loyaltyPhone} onChange={e => setLoyaltyPhone(e.target.value)}
+                  style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none", flex:1 }} />
+              </div>
               <input type="email" placeholder="Email address" value={loyaltyEmail} onChange={e => setLoyaltyEmail(e.target.value)}
                 style={{ background:"rgba(245,238,225,0.06)", border:"1px solid rgba(245,238,225,0.15)", borderRadius:10, padding:"12px 14px", color:"rgba(245,238,225,0.9)", fontFamily:"'DM Sans',sans-serif", fontSize:14, outline:"none" }} />
               {loyaltyError && <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"#C85A3A" }}>{loyaltyError}</p>}

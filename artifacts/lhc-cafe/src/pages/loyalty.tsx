@@ -9,13 +9,50 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Search, Star, DollarSign, ShoppingBag, Edit2 } from "lucide-react";
 import { format } from "date-fns";
+import { allCountries } from "country-telephone-data";
+
+const COUNTRY_CODES_ADMIN = [
+  { dialCode: "977", name: "Nepal", iso2: "np" },
+  { dialCode: "91", name: "India", iso2: "in" },
+  { dialCode: "1", name: "USA/Canada", iso2: "us" },
+  { dialCode: "44", name: "UK", iso2: "gb" },
+  { dialCode: "61", name: "Australia", iso2: "au" },
+  { dialCode: "86", name: "China", iso2: "cn" },
+  { dialCode: "971", name: "UAE", iso2: "ae" },
+  { dialCode: "65", name: "Singapore", iso2: "sg" },
+  { dialCode: "81", name: "Japan", iso2: "jp" },
+  { dialCode: "49", name: "Germany", iso2: "de" },
+  { dialCode: "33", name: "France", iso2: "fr" },
+  { dialCode: "82", name: "South Korea", iso2: "kr" },
+  { dialCode: "60", name: "Malaysia", iso2: "my" },
+  { dialCode: "66", name: "Thailand", iso2: "th" },
+  { dialCode: "880", name: "Bangladesh", iso2: "bd" },
+  { dialCode: "94", name: "Sri Lanka", iso2: "lk" },
+  { dialCode: "92", name: "Pakistan", iso2: "pk" },
+];
+
+function CountryCodeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className="h-10 rounded-md border border-input bg-background px-2 text-sm shrink-0 w-36"
+    >
+      {COUNTRY_CODES_ADMIN.map(c => (
+        <option key={`${c.iso2}-${c.dialCode}`} value={`+${c.dialCode}`}>
+          {c.iso2.toUpperCase()} +{c.dialCode} {c.name}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 export default function Loyalty() {
   const [search, setSearch] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: "", phone: "", email: "" });
+  const [formData, setFormData] = useState({ name: "", phone: "", email: "", countryCode: "+977" });
   const [editCustomer, setEditCustomer] = useState<any>(null);
-  const [editData, setEditData] = useState({ name: "", phone: "", email: "" });
+  const [editData, setEditData] = useState({ name: "", phone: "", email: "", countryCode: "+977" });
   const [editLoading, setEditLoading] = useState(false);
 
   const { data: customers, isLoading } = useListLoyaltyCustomers();
@@ -25,7 +62,12 @@ export default function Loyalty() {
 
   const openEdit = (customer: any) => {
     setEditCustomer(customer);
-    setEditData({ name: customer.name, phone: customer.phone, email: customer.email ?? "" });
+    // Try to extract stored country code from combined phone string
+    const storedPhone = customer.phone ?? "";
+    const matchedCountry = COUNTRY_CODES_ADMIN.find(c => storedPhone.startsWith(`+${c.dialCode}`));
+    const countryCode = matchedCountry ? `+${matchedCountry.dialCode}` : "+977";
+    const localNumber = matchedCountry ? storedPhone.slice(countryCode.length).replace(/^[-\s]/, "") : storedPhone;
+    setEditData({ name: customer.name, phone: localNumber, email: customer.email ?? "", countryCode });
   };
 
   const handleEdit = async (e: React.FormEvent) => {
@@ -38,10 +80,11 @@ export default function Loyalty() {
     setEditLoading(true);
     try {
       const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+      const combinedPhone = `${editData.countryCode}${editData.phone}`;
       const r = await fetch(`${API_BASE}/api/loyalty/customers/${editCustomer.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
-        body: JSON.stringify(editData),
+        body: JSON.stringify({ ...editData, phone: combinedPhone }),
       });
       if (!r.ok) { const e = await r.json(); throw new Error(e.error ?? "Failed to update"); }
       queryClient.invalidateQueries({ queryKey: getListLoyaltyCustomersQueryKey() });
@@ -77,12 +120,13 @@ export default function Loyalty() {
     if (phoneError) { toast({ title: phoneError, variant: "destructive" }); return; }
     const emailError = validateEmail(formData.email);
     if (emailError) { toast({ title: emailError, variant: "destructive" }); return; }
+    const combinedPhone = `${formData.countryCode}${formData.phone}`;
     try {
-      await registerMutation.mutateAsync({ data: formData });
+      await registerMutation.mutateAsync({ data: { ...formData, phone: combinedPhone } });
       queryClient.invalidateQueries({ queryKey: getListLoyaltyCustomersQueryKey() });
       toast({ title: "Customer registered" });
       setIsAddOpen(false);
-      setFormData({ name: "", phone: "", email: "" });
+      setFormData({ name: "", phone: "", email: "", countryCode: "+977" });
     } catch (err: any) {
       const msg = err?.data?.error ?? err?.message ?? "Registration failed";
       toast({ title: msg, variant: "destructive" });
@@ -177,7 +221,10 @@ export default function Loyalty() {
             </div>
             <div className="space-y-2">
               <Label>Phone</Label>
-              <Input required value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
+              <div className="flex gap-2">
+                <CountryCodeSelect value={formData.countryCode} onChange={v => setFormData({...formData, countryCode: v})} />
+                <Input required value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} placeholder="9812345678" className="flex-1" />
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Email</Label>
@@ -203,7 +250,10 @@ export default function Loyalty() {
             </div>
             <div className="space-y-2">
               <Label>Phone</Label>
-              <Input required value={editData.phone} onChange={e => setEditData({...editData, phone: e.target.value})} />
+              <div className="flex gap-2">
+                <CountryCodeSelect value={editData.countryCode} onChange={v => setEditData({...editData, countryCode: v})} />
+                <Input required value={editData.phone} onChange={e => setEditData({...editData, phone: e.target.value})} placeholder="9812345678" className="flex-1" />
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Email</Label>

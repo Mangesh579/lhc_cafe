@@ -351,6 +351,9 @@ importers:
       '@tanstack/react-query':
         specifier: 'catalog:'
         version: 5.100.9(react@19.1.0)
+      '@types/country-telephone-data':
+        specifier: ^0.6.3
+        version: 0.6.3
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.2
@@ -1696,6 +1699,9 @@ packages:
 
   '@types/cors@2.8.19':
     resolution: {integrity: sha512-mFNylyeyqN93lfe/9CSxOGREz8cpzAhH+E93xJ4xWQf62V8sQ/24reV2nyzUWM6H6Xji+GGHpkbLe7pVoUEskg==}
+
+  '@types/country-telephone-data@0.6.3':
+    resolution: {integrity: sha512-XRooLIe/i42PGpW/dP8hyEP8oFHkCJCe7wYQcl28BaC4fmUCYdyK8adVlepnAH9aRlIqr0mW/c6KRIBj78kgeg==}
 
   '@types/d3-array@3.2.2':
     resolution: {integrity: sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==}
@@ -4481,6 +4487,8 @@ snapshots:
   '@types/cors@2.8.19':
     dependencies:
       '@types/node': 25.6.2
+
+  '@types/country-telephone-data@0.6.3': {}
 
   '@types/d3-array@3.2.2': {}
 
