@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Edit2, Trash2, ChefHat, FolderPlus, BookOpen, RefreshCw, Coffee } from "lucide-react";
+import { Plus, Edit2, Trash2, ChefHat, FolderPlus, BookOpen, RefreshCw, Coffee, Search, X } from "lucide-react";
 import { format } from "date-fns";
 
 const API = (path: string) => fetch(`/api${path}`, { headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
@@ -332,6 +332,7 @@ export default function Menu() {
   const { data: categories = [], refetch: refetchCats } = useListMenuCategories();
   const { data: inventory = [] } = useListInventory();
   const [activeCategory, setActiveCategory] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [changelog, setChangelog] = useState<any[]>([]);
   const [changelogLoading, setChangelogLoading] = useState(false);
   const [itemDialog, setItemDialog] = useState<{ open: boolean; item?: any }>({ open: false });
@@ -343,7 +344,11 @@ export default function Menu() {
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  const filteredItems = menuItems?.filter(item => activeCategory === "all" || item.categoryId?.toString() === activeCategory) ?? [];
+  const filteredItems = menuItems?.filter(item => {
+    const matchesCategory = activeCategory === "all" || item.categoryId?.toString() === activeCategory;
+    const matchesSearch = !searchQuery.trim() || item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.description?.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  }) ?? [];
 
   const loadChangelog = async () => {
     setChangelogLoading(true);
@@ -400,6 +405,22 @@ export default function Menu() {
 
         {/* ── Items Tab ─────────────────────────────────────────────────────── */}
         <TabsContent value="items" className="space-y-4 mt-4">
+          {/* Search bar */}
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search menu items…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="pl-9 h-9"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
           {/* Category filter */}
           <div className="flex gap-2 flex-wrap">
             <Button variant={activeCategory === "all" ? "default" : "outline"} onClick={() => setActiveCategory("all")} className="rounded-full" size="sm">All</Button>

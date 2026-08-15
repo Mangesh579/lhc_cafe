@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Edit2, Trash2, AlertCircle, RefreshCw, PackageX, Wrench, ClipboardList } from "lucide-react";
+import { Plus, Edit2, Trash2, AlertCircle, RefreshCw, PackageX, Wrench, ClipboardList, Search, X } from "lucide-react";
 import { format } from "date-fns";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
@@ -319,6 +319,7 @@ export default function Inventory() {
   };
 
   const [ingDialog, setIngDialog] = useState<{ open: boolean; item?: any }>({ open: false });
+  const [ingredientSearch, setIngredientSearch] = useState("");
   const [adjustItem, setAdjustItem] = useState<any>(null);
   const [adjustQty, setAdjustQty] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
@@ -372,6 +373,10 @@ export default function Inventory() {
 
   const lowStockItems = (inventory as any[]).filter(i => i.minStockLevel && parseFloat(String(i.currentStock)) < parseFloat(String(i.minStockLevel)));
 
+  const filteredInventory = (inventory as any[]).filter(i =>
+    !ingredientSearch.trim() || i.name.toLowerCase().includes(ingredientSearch.toLowerCase())
+  );
+
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
@@ -395,7 +400,21 @@ export default function Inventory() {
 
         {/* ── Ingredients Tab ─────────────────────────────────────────────── */}
         <TabsContent value="ingredients" className="space-y-4 mt-4">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="relative max-w-sm flex-1 min-w-48">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search ingredients…"
+                value={ingredientSearch}
+                onChange={e => setIngredientSearch(e.target.value)}
+                className="pl-9 h-9"
+              />
+              {ingredientSearch && (
+                <button onClick={() => setIngredientSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
             <Button onClick={() => setIngDialog({ open: true })} className="gap-2"><Plus className="w-4 h-4" /> Add Ingredient</Button>
           </div>
           <Card>
@@ -415,7 +434,7 @@ export default function Inventory() {
                 <tbody className="divide-y divide-border">
                   {isLoading ? (
                     <tr><td colSpan={6} className="px-5 py-8 text-center text-muted-foreground">Loading...</td></tr>
-                  ) : (inventory as any[]).map((item: any) => {
+                  ) : filteredInventory.map((item: any) => {
                     const isLow = item.minStockLevel && parseFloat(String(item.currentStock)) < parseFloat(String(item.minStockLevel));
                     const usedInItems = menuItems?.filter(m => (m as any).recipes?.some((r: any) => r.inventoryItemId === item.id)) ?? [];
                     return (
@@ -472,8 +491,10 @@ export default function Inventory() {
                       </tr>
                     );
                   })}
-                  {!isLoading && inventory.length === 0 && (
-                    <tr><td colSpan={6} className="px-5 py-8 text-center text-muted-foreground">No ingredients added yet.</td></tr>
+                  {!isLoading && filteredInventory.length === 0 && (
+                    <tr><td colSpan={6} className="px-5 py-8 text-center text-muted-foreground">
+                      {ingredientSearch ? "No ingredients match your search." : "No ingredients added yet."}
+                    </td></tr>
                   )}
                 </tbody>
               </table>
