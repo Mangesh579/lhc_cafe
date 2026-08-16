@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Star, DollarSign, ShoppingBag, Edit2 } from "lucide-react";
+import { Plus, Search, Star, DollarSign, ShoppingBag, Edit2, History } from "lucide-react";
 import { format } from "date-fns";
 import { allCountries } from "country-telephone-data";
 
@@ -54,6 +54,27 @@ export default function Loyalty() {
   const [editCustomer, setEditCustomer] = useState<any>(null);
   const [editData, setEditData] = useState({ name: "", phone: "", email: "", countryCode: "+977" });
   const [editLoading, setEditLoading] = useState(false);
+
+  const [historyCustomer, setHistoryCustomer] = useState<any>(null);
+  const [historyData, setHistoryData] = useState<{ orders: any[]; favoriteItems: any[] } | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const openHistory = async (customer: any) => {
+    setHistoryCustomer(customer);
+    setHistoryLoading(true);
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+      const r = await fetch(`${API_BASE}/api/loyalty/customers/${customer.id}/orders`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+      });
+      const d = await r.json();
+      setHistoryData(d);
+    } catch {
+      toast({ title: "Failed to load order history", variant: "destructive" });
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const { data: customers, isLoading } = useListLoyaltyCustomers();
   const registerMutation = useRegisterLoyaltyCustomer();
@@ -195,6 +216,9 @@ export default function Loyalty() {
                     {customer.createdAt ? format(new Date(customer.createdAt), 'MMM yyyy') : '-'}
                   </td>
                   <td className="px-6 py-4 text-right">
+                    <Button variant="ghost" size="icon" onClick={() => openHistory(customer)} title="Order history">
+                      <History className="w-4 h-4 text-muted-foreground" />
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => openEdit(customer)}>
                       <Edit2 className="w-4 h-4 text-muted-foreground" />
                     </Button>
@@ -264,6 +288,51 @@ export default function Loyalty() {
               <Button type="submit" disabled={editLoading}>Save Changes</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!historyCustomer} onOpenChange={o => !o && setHistoryCustomer(null)}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{historyCustomer?.name}'s Order History</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 space-y-4">
+            {historyLoading ? (
+              <p className="text-sm text-muted-foreground text-center py-8">Loading…</p>
+            ) : !historyData || historyData.orders.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No paid orders yet.</p>
+            ) : (
+              <>
+                {historyData.favoriteItems.length > 0 && (
+                  <div className="bg-primary/5 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Frequently Ordered — good for suggesting reorders</p>
+                    <div className="flex flex-wrap gap-2">
+                      {historyData.favoriteItems.map(f => (
+                        <span key={f.name} className="text-xs bg-white border rounded-full px-3 py-1">
+                          {f.name} <span className="text-muted-foreground">×{f.count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {historyData.orders.map(order => (
+                    <div key={order.id} className="border rounded-lg p-3">
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-muted-foreground">#{order.id} · {format(new Date(order.createdAt), "MMM d, yyyy h:mm a")}</span>
+                        <span className="font-bold text-primary">Rs. {parseFloat(order.totalAmount).toFixed(0)}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {order.items.map((i: any) => `${i.quantity}× ${i.menuItemName}`).join(", ")}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHistoryCustomer(null)}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

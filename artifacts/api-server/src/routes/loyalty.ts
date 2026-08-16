@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, loyaltyCustomersTable } from "@workspace/db";
-import { eq, ilike } from "drizzle-orm";
+import { db, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable } from "@workspace/db";
+import { eq, ilike, and, desc } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth";
 
 const router = Router();
@@ -66,6 +66,49 @@ router.post("/loyalty/customers/:id/points", authenticate, async (req, res): Pro
   if (!customer) { res.status(404).json({ error: "Customer not found" }); return; }
   const [updated] = await db.update(loyaltyCustomersTable).set({ totalPoints: customer.totalPoints + points }).where(eq(loyaltyCustomersTable.id, id)).returning();
   res.json(updated);
+});
+
+// GET /api/loyalty/customers/:id/orders
+router.get("/loyalty/customers/:id/orders", authenticate, async (req, res): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+
+  const orders = await db
+    .select({
+      id: ordersTable.id,
+      totalAmount: ordersTable.totalAmount,
+      createdAt: ordersTable.createdAt,
+      orderStatus: ordersTable.orderStatus,
+    })
+    .from(ordersTable)
+    .where(and(eq(ordersTable.loyaltyCustomerId, id), eq(ordersTable.paymentStatus, "paid")))
+    .orderBy(desc(ordersTable.createdAt))
+    .limit(20);
+
+  const ordersWithItems = await Promise.all(
+    orders.map(async (order) => {
+      const items = await db
+        .select({
+          menuItemName: menuItemsTable.name,
+          quantity: orderItemsTable.quantity,
+        })
+        .from(orderItemsTable)
+        .leftJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id))
+        .where(eq(orderItemsTable.orderId, order.id));
+      return { ...order, items };
+    })
+  );
+
+  // Compute most-ordered items across all their orders
+  const itemCounts: Record<string, number> = {};
+  ordersWithItems.forEach(o => o.items.forEach(i => {
+    if (i.menuItemName) itemCounts[i.menuItemName] = (itemCounts[i.menuItemName] ?? 0) + i.quantity;
+  }));
+  const favoriteItems = Object.entries(itemCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, count]) => ({ name, count }));
+
+  res.json({ orders: ordersWithItems, favoriteItems });
 });
 
 export default router;
