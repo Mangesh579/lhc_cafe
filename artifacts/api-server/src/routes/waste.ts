@@ -90,4 +90,26 @@ router.delete("/waste/:id", authenticate, async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
+// GET /api/waste/monthly-report
+router.get("/waste/monthly-report", authenticate, async (_req, res): Promise<void> => {
+  const logs = await db.select().from(wasteLogsTable).orderBy(desc(wasteLogsTable.createdAt));
+
+  const byMonth: Record<string, { totalValue: number; count: number; byReason: Record<string, number> }> = {};
+  logs.forEach(log => {
+    const monthKey = new Date(log.createdAt).toISOString().slice(0, 7); // "2026-07"
+    if (!byMonth[monthKey]) byMonth[monthKey] = { totalValue: 0, count: 0, byReason: {} };
+    const value = parseFloat(String(log.wasteValue ?? 0));
+    byMonth[monthKey].totalValue += value;
+    byMonth[monthKey].count += 1;
+    const reason = log.reason || "Other";
+    byMonth[monthKey].byReason[reason] = (byMonth[monthKey].byReason[reason] ?? 0) + value;
+  });
+
+  const report = Object.entries(byMonth)
+    .map(([month, data]) => ({ month, ...data }))
+    .sort((a, b) => b.month.localeCompare(a.month));
+
+  res.json(report);
+});
+
 export default router;

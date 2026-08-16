@@ -209,7 +209,9 @@ export default function Loyalty() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-1 font-medium">
-                      <DollarSign className="w-4 h-4 text-muted-foreground" /> {customer.totalSpent ?? 0}
+                      <span className="w-4 h-4 text-xs font-semibold text-muted-foreground inline-flex items-center">
+                        रू
+                      </span> {customer.totalSpent ?? 0}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-muted-foreground">

@@ -328,6 +328,7 @@ export default function Inventory() {
   const [equipment, setEquipment] = useState<any[]>([]);
   const [eqLogs, setEqLogs] = useState<any[]>([]);
   const [wasteLogs, setWasteLogs] = useState<any[]>([]);
+  const [wasteReport, setWasteReport] = useState<any[]>([]);
   const [invLogs, setInvLogs] = useState<any[]>([]);
   const [logsLoaded, setLogsLoaded] = useState<string | null>(null);
 
@@ -336,7 +337,10 @@ export default function Inventory() {
     try {
       if (tab === "equipment") { const d = await APIJSON("/equipment"); setEquipment(Array.isArray(d) ? d : []); }
       if (tab === "equipment-logs") { const d = await APIJSON("/equipment/logs"); setEqLogs(Array.isArray(d) ? d : []); }
-      if (tab === "waste") { const d = await APIJSON("/waste"); setWasteLogs(Array.isArray(d) ? d : []); }
+      if (tab === "waste") {
+        const d = await APIJSON("/waste"); setWasteLogs(Array.isArray(d) ? d : []);
+        const r = await APIJSON("/waste/monthly-report"); setWasteReport(Array.isArray(r) ? r : []);
+      }
       if (tab === "inv-log") { const d = await APIJSON("/inventory/logs"); setInvLogs(Array.isArray(d) ? d : []); }
       setLogsLoaded(tab);
     } catch { toast({ title: "Failed to load data", variant: "destructive" }); }
@@ -560,6 +564,25 @@ export default function Inventory() {
             <Button variant="outline" size="sm" onClick={() => loadTab("waste", true)} className="gap-2"><RefreshCw className="w-4 h-4" /> Refresh</Button>
             <Button onClick={() => setWasteDialog(true)} className="gap-2"><PackageX className="w-4 h-4" /> Log Waste</Button>
           </div>
+
+          {wasteReport.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {wasteReport.slice(0, 4).map(m => {
+                const monthLabel = new Date(m.month + "-01").toLocaleDateString("en-US", { month: "long", year: "numeric" });
+                const topReason = Object.entries(m.byReason).sort((a: any, b: any) => b[1] - a[1])[0];
+                return (
+                  <Card key={m.month} className="border-dashed">
+                    <CardContent className="p-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase truncate">{monthLabel}</p>
+                      <p className="text-lg font-bold mt-1 text-red-600">Rs. {m.totalValue.toFixed(0)}</p>
+                      <p className="text-xs text-muted-foreground">{m.count} incidents</p>
+                      {topReason && <p className="text-xs text-muted-foreground mt-1 truncate">Top: {topReason[0]}</p>}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
