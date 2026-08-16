@@ -12,6 +12,7 @@ import equipmentRouter from "./equipment";
 import wasteRouter from "./waste";
 import staffRouter from "./staff";
 import systemRouter from "./system";
+import alertsRouter from "./alerts";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(equipmentRouter);
 router.use(wasteRouter);
 router.use(staffRouter);
 router.use(systemRouter);
+router.use(alertsRouter);
 
 export default router;
