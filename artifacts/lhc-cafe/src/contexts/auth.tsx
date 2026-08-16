@@ -8,6 +8,7 @@ interface AuthContextType {
   token: string | null;
   login: (data: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
+  refreshToken: (newToken: string) => void;
   isLoading: boolean;
 }
 
@@ -70,6 +71,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => doLogout(false);
 
+  // Called after the logged-in user changes their own password. The backend
+  // increments tokenVersion (invalidating the old token) and returns a fresh
+  // one in the same response — this swaps it in without forcing a re-login.
+  const refreshToken = (newToken: string) => {
+    localStorage.setItem("lhc_token", newToken);
+    setToken(newToken);
+  };
+
   // Check token expiry every 60 s so the session auto-expires in the browser
   // without needing a page reload.
   useEffect(() => {
@@ -89,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token, setLocation]);
 
   return (
-    <AuthContext.Provider value={{ user: user ?? null, token, login, logout, isLoading: isUserLoading }}>
+    <AuthContext.Provider value={{ user: user ?? null, token, login, logout, refreshToken, isLoading: isUserLoading }}>
       {children}
     </AuthContext.Provider>
   );

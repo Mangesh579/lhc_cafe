@@ -3,7 +3,9 @@ import { useListTables, useCreateTable, useDeleteTable, getListTablesQueryKey } 
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Download, Trash2, Lock, Unlock } from "lucide-react";
+import { Plus, Download, Trash2, Lock, Unlock, Edit2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -14,6 +16,29 @@ export default function Tables() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [renameTable, setRenameTable] = useState<any>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameLoading, setRenameLoading] = useState(false);
+
+  const handleRename = async () => {
+    if (!renameTable) return;
+    setRenameLoading(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/tables/${renameTable.id}/rename`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+        body: JSON.stringify({ name: renameValue.trim() }),
+      });
+      if (!res.ok) throw new Error();
+      queryClient.invalidateQueries({ queryKey: getListTablesQueryKey() });
+      toast({ title: "Table renamed" });
+      setRenameTable(null);
+    } catch {
+      toast({ title: "Failed to rename table", variant: "destructive" });
+    } finally {
+      setRenameLoading(false);
+    }
+  };
 
   const handleAddTable = async () => {
     const nextTableNum = tables ? Math.max(0, ...tables.map((t: any) => t.tableNumber)) + 1 : 1;
@@ -69,7 +94,7 @@ export default function Tables() {
       </div>
 
       <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3 text-sm">
-        <strong>Security note:</strong> A table's QR code only works while marked <strong>Open</strong>. Open a table when guests are seated, and it auto-closes when the bill is paid.
+        <strong>Security note:</strong> A table's QR code only works while marked <strong>Open</strong>. Open a table when guests are seated, and close it manually once they've left — tables no longer auto-close.
       </div>
 
       {isLoading ? (
@@ -79,10 +104,18 @@ export default function Tables() {
           {tables?.map((table: any) => (
             <Card key={table.id} className="overflow-hidden border-border/50">
               <div className="p-4 bg-sidebar text-sidebar-foreground flex justify-between items-center">
-                <span className="font-bold text-lg font-serif">Table {table.tableNumber}</span>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-sidebar-foreground/50 hover:text-destructive" onClick={() => handleDelete(table.id)}>
-                  <Trash2 className="w-4 h-4" />
-                </Button>
+                <div>
+                  <span className="font-bold text-lg font-serif">{table.name || `Table ${table.tableNumber}`}</span>
+                  {table.name && <span className="block text-xs text-sidebar-foreground/50">Table {table.tableNumber}</span>}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-sidebar-foreground/50 hover:text-foreground" onClick={() => { setRenameTable(table); setRenameValue(table.name || ""); }}>
+                    <Edit2 className="w-4 h-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-sidebar-foreground/50 hover:text-destructive" onClick={() => handleDelete(table.id)}>
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
               <CardContent className="p-6 flex flex-col items-center justify-center space-y-4">
                 <Badge variant="secondary" className={table.isOccupied ? "bg-green-100 text-green-800 border-green-200" : "bg-gray-100 text-gray-600 border-gray-200"}>
@@ -127,6 +160,23 @@ export default function Tables() {
           ))}
         </div>
       )}
+      <Dialog open={!!renameTable} onOpenChange={o => !o && setRenameTable(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Rename Table {renameTable?.tableNumber}</DialogTitle></DialogHeader>
+          <div className="py-4 space-y-2">
+            <Input
+              placeholder={`e.g. "Window Table", "Patio 2"`}
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">Leave blank to just show "Table {renameTable?.tableNumber}"</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameTable(null)}>Cancel</Button>
+            <Button onClick={handleRename} disabled={renameLoading}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

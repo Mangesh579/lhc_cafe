@@ -1,18 +1,19 @@
 import { useState } from "react";
-import { useChangePassword } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/auth";
 import { KeyRound } from "lucide-react";
 
 export default function Settings() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  
-  const changePassword = useChangePassword();
+  const [isSaving, setIsSaving] = useState(false);
+
+  const { refreshToken } = useAuth();
   const { toast } = useToast();
 
   const handlePasswordChange = async (e: React.FormEvent) => {
@@ -21,15 +22,30 @@ export default function Settings() {
       toast({ title: "Passwords do not match", variant: "destructive" });
       return;
     }
-    
+
+    setIsSaving(true);
     try {
-      await changePassword.mutateAsync({ data: { currentPassword, newPassword } });
+      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+      const r = await fetch(`${API_BASE}/api/auth/change-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const d = await r.json();
+      if (!r.ok) { toast({ title: d.error ?? "Failed to update password", variant: "destructive" }); return; }
+
+      // Swap in the fresh token so this session keeps working — the old
+      // token was just invalidated server-side by the tokenVersion bump.
+      if (d.token) refreshToken(d.token);
+
       toast({ title: "Password updated successfully" });
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-    } catch (err) {
+    } catch {
       toast({ title: "Failed to update password", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -73,7 +89,7 @@ export default function Settings() {
                 onChange={e => setConfirmPassword(e.target.value)} 
               />
             </div>
-            <Button type="submit" disabled={changePassword.isPending} className="w-full mt-2">
+            <Button type="submit" disabled={isSaving} className="w-full mt-2">
               Update Password
             </Button>
           </form>

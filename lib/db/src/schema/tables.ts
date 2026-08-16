@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 export const cafeTablesTable = pgTable("cafe_tables", {
   id: serial("id").primaryKey(),
   tableNumber: integer("table_number").notNull().unique(),
+  name: text("name"),
   qrCode: text("qr_code"),
   token: text("token").notNull().unique(),
   isActive: boolean("is_active").notNull().default(true),

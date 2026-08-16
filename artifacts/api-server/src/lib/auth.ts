@@ -18,13 +18,13 @@ export function comparePassword(password: string, hash: string): boolean {
   return bcrypt.compareSync(password, hash);
 }
 
-export function signToken(payload: { id: number; username: string; role: string }): string {
+export function signToken(payload: { id: number; username: string; role: string; tokenVersion: number }): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "8h" });
 }
 
-export function verifyToken(token: string): { id: number; username: string; role: string } | null {
+export function verifyToken(token: string): { id: number; username: string; role: string; tokenVersion: number } | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as { id: number; username: string; role: string };
+    return jwt.verify(token, JWT_SECRET) as { id: number; username: string; role: string; tokenVersion: number };
   } catch {
     return null;
   }
