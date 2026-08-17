@@ -42,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(getValidToken);
   const [, setLocation] = useLocation();
 
-  const { data: user, isLoading: isUserLoading } = useGetMe({
+  const { data: user, isLoading: isUserLoading, isError } = useGetMe({
     query: {
       queryKey: ["auth", "me"],
       enabled: !!token,
@@ -61,6 +61,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setLocation("/login");
   }, [logoutMutation, setLocation]);
+
+  // If the token is rejected by the server (e.g. invalidated by a password
+  // change), log out immediately instead of leaving the app in a broken
+  // half-authenticated state with a stale token and no user data.
+  useEffect(() => {
+    if (isError && token) {
+      doLogout(true);
+    }
+  }, [isError, token, doLogout]);
 
   const login = async (data: LoginInput) => {
     const result = await loginMutation.mutateAsync({ data });
