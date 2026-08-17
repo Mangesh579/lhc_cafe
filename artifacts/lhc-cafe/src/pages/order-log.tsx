@@ -259,7 +259,7 @@ export default function OrderLog() {
                     {(order as any).backdatedAt && <span className="ml-1.5 text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded text-xs">backdated</span>}
                   </p>
                   <p className="text-sm mt-1">
-                    {order.tableNumber ? `Table ${order.tableNumber}` : 'Takeaway'}
+                    {order.tableNumber ? ((order as any).tableName || `Table ${order.tableNumber}`) : 'Takeaway'}
                     {order.loyaltyCustomerName && <span className="text-muted-foreground ml-2 text-xs">{order.loyaltyCustomerName}</span>}
                   </p>
                   {(order as any).createdBy && (
@@ -342,7 +342,7 @@ export default function OrderLog() {
                       </td>
                       <td className="px-4 py-3">
                         <span className="block font-medium">
-                          {order.tableNumber ? `Table ${order.tableNumber}` : 'Takeaway'}
+                          {order.tableNumber ? ((order as any).tableName || `Table ${order.tableNumber}`) : 'Takeaway'}
                         </span>
                         {(order as any).createdBy && (
                           <span className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">

@@ -186,7 +186,7 @@ export default function Orders() {
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 mb-1">
                       <span className="font-semibold text-sm">
-                        {order.tableNumber ? `Table ${order.tableNumber}` : 'Takeaway'}
+                        {order.tableNumber ? ((order as any).tableName || `Table ${order.tableNumber}`) : 'Takeaway'}
                       </span>
                       <Badge variant="secondary" className={`text-xs ${statusColors[order.orderStatus]}`}>
                         {order.orderStatus.toUpperCase()}

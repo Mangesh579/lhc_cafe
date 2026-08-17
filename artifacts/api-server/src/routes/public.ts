@@ -143,7 +143,7 @@ router.post("/session/start", requireCafeWifi, publicOrderRateLimiter, async (re
       tableOpenedAt: table.openedAt ?? null,
     });
 
-    res.json({ sessionToken, tableNumber: table.tableNumber });
+    res.json({ sessionToken, tableNumber: table.tableNumber, tableName: table.name });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -162,7 +162,7 @@ router.get("/session/validate", requireCafeWifi, publicOrderRateLimiter, async (
   if (!session) { res.status(401).json({ valid: false, reason: "expired" }); return; }
 
   const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, session.tableId)).limit(1);
-  res.json({ valid: true, tableNumber: table?.tableNumber });
+  res.json({ valid: true, tableNumber: table?.tableNumber, tableName: table?.name });
 });
 
 async function getBestsellerIds(): Promise<Set<number>> {
@@ -335,7 +335,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
             changeAmount: String(-needed),
             stockBefore: String(stockBefore),
             stockAfter: String(stockAfter),
-            reason: `QR Order #${order.id} (Table ${table.tableNumber})`,
+            reason: `QR Order #${order.id} (${table.name || `Table ${table.tableNumber}`})`,
             orderId: order.id,
           });
         }

@@ -173,9 +173,19 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [mutedItems, setMutedItems] = useState<Record<number, boolean>>({});
   const toggleMute = (itemId: number) => setMutedItems(prev => ({ ...prev, [itemId]: prev[itemId] !== false ? false : true }));
 
+  const [expandedItems, setExpandedItems] = useState<Record<number, boolean>>({});
+  const toggleExpand = (itemId: number) => setExpandedItems(prev => ({ ...prev, [itemId]: !prev[itemId] }));
+
+  const [pulsingItems, setPulsingItems] = useState<Record<number, boolean>>({});
+  const pulseQty = (itemId: number) => {
+    setPulsingItems(prev => ({ ...prev, [itemId]: true }));
+    setTimeout(() => setPulsingItems(prev => ({ ...prev, [itemId]: false })), 300);
+  };
+
   const [sessionState, setSessionState] = useState<"loading"|"active"|"expired">("loading");
   const [sessionToken, setSessionToken] = useState<string|null>(null);
   const [tableNumber, setTableNumber] = useState<number|null>(null);
+  const [tableName, setTableName] = useState<string|null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuLoading, setMenuLoading] = useState(false);
 
@@ -221,7 +231,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         if (!r.ok) { setSessionState("expired"); return; }
         const d = await r.json();
         localStorage.setItem(SESSION_KEY, d.sessionToken);
-        setSessionToken(d.sessionToken); setTableNumber(d.tableNumber); setSessionState("active");
+        setSessionToken(d.sessionToken); setTableNumber(d.tableNumber); setTableName(d.tableName ?? null); setSessionState("active");
       } catch { setSessionState("expired"); }
     };
     const validate = async (tok: string) => {
@@ -229,7 +239,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         const r = await fetch(`${API_BASE}/api/public/session/validate?sessionToken=${tok}`);
         if (!r.ok) { localStorage.removeItem(SESSION_KEY); setSessionState("expired"); return; }
         const d = await r.json();
-        setSessionToken(tok); setTableNumber(d.tableNumber); setSessionState("active");
+        setSessionToken(tok); setTableNumber(d.tableNumber); setTableName(d.tableName ?? null); setSessionState("active");
       } catch { setSessionState("expired"); }
     };
     stored ? validate(stored) : start();
@@ -307,9 +317,12 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       return [...prev, { id: item.id, name: item.name, price: parseFloat(item.price), quantity: qty }];
     });
     setShowSwipeHint(false);
+    pulseQty(item.id);
   };
-  const updateQty = (id: number, delta: number) =>
+  const updateQty = (id: number, delta: number) => {
     setCart(prev => prev.map(i => i.id === id ? { ...i, quantity: i.quantity + delta } : i).filter(i => i.quantity > 0));
+    pulseQty(id);
+  };
   const cartQty = (id: number) => cart.find(i => i.id === id)?.quantity ?? 0;
   const subtotal = cart.reduce((s,i) => s + i.price*i.quantity, 0);
   const totalItems = cart.reduce((s,i) => s + i.quantity, 0);
@@ -456,12 +469,26 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         .reveal{ animation:reveal ${DUR} both; }
         .reveal-2{ animation:reveal ${DUR} 0.05s both; }
 
-        .feed-card{ scroll-snap-align:start; }
-        .feed-track{ scroll-snap-type:y proximity; -webkit-overflow-scrolling:touch; }
+        .list-row{ background:${SURFACE}; border:1px solid ${BORDER}; border-radius:10px; overflow:hidden; }
 
         .cat-chip{ transition:background ${DUR}, border-color ${DUR}; white-space:nowrap; }
         .qty-btn{ transition:opacity ${DUR}; }
         .qty-btn:active{ opacity:0.7; }
+
+        @keyframes qtyPulse { 0%{transform:scale(1);} 50%{transform:scale(1.08);} 100%{transform:scale(1);} }
+        .qty-pulse{ animation:qtyPulse 0.3s cubic-bezier(.4,0,.2,1); }
+
+        .list-row-media{ transition:height 0.3s cubic-bezier(.4,0,.2,1); }
+        .list-row-body{
+          display:grid;
+          grid-template-rows:0fr;
+          transition:grid-template-rows 0.3s cubic-bezier(.4,0,.2,1);
+        }
+        .list-row-body.expanded{ grid-template-rows:1fr; }
+        .list-row-body-inner{ overflow:hidden; min-height:0; }
+
+        .expand-chevron{ transition:transform 0.3s cubic-bezier(.4,0,.2,1); }
+        .expand-chevron.expanded{ transform:rotate(180deg); }
         .add-pill{ transition:opacity ${DUR}; }
         .add-pill:active{ opacity:0.85; }
 
@@ -516,7 +543,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         </div>
         <p className="reveal" style={{ fontFamily:FONT, fontSize:12, color:WARN, fontWeight:600, letterSpacing:"0.02em", marginBottom:8 }}>LHC Cafe</p>
         <h1 className="reveal-2" style={{ fontFamily:FONT, fontSize:32, color:TEXT, fontWeight:700, marginBottom:8 }}>Order Placed</h1>
-        <p style={{ fontFamily:FONT, fontSize:14, color:"rgba(245,228,199,0.4)", marginBottom:32 }}>Table {tableNumber} · #{orderId}</p>
+        <p style={{ fontFamily:FONT, fontSize:14, color:"rgba(245,228,199,0.4)", marginBottom:32 }}>{tableName || `Table ${tableNumber}`} · #{orderId}</p>
         <button onClick={() => { setIsSuccess(false); switchTab("myorder"); }} className="place-btn"
           style={{ padding:"12px 28px", background:"#444444", border:"none", borderRadius:10, color:TEXT, fontFamily:FONT, fontSize:14, fontWeight:500, cursor:"pointer" }}>
           Track My Order
@@ -574,7 +601,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 10 }}>
             <div style={{ width: 6, height: 6, borderRadius: "50%", background: WARN }} />
-            <span style={{ fontFamily: FONT, fontSize: 12, color: TEXT, fontWeight: 500 }}>Table {tableNumber}</span>
+            <span style={{ fontFamily: FONT, fontSize: 12, color: TEXT, fontWeight: 500 }}>{tableName || `Table ${tableNumber}`}</span>
           </div>
         </div>
 
@@ -622,55 +649,69 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         </div>
       )}
 
-      <div ref={feedRef} className="feed-track">
-        {categories.map((cat, catIdx) => (
-          <div key={cat.id} ref={el => { catRefs.current[cat.id] = el; }} data-catid={cat.id}>
-            {cat.items.map((item, itemIdx) => {
+      <div ref={feedRef} style={{ display: "flex", flexDirection: "column", gap: 8, padding: "0 16px 12px" }}>
+        {categories.map((cat) => (
+          <div key={cat.id} ref={el => { catRefs.current[cat.id] = el; }} data-catid={cat.id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {cat.items.map((item) => {
               const inCart = cartQty(item.id) > 0;
-              const isFirstCardEver = catIdx === 0 && itemIdx === 0;
               const isMuted = mutedItems[item.id] !== false;
+              const isExpanded = !!expandedItems[item.id];
+              const isPulsing = !!pulsingItems[item.id];
+
               return (
-                <div key={item.id} className="feed-card" ref={el => { itemRefs.current[item.id] = el; }} style={{ padding: "6px 16px 12px" }}>
-                  <div style={{ borderRadius: 10, overflow: "hidden", position: "relative", height: "58vh", minHeight: 340, maxHeight: 520, border: `1px solid ${BORDER}` }}>
-                    <DishMedia item={item} height="100%" muted={isMuted} onToggleMute={() => toggleMute(item.id)} />
-
-                    {item.isBestseller && (
-                      <div style={{ position: "absolute", top: 12, left: 12, background: SURFACE, border: `1px solid ${BORDER}`, padding: "4px 10px", borderRadius: 10 }}>
-                        <span style={{ fontFamily: FONT, fontSize: 11, fontWeight: 600, color: WARN }}>Top Pick</span>
+                <div key={item.id} className="list-row" ref={el => { itemRefs.current[item.id] = el; }}>
+                  {/* Compact row — always visible */}
+                  <div
+                    onClick={() => toggleExpand(item.id)}
+                    style={{ display: "flex", alignItems: "stretch", cursor: "pointer", minHeight: 88 }}
+                  >
+                    {/* Left: name, price, qty controls */}
+                    <div style={{ flex: 1, minWidth: 0, padding: "12px 10px 12px 14px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <h3 style={{ fontFamily: FONT, fontSize: 15, color: TEXT, fontWeight: 600, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</h3>
+                        <ChevronDown size={14} color="rgba(245,228,199,0.35)" className={`expand-chevron${isExpanded ? " expanded" : ""}`} style={{ flexShrink: 0 }} />
                       </div>
-                    )}
+                      {item.isBestseller && (
+                        <span style={{ fontFamily: FONT, fontSize: 9, fontWeight: 600, color: WARN, width: "fit-content" }}>Top Pick</span>
+                      )}
+                      <p style={{ fontFamily: FONT, fontSize: 14, color: WARN, fontWeight: 700 }}>Rs {item.price}</p>
 
-                    {isFirstCardEver && showSwipeHint && (
-                      <div style={{ position: "absolute", top: 14, right: 14, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, opacity: 0.7 }}>
-                        <span style={{ fontFamily: FONT, fontSize: 10, color: TEXT }}>Swipe</span>
-                        <ChevronDown size={16} color={TEXT} />
-                      </div>
-                    )}
-
-                    <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "16px", background: "linear-gradient(to top, rgba(16,11,6,0.9), rgba(16,11,6,0))", display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12 }}>
-                      <div style={{ minWidth: 0, cursor: "pointer" }} onClick={() => setSelectedItem(item)}>
-                        <h3 style={{ fontFamily: FONT, fontSize: 18, color: TEXT, fontWeight: 700, lineHeight: 1.2, marginBottom: 4 }}>{item.name}</h3>
-                        {item.description && (
-                          <p style={{ fontFamily: FONT, fontSize: 12, color: "rgba(245,228,199,0.6)", lineHeight: 1.4, fontWeight: 400, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{item.description}</p>
-                        )}
-                        <p style={{ fontFamily: FONT, fontSize: 15, color: WARN, fontWeight: 700, marginTop: 8 }}>Rs {item.price}</p>
-                      </div>
-
-                      <button className="add-pill" onClick={e => { e.stopPropagation(); inCart ? updateQty(item.id, 1) : addToCart(item); }}
-                        style={{
-                          flexShrink: 0, height: 36, borderRadius: 10, border: "none", cursor: "pointer",
-                          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                          background: inCart ? "#444444" : TEXT,
-                          color: inCart ? TEXT : BG, padding: inCart ? "0 6px 0 14px" : "0 16px",
-                          fontFamily: FONT, fontWeight: 600, fontSize: 13,
-                        }}>
+                      <div onClick={e => e.stopPropagation()} style={{ marginTop: 2 }}>
                         {inCart ? (
-                          <>
-                            <span>{cartQty(item.id)}</span>
-                            <span style={{ width: 24, height: 24, borderRadius: 8, background: "rgba(245,228,199,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}><Plus size={12} /></span>
-                          </>
-                        ) : (<><Plus size={14} /> Add</>)}
-                      </button>
+                          <div className={isPulsing ? "qty-pulse" : ""} style={{ display: "inline-flex", alignItems: "center", gap: 8, background: SURFACE_2, border: `1px solid ${BORDER}`, borderRadius: 8, padding: "3px 4px" }}>
+                            <button onClick={() => updateQty(item.id, -1)} className="qty-btn" style={{ width: 24, height: 24, borderRadius: 6, border: "none", background: "transparent", color: TEXT, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Minus size={12} /></button>
+                            <span style={{ fontFamily: FONT, fontSize: 13, color: TEXT, fontWeight: 700, minWidth: 12, textAlign: "center" }}>{cartQty(item.id)}</span>
+                            <button onClick={() => updateQty(item.id, 1)} className="qty-btn" style={{ width: 24, height: 24, borderRadius: 6, border: "none", background: "#444444", color: TEXT, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Plus size={12} /></button>
+                          </div>
+                        ) : (
+                          <button onClick={() => addToCart(item)} className="add-pill" style={{ background: "#444444", border: "none", borderRadius: 8, padding: "6px 14px", color: TEXT, fontFamily: FONT, fontSize: 12, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                            <Plus size={12} /> Add
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right: square thumbnail, same treatment as POS cards */}
+                    <div style={{ width: 88, flexShrink: 0, position: "relative" }}>
+                      <DishMedia item={item} height="100%" muted={isMuted} onToggleMute={() => toggleMute(item.id)} />
+                    </div>
+                  </div>
+
+                  {/* Expandable body — grid 0fr→1fr trick for smooth height animation */}
+                  <div className={`list-row-body${isExpanded ? " expanded" : ""}`}>
+                    <div className="list-row-body-inner">
+                      <div style={{ borderTop: `1px solid ${BORDER}` }}>
+                        {isExpanded && (item.videoUrl || item.imageUrl) && (
+                          <div style={{ width: "100%", height: 180, position: "relative" }}>
+                            <DishMedia item={item} height="100%" muted={isMuted} onToggleMute={() => toggleMute(item.id)} />
+                          </div>
+                        )}
+                        {item.description && (
+                          <p style={{ fontFamily: FONT, fontSize: 13, color: "rgba(245,228,199,0.55)", lineHeight: 1.5, padding: "14px", fontWeight: 400 }}>
+                            {item.description}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -688,7 +729,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
   const LoyaltyTab = (
     <div style={{ padding: "24px 16px", minHeight: "60vh" }}>
-      <p className="reveal" style={{ fontFamily:FONT, fontSize:11, color:"rgba(245,228,199,0.4)", fontWeight:600, marginBottom:6 }}>Table {tableNumber}</p>
+      <p className="reveal" style={{ fontFamily:FONT, fontSize:11, color:"rgba(245,228,199,0.4)", fontWeight:600, marginBottom:6 }}>{tableName || `Table ${tableNumber}`}</p>
       <h1 className="reveal-2" style={{ fontFamily:FONT, fontSize:26, color:TEXT, fontWeight:700, marginBottom:20 }}>Loyalty</h1>
 
       {loyaltyVerifiedCustomer ? (
@@ -827,7 +868,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
   const MyOrderTab = (
     <div style={{ padding: "24px 16px", minHeight: "60vh" }}>
-      <p className="reveal" style={{ fontFamily:FONT, fontSize:11, color:"rgba(245,228,199,0.4)", fontWeight:600, marginBottom:6 }}>Table {tableNumber}</p>
+      <p className="reveal" style={{ fontFamily:FONT, fontSize:11, color:"rgba(245,228,199,0.4)", fontWeight:600, marginBottom:6 }}>{tableName || `Table ${tableNumber}`}</p>
       <h1 className="reveal-2" style={{ fontFamily:FONT, fontSize:26, color:TEXT, fontWeight:700, marginBottom:20 }}>My Order</h1>
 
       {activeMyOrders.length === 0 ? (
