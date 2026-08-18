@@ -64,30 +64,69 @@ function HeritagePatternBackground() {
 // ── Stylized Newari peacock window (Ka:l Jhya) — Patan's most iconic carved
 // wood motif. Placed once per card, quietly, in the corner — specific to
 // this city rather than a generic South Asian decorative flourish.
-function PeacockWindowMotif() {
+// ── Three Newari carved-wood motifs, rotated per item so the menu doesn't
+// repeat one flourish on every single card. All single-stroke line art,
+// same brass color, sized to sit behind the left text column.
+function PeacockWindowMotif({ opacity = 0.12 }: { opacity?: number }) {
   return (
-    <svg width="76" height="76" viewBox="0 0 76 76" fill="none" style={{ position: "absolute", top: -8, right: -8, opacity: 0.9, pointerEvents: "none" }}>
-      {/* Arched frame */}
-      <path d="M14 60 V30 A24 24 0 0 1 62 30 V60" stroke={WARN} strokeWidth="1"/>
-      {/* Peacock fan — radiating feather lines from base */}
-      <g stroke={WARN} strokeWidth="0.8">
-        <path d="M38 58 L38 22"/>
-        <path d="M38 58 L26 26"/>
-        <path d="M38 58 L50 26"/>
-        <path d="M38 58 L18 34"/>
-        <path d="M38 58 L58 34"/>
+    <svg width="150" height="150" viewBox="0 0 150 150" fill="none" style={{ position: "absolute", left: -30, top: "50%", transform: "translateY(-50%)", opacity, pointerEvents: "none" }}>
+      <path d="M35 115 V60 A40 40 0 0 1 115 60 V115" stroke={WARN} strokeWidth="1.2"/>
+      <g stroke={WARN} strokeWidth="1">
+        <path d="M75 112 L75 42"/>
+        <path d="M75 112 L52 50"/>
+        <path d="M75 112 L98 50"/>
+        <path d="M75 112 L35 64"/>
+        <path d="M75 112 L115 64"/>
       </g>
-      {/* Feather eye details */}
-      <circle cx="38" cy="20" r="2.4" stroke={WARN} strokeWidth="0.8"/>
-      <circle cx="24" cy="24" r="2.2" stroke={WARN} strokeWidth="0.8"/>
-      <circle cx="52" cy="24" r="2.2" stroke={WARN} strokeWidth="0.8"/>
-      <circle cx="16" cy="33" r="2" stroke={WARN} strokeWidth="0.8"/>
-      <circle cx="60" cy="33" r="2" stroke={WARN} strokeWidth="0.8"/>
-      {/* Sill lattice */}
-      <path d="M14 60 H62" stroke={WARN} strokeWidth="1"/>
-      <path d="M20 60 V66 M28 60 V66 M38 60 V66 M48 60 V66 M56 60 V66" stroke={WARN} strokeWidth="0.7"/>
+      <circle cx="75" cy="38" r="4" stroke={WARN} strokeWidth="1"/>
+      <circle cx="48" cy="46" r="3.6" stroke={WARN} strokeWidth="1"/>
+      <circle cx="102" cy="46" r="3.6" stroke={WARN} strokeWidth="1"/>
+      <circle cx="31" cy="62" r="3.2" stroke={WARN} strokeWidth="1"/>
+      <circle cx="119" cy="62" r="3.2" stroke={WARN} strokeWidth="1"/>
+      <path d="M35 115 H115" stroke={WARN} strokeWidth="1.2"/>
+      <path d="M47 115 V126 M62 115 V126 M75 115 V126 M88 115 V126 M103 115 V126" stroke={WARN} strokeWidth="0.8"/>
     </svg>
   );
+}
+
+function LatticeCircleMotif({ opacity = 0.12 }: { opacity?: number }) {
+  return (
+    <svg width="140" height="140" viewBox="0 0 140 140" fill="none" style={{ position: "absolute", left: -34, top: "50%", transform: "translateY(-50%)", opacity, pointerEvents: "none" }}>
+      <circle cx="70" cy="70" r="55" stroke={WARN} strokeWidth="1.2"/>
+      <circle cx="70" cy="70" r="38" stroke={WARN} strokeWidth="1"/>
+      <circle cx="70" cy="70" r="10" stroke={WARN} strokeWidth="1"/>
+      {Array.from({ length: 8 }).map((_, i) => {
+        const angle = (i * Math.PI * 2) / 8;
+        const x1 = 70 + Math.cos(angle) * 38, y1 = 70 + Math.sin(angle) * 38;
+        const x2 = 70 + Math.cos(angle) * 55, y2 = 70 + Math.sin(angle) * 55;
+        return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={WARN} strokeWidth="0.9" />;
+      })}
+      {Array.from({ length: 8 }).map((_, i) => {
+        const angle = (i * Math.PI * 2) / 8 + Math.PI / 8;
+        const x = 70 + Math.cos(angle) * 46, y = 70 + Math.sin(angle) * 46;
+        return <circle key={i} cx={x} cy={y} r="2.4" stroke={WARN} strokeWidth="0.8" />;
+      })}
+    </svg>
+  );
+}
+
+function ToranaArchMotif({ opacity = 0.12 }: { opacity?: number }) {
+  return (
+    <svg width="150" height="150" viewBox="0 0 150 150" fill="none" style={{ position: "absolute", left: -30, top: "50%", transform: "translateY(-50%)", opacity, pointerEvents: "none" }}>
+      <path d="M30 120 V70 Q30 30 75 24 Q120 30 120 70 V120" stroke={WARN} strokeWidth="1.2"/>
+      <path d="M42 120 V74 Q42 42 75 37 Q108 42 108 74 V120" stroke={WARN} strokeWidth="1"/>
+      <circle cx="75" cy="30" r="5" stroke={WARN} strokeWidth="1"/>
+      <path d="M55 30 Q75 18 95 30" stroke={WARN} strokeWidth="0.9"/>
+      <path d="M30 120 H120" stroke={WARN} strokeWidth="1.2"/>
+      <path d="M40 120 V132 M55 120 V132 M70 120 V132 M85 120 V132 M100 120 V132 M110 120 V132" stroke={WARN} strokeWidth="0.8"/>
+    </svg>
+  );
+}
+
+const HERITAGE_MOTIFS = [PeacockWindowMotif, LatticeCircleMotif, ToranaArchMotif];
+function HeritageMotif({ seed, opacity }: { seed: number; opacity?: number }) {
+  const Motif = HERITAGE_MOTIFS[seed % HERITAGE_MOTIFS.length];
+  return <Motif opacity={opacity} />;
 }
 
 function Spinner() {
@@ -660,7 +699,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
               return (
                 <div key={item.id} className="list-row" ref={el => { itemRefs.current[item.id] = el; }}>
-                  <PeacockWindowMotif />
+                  <HeritageMotif seed={item.id} />
                   {/* Compact row — image only, never video */}
                   <div
                     onClick={() => toggleExpand(item.id)}
@@ -958,7 +997,6 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
   return (
     <>{G}
-      <HeritagePatternBackground />
       <div style={{ minHeight: "100vh", width: "100%", background: BG, display: "flex", justifyContent: "center", paddingBottom: 70, position: "relative", zIndex: 1 }}>
         <div style={{ width: "100%", maxWidth: PAGE_MAX_WIDTH }}>
           <div className="tab-content" style={{ opacity: tabFade ? 1 : 0 }}>
