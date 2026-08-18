@@ -263,6 +263,7 @@ router.get("/my-orders", requireCafeWifi, publicOrderRateLimiter, async (req, re
           menuItemName: menuItemsTable.name,
           quantity: orderItemsTable.quantity,
           subtotal: orderItemsTable.subtotal,
+          notes: orderItemsTable.notes,
         })
         .from(orderItemsTable)
         .leftJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id))
