@@ -67,7 +67,7 @@ function HeritagePatternBackground() {
 // ── Three Newari carved-wood motifs, rotated per item so the menu doesn't
 // repeat one flourish on every single card. All single-stroke line art,
 // same brass color, sized to sit behind the left text column.
-function PeacockWindowMotif({ opacity = 0.12 }: { opacity?: number }) {
+function PeacockWindowMotif({ opacity = 0.9 }: { opacity?: number }) {
   return (
     <svg width="150" height="150" viewBox="0 0 150 150" fill="none" style={{ position: "absolute", left: -30, top: "50%", transform: "translateY(-50%)", opacity, pointerEvents: "none" }}>
       <path d="M35 115 V60 A40 40 0 0 1 115 60 V115" stroke={WARN} strokeWidth="1.2"/>
@@ -89,7 +89,7 @@ function PeacockWindowMotif({ opacity = 0.12 }: { opacity?: number }) {
   );
 }
 
-function LatticeCircleMotif({ opacity = 0.12 }: { opacity?: number }) {
+function LatticeCircleMotif({ opacity = 0.9 }: { opacity?: number }) {
   return (
     <svg width="140" height="140" viewBox="0 0 140 140" fill="none" style={{ position: "absolute", left: -34, top: "50%", transform: "translateY(-50%)", opacity, pointerEvents: "none" }}>
       <circle cx="70" cy="70" r="55" stroke={WARN} strokeWidth="1.2"/>
@@ -110,7 +110,7 @@ function LatticeCircleMotif({ opacity = 0.12 }: { opacity?: number }) {
   );
 }
 
-function ToranaArchMotif({ opacity = 0.12 }: { opacity?: number }) {
+function ToranaArchMotif({ opacity = 0.9 }: { opacity?: number }) {
   return (
     <svg width="150" height="150" viewBox="0 0 150 150" fill="none" style={{ position: "absolute", left: -30, top: "50%", transform: "translateY(-50%)", opacity, pointerEvents: "none" }}>
       <path d="M30 120 V70 Q30 30 75 24 Q120 30 120 70 V120" stroke={WARN} strokeWidth="1.2"/>
