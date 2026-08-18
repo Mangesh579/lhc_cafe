@@ -44,7 +44,7 @@ type MyOrder = {
 // without repeating an identical motif on every card.
 function HeritagePatternBackground() {
   return (
-    <svg width="100%" height="100%" style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.09 }}>
+    <svg width="100%" height="100%" style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.9 }}>
       <defs>
         <pattern id="newariLattice" width="64" height="64" patternUnits="userSpaceOnUse">
           <g stroke={WARN} strokeWidth="1" fill="none">
