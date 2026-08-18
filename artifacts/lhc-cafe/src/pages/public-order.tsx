@@ -44,7 +44,7 @@ type MyOrder = {
 // without repeating an identical motif on every card.
 function HeritagePatternBackground() {
   return (
-    <svg width="100%" height="100%" style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.035 }}>
+    <svg width="100%" height="100%" style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.09 }}>
       <defs>
         <pattern id="newariLattice" width="64" height="64" patternUnits="userSpaceOnUse">
           <g stroke={WARN} strokeWidth="1" fill="none">
@@ -57,6 +57,35 @@ function HeritagePatternBackground() {
         </pattern>
       </defs>
       <rect width="100%" height="100%" fill="url(#newariLattice)" />
+    </svg>
+  );
+}
+
+// ── Stylized Newari peacock window (Ka:l Jhya) — Patan's most iconic carved
+// wood motif. Placed once per card, quietly, in the corner — specific to
+// this city rather than a generic South Asian decorative flourish.
+function PeacockWindowMotif() {
+  return (
+    <svg width="76" height="76" viewBox="0 0 76 76" fill="none" style={{ position: "absolute", top: -8, right: -8, opacity: 0.05, pointerEvents: "none" }}>
+      {/* Arched frame */}
+      <path d="M14 60 V30 A24 24 0 0 1 62 30 V60" stroke={WARN} strokeWidth="1"/>
+      {/* Peacock fan — radiating feather lines from base */}
+      <g stroke={WARN} strokeWidth="0.8">
+        <path d="M38 58 L38 22"/>
+        <path d="M38 58 L26 26"/>
+        <path d="M38 58 L50 26"/>
+        <path d="M38 58 L18 34"/>
+        <path d="M38 58 L58 34"/>
+      </g>
+      {/* Feather eye details */}
+      <circle cx="38" cy="20" r="2.4" stroke={WARN} strokeWidth="0.8"/>
+      <circle cx="24" cy="24" r="2.2" stroke={WARN} strokeWidth="0.8"/>
+      <circle cx="52" cy="24" r="2.2" stroke={WARN} strokeWidth="0.8"/>
+      <circle cx="16" cy="33" r="2" stroke={WARN} strokeWidth="0.8"/>
+      <circle cx="60" cy="33" r="2" stroke={WARN} strokeWidth="0.8"/>
+      {/* Sill lattice */}
+      <path d="M14 60 H62" stroke={WARN} strokeWidth="1"/>
+      <path d="M20 60 V66 M28 60 V66 M38 60 V66 M48 60 V66 M56 60 V66" stroke={WARN} strokeWidth="0.7"/>
     </svg>
   );
 }
@@ -631,6 +660,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
               return (
                 <div key={item.id} className="list-row" ref={el => { itemRefs.current[item.id] = el; }}>
+                  <PeacockWindowMotif />
                   {/* Compact row — image only, never video */}
                   <div
                     onClick={() => toggleExpand(item.id)}
