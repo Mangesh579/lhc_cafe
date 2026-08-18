@@ -39,17 +39,24 @@ type MyOrder = {
   items: { id: number; menuItemId: number; menuItemName: string; quantity: number; subtotal: string; notes?: string | null }[];
 };
 
-// ── Subtle Newari-inspired lotus/paisley line motif — single stroke, very
-// low opacity, purely decorative texture behind row text. Never competes
-// with legibility.
-function FloralAccent({ size = 120 }: { size?: number }) {
+// ── Newari-inspired lattice/rosette texture — a single continuous pattern
+// tiled behind the whole page, evoking carved wood window screens (jhya)
+// without repeating an identical motif on every card.
+function HeritagePatternBackground() {
   return (
-    <svg width={size} height={size} viewBox="0 0 120 120" fill="none" style={{ position: "absolute", left: -20, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", opacity: 0.07 }}>
-      <path d="M60 10 C75 25, 75 45, 60 60 C45 45, 45 25, 60 10 Z" stroke={WARN} strokeWidth="1"/>
-      <path d="M60 60 C75 75, 95 75, 110 60 C95 45, 75 45, 60 60 Z" stroke={WARN} strokeWidth="1"/>
-      <path d="M60 60 C45 75, 25 75, 10 60 C25 45, 45 45, 60 60 Z" stroke={WARN} strokeWidth="1"/>
-      <path d="M60 60 C75 75, 75 95, 60 110 C45 95, 45 75, 60 60 Z" stroke={WARN} strokeWidth="1"/>
-      <circle cx="60" cy="60" r="6" stroke={WARN} strokeWidth="1"/>
+    <svg width="100%" height="100%" style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.035 }}>
+      <defs>
+        <pattern id="newariLattice" width="64" height="64" patternUnits="userSpaceOnUse">
+          <g stroke={WARN} strokeWidth="1" fill="none">
+            <circle cx="32" cy="32" r="9" />
+            <path d="M32 10 L39 22 L32 32 L25 22 Z" />
+            <path d="M32 54 L39 42 L32 32 L25 42 Z" />
+            <path d="M10 32 L22 25 L32 32 L22 39 Z" />
+            <path d="M54 32 L42 25 L32 32 L42 39 Z" />
+          </g>
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#newariLattice)" />
     </svg>
   );
 }
@@ -624,7 +631,6 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
               return (
                 <div key={item.id} className="list-row" ref={el => { itemRefs.current[item.id] = el; }}>
-                  <FloralAccent />
                   {/* Compact row — image only, never video */}
                   <div
                     onClick={() => toggleExpand(item.id)}
@@ -655,9 +661,9 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
                       </div>
                     </div>
 
-                    <div style={{ width: 100, flexShrink: 0, padding: 10, display: "flex" }}>
-                      <div style={{ width: "100%", borderRadius: 10, overflow: "hidden", border: `1px solid ${BORDER}` }}>
-                        <DishMedia item={item} height={80} variant="thumb" />
+                    <div style={{ width: "42%", maxWidth: 160, flexShrink: 0, padding: 10, display: "flex" }}>
+                      <div style={{ width: "100%", borderRadius: 10, overflow: "hidden", border: `1px solid ${BORDER}`, height: "100%" }}>
+                        <DishMedia item={item} height="100%" variant="thumb" />
                       </div>
                     </div>
                   </div>
@@ -922,7 +928,8 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
 
   return (
     <>{G}
-      <div style={{ minHeight: "100vh", width: "100%", background: BG, display: "flex", justifyContent: "center", paddingBottom: 70 }}>
+      <HeritagePatternBackground />
+      <div style={{ minHeight: "100vh", width: "100%", background: BG, display: "flex", justifyContent: "center", paddingBottom: 70, position: "relative", zIndex: 1 }}>
         <div style={{ width: "100%", maxWidth: PAGE_MAX_WIDTH }}>
           <div className="tab-content" style={{ opacity: tabFade ? 1 : 0 }}>
             {displayTab === "menu" ? MenuTab : displayTab === "myorder" ? MyOrderTab : LoyaltyTab}
