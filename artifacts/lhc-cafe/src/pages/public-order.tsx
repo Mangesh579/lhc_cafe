@@ -66,7 +66,7 @@ function HeritagePatternBackground() {
 // this city rather than a generic South Asian decorative flourish.
 function PeacockWindowMotif() {
   return (
-    <svg width="76" height="76" viewBox="0 0 76 76" fill="none" style={{ position: "absolute", top: -8, right: -8, opacity: 0.05, pointerEvents: "none" }}>
+    <svg width="76" height="76" viewBox="0 0 76 76" fill="none" style={{ position: "absolute", top: -8, right: -8, opacity: 0.9, pointerEvents: "none" }}>
       {/* Arched frame */}
       <path d="M14 60 V30 A24 24 0 0 1 62 30 V60" stroke={WARN} strokeWidth="1"/>
       {/* Peacock fan — radiating feather lines from base */}
