@@ -71,6 +71,7 @@ export default function POS() {
   const [searchQuery, setSearchQuery] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [phone, setPhone] = useState("");
+  const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
   const [orderNotes, setOrderNotes] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<OrderInputPaymentMethod>("cash");
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
@@ -82,7 +83,12 @@ export default function POS() {
 
   const { data: menuItems } = useListMenuItems({ available: true });
   const { data: categories } = useListMenuCategories();
-  const { data: loyaltyCustomers } = useListLoyaltyCustomers({ phone: phone.length > 4 ? phone : undefined });
+  const { data: allLoyaltyCustomers } = useListLoyaltyCustomers();
+  const customerMatches = phone.length >= 2
+    ? (allLoyaltyCustomers ?? []).filter(c =>
+        c.name.toLowerCase().includes(phone.toLowerCase()) || c.phone.includes(phone)
+      ).slice(0, 6)
+    : [];
 
   const [missedOrderOpen, setMissedOrderOpen] = useState(false);
   const [missedDateTime, setMissedDateTime] = useState("");
@@ -96,7 +102,8 @@ export default function POS() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const currentCustomer = loyaltyCustomers?.find(c => c.phone === phone);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
+  const currentCustomer = allLoyaltyCustomers?.find(c => c.id === selectedCustomerId);
 
   const getDiscountTier = (points: number) => {
     if (points >= 2000) return { pct: 25, pointsNeeded: 2000 };
@@ -171,13 +178,18 @@ export default function POS() {
       };
       if (tableNumber) {
         const tables = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/tables`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } }).then(r => r.json());
-        const t = tables.find((t: any) => t.tableNumber === parseInt(tableNumber));
+        const query = tableNumber.trim().toLowerCase();
+        const t = tables.find((t: any) =>
+          String(t.tableNumber) === query ||
+          (t.name && t.name.toLowerCase() === query)
+        );
         if (t) orderData.tableId = t.id;
+        else { toast({ title: `No table found matching "${tableNumber}"`, variant: "destructive" }); return; }
       }
       const result = await createOrder.mutateAsync({ data: orderData });
       setLastOrderDetails({ ...result, cartItems: [...cart], subtotal, customer: currentCustomer });
       toast({ title: "Order Placed", description: `Order #${result.id} created successfully.` });
-      setCart([]); setPhone(""); setRedeemDiscount(false); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
+      setCart([]); setPhone(""); setSelectedCustomerId(null); setRedeemDiscount(false); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
       setIsReceiptOpen(true);
       setMobileTab("menu");
       queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
@@ -306,14 +318,36 @@ export default function POS() {
       <div className="p-4 border-t space-y-2 bg-muted/10 overflow-y-auto max-h-72 shrink-0">
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <Label className="text-xs font-semibold text-muted-foreground uppercase">Table # (opt.)</Label>
-            <Input placeholder="Table number" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="mt-1 h-8 text-sm" />
+            <Label className="text-xs font-semibold text-muted-foreground uppercase">Table # or Name (opt.)</Label>
+            <Input placeholder="e.g. 1 or ABC" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="mt-1 h-8 text-sm" />
           </div>
           <div>
-            <Label className="text-xs font-semibold text-muted-foreground uppercase">Customer Phone</Label>
+            <Label className="text-xs font-semibold text-muted-foreground uppercase">Customer Phone / Name</Label>
             <div className="relative mt-1">
               <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input placeholder="Phone..." value={phone} onChange={e => setPhone(e.target.value)} className="pl-7 h-8 text-sm" />
+              <Input
+                placeholder="Search phone or name..."
+                value={phone}
+                onChange={e => { setPhone(e.target.value); setSelectedCustomerId(null); setCustomerSearchOpen(true); }}
+                onFocus={() => setCustomerSearchOpen(true)}
+                onBlur={() => setTimeout(() => setCustomerSearchOpen(false), 150)}
+                className="pl-7 h-8 text-sm"
+              />
+              {customerSearchOpen && customerMatches.length > 0 && !selectedCustomerId && (
+                <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+                  {customerMatches.map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex justify-between items-center"
+                      onMouseDown={() => { setPhone(c.phone); setSelectedCustomerId(c.id); setCustomerSearchOpen(false); }}
+                    >
+                      <span className="font-medium">{c.name}</span>
+                      <span className="text-xs text-muted-foreground">{c.phone}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -634,13 +668,18 @@ export default function POS() {
                   };
                   if (tableNumber) {
                     const tables = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/tables`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } }).then(r => r.json());
-                    const t = tables.find((t: any) => t.tableNumber === parseInt(tableNumber));
+                    const query = tableNumber.trim().toLowerCase();
+                    const t = tables.find((t: any) =>
+                      String(t.tableNumber) === query ||
+                      (t.name && t.name.toLowerCase() === query)
+                    );
                     if (t) orderData.tableId = t.id;
+                    else { toast({ title: `No table found matching "${tableNumber}"`, variant: "destructive" }); return; }
                   }
                   const result = await createOrder.mutateAsync({ data: orderData });
                   setLastOrderDetails({ ...result, cartItems: [...cart], subtotal, customer: currentCustomer });
                   toast({ title: "Missed order logged", description: `Backdated to ${new Date(missedDateTime).toLocaleString()}` });
-                  setCart([]); setPhone(""); setRedeemDiscount(false); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
+                  setCart([]); setPhone(""); setSelectedCustomerId(null); setRedeemDiscount(false); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
                   setMissedOrderOpen(false);
                   setIsReceiptOpen(true);
                   queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
