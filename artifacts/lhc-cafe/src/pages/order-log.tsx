@@ -1,4 +1,4 @@
-import { useState, Fragment } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useListOrders, useListMenuCategories, useListMenuItems } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,8 +36,29 @@ export default function OrderLog() {
   const [dateFilter, setDateFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [staffFilter, setStaffFilter] = useState("");
-  const [customerFilter, setCustomerFilter] = useState("");
+  const [customerSearchText, setCustomerSearchText] = useState("");
+  const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
+  const [allCustomers, setAllCustomers] = useState<any[]>([]);
+
+  useEffect(() => {
+    const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+    fetch(`${API_BASE}/api/loyalty/customers`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+    })
+      .then(r => r.ok ? r.json() : [])
+      .then(setAllCustomers)
+      .catch(() => {});
+  }, []);
+
+  const customerMatches = customerSearchText.length >= 2
+    ? allCustomers.filter(c =>
+        c.name.toLowerCase().includes(customerSearchText.toLowerCase()) ||
+        c.phone.includes(customerSearchText) ||
+        c.email?.toLowerCase().includes(customerSearchText.toLowerCase())
+      ).slice(0, 6)
+    : [];
 
   const { data: orders, isLoading } = useListOrders({ date: dateFilter || undefined });
   const { data: categories } = useListMenuCategories();
@@ -61,13 +82,7 @@ export default function OrderLog() {
       const matchesCustomer = order.loyaltyCustomerName?.toLowerCase().includes(q) ?? false;
       if (!matchesTable && !matchesStaff && !matchesCustomer) return false;
     }
-    if (customerFilter.trim()) {
-      const q = customerFilter.toLowerCase();
-      const matchesName = (order as any).loyaltyCustomerName?.toLowerCase().includes(q) ?? false;
-      const matchesPhone = (order as any).loyaltyCustomerPhone?.toLowerCase().includes(q) ?? false;
-      const matchesEmail = (order as any).loyaltyCustomerEmail?.toLowerCase().includes(q) ?? false;
-      if (!matchesName && !matchesPhone && !matchesEmail) return false;
-    }
+    if (selectedCustomerId !== null && (order as any).loyaltyCustomerId !== selectedCustomerId) return false;
     return true;
   }) ?? [];
 
@@ -165,17 +180,39 @@ export default function OrderLog() {
             {staffFilter && <Button variant="ghost" size="sm" onClick={() => setStaffFilter("")} className="h-9 px-2">✕</Button>}
           </div>
         </div>
-        <div className="space-y-1 col-span-2 md:col-span-1">
+        <div className="space-y-1 col-span-2 md:col-span-1 relative">
           <Label className="text-xs font-semibold text-muted-foreground uppercase">Loyalty Customer</Label>
           <div className="flex gap-1">
             <Input
-              placeholder="Name, phone, or email…"
-              value={customerFilter}
-              onChange={e => setCustomerFilter(e.target.value)}
+              placeholder="Search name, phone, or email…"
+              value={customerSearchText}
+              onChange={e => { setCustomerSearchText(e.target.value); setSelectedCustomerId(null); setCustomerDropdownOpen(true); }}
+              onFocus={() => setCustomerDropdownOpen(true)}
+              onBlur={() => setTimeout(() => setCustomerDropdownOpen(false), 150)}
               className="text-sm h-9"
             />
-            {customerFilter && <Button variant="ghost" size="sm" onClick={() => setCustomerFilter("")} className="h-9 px-2">✕</Button>}
+            {(customerSearchText || selectedCustomerId) && (
+              <Button variant="ghost" size="sm" onClick={() => { setCustomerSearchText(""); setSelectedCustomerId(null); }} className="h-9 px-2">✕</Button>
+            )}
           </div>
+          {selectedCustomerId && (
+            <p className="text-xs text-primary mt-1">Filtering: {allCustomers.find(c => c.id === selectedCustomerId)?.name}</p>
+          )}
+          {customerDropdownOpen && customerMatches.length > 0 && !selectedCustomerId && (
+            <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+              {customerMatches.map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex flex-col"
+                  onMouseDown={() => { setCustomerSearchText(c.name); setSelectedCustomerId(c.id); setCustomerDropdownOpen(false); }}
+                >
+                  <span className="font-medium">{c.name}</span>
+                  <span className="text-xs text-muted-foreground">{c.phone}{c.email ? ` · ${c.email}` : ""}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="space-y-1">
           <Label className="text-xs font-semibold text-muted-foreground uppercase">Date</Label>
