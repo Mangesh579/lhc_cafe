@@ -35,7 +35,9 @@ export default function OrderLog() {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [staffFilter, setStaffFilter] = useState("");
+  const [tableFilterText, setTableFilterText] = useState("");
+  const [staffFilterValue, setStaffFilterValue] = useState("");
+  const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [customerSearchText, setCustomerSearchText] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
@@ -61,6 +63,12 @@ export default function OrderLog() {
     : [];
 
   const { data: orders, isLoading } = useListOrders({ date: dateFilter || undefined });
+
+  useEffect(() => {
+    if (!orders) return;
+    const names = Array.from(new Set(orders.map((o: any) => o.createdBy).filter(Boolean))) as string[];
+    setStaffOptions(names.sort());
+  }, [orders]);
   const { data: categories } = useListMenuCategories();
   const { data: menuItems } = useListMenuItems({});
 
@@ -75,12 +83,15 @@ export default function OrderLog() {
       const catId = parseInt(categoryFilter);
       if (!order.items?.some((item: any) => itemCategoryMap.get(item.menuItemId) === catId)) return false;
     }
-    if (staffFilter.trim()) {
-      const q = staffFilter.toLowerCase();
-      const matchesTable = order.tableNumber ? `table ${order.tableNumber}`.includes(q) : false;
-      const matchesStaff = (order as any).createdBy?.toLowerCase().includes(q) ?? false;
-      const matchesCustomer = order.loyaltyCustomerName?.toLowerCase().includes(q) ?? false;
-      if (!matchesTable && !matchesStaff && !matchesCustomer) return false;
+    if (tableFilterText.trim()) {
+      const q = tableFilterText.trim().toLowerCase();
+      const matchesNumber = order.tableNumber ? String(order.tableNumber) === q : false;
+      const matchesName = (order as any).tableName ? (order as any).tableName.toLowerCase() === q : false;
+      const matchesPartial = order.tableNumber ? `table ${order.tableNumber}`.toLowerCase().includes(q) : false;
+      if (!matchesNumber && !matchesName && !matchesPartial) return false;
+    }
+    if (staffFilterValue) {
+      if ((order as any).createdBy !== staffFilterValue) return false;
     }
     if (selectedCustomerId !== null && (order as any).loyaltyCustomerId !== selectedCustomerId) return false;
     return true;
@@ -167,18 +178,28 @@ export default function OrderLog() {
       )}
 
       {/* Filters */}
-      <div className="grid grid-cols-2 md:grid-cols-7 gap-3 p-3 bg-muted/20 rounded-lg border">
-        <div className="space-y-1 col-span-2 md:col-span-1">
-          <Label className="text-xs font-semibold text-muted-foreground uppercase">Table / Staff / Customer</Label>
+      <div className="grid grid-cols-2 md:grid-cols-8 gap-3 p-3 bg-muted/20 rounded-lg border">
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold text-muted-foreground uppercase">Table (# or name)</Label>
           <div className="flex gap-1">
             <Input
-              placeholder="e.g. Table 3, Rojal, John..."
-              value={staffFilter}
-              onChange={e => setStaffFilter(e.target.value)}
+              placeholder="e.g. 3 or ABC"
+              value={tableFilterText}
+              onChange={e => setTableFilterText(e.target.value)}
               className="text-sm h-9"
             />
-            {staffFilter && <Button variant="ghost" size="sm" onClick={() => setStaffFilter("")} className="h-9 px-2">✕</Button>}
+            {tableFilterText && <Button variant="ghost" size="sm" onClick={() => setTableFilterText("")} className="h-9 px-2">✕</Button>}
           </div>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold text-muted-foreground uppercase">Staff</Label>
+          <Select value={staffFilterValue || "all"} onValueChange={v => setStaffFilterValue(v === "all" ? "" : v)}>
+            <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Staff</SelectItem>
+              {staffOptions.map(name => <SelectItem key={name} value={name}>{name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-1 col-span-2 md:col-span-1 relative">
           <Label className="text-xs font-semibold text-muted-foreground uppercase">Loyalty Customer</Label>
