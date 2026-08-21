@@ -19,7 +19,7 @@ import { format } from "date-fns";
 import { Clock, Printer, CreditCard, AlertCircle, RefreshCw, ChevronDown, ChevronUp, User, Bell, Receipt, Check } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
-const POLL_INTERVAL = 30_000;
+const POLL_INTERVAL = 10_000;
 
 export default function Orders() {
   const API_BASE = import.meta.env.VITE_API_BASE ?? "";
