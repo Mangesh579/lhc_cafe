@@ -1,6 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import { useListOrders, useListMenuCategories, useListMenuItems } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -34,6 +35,9 @@ export default function OrderLog() {
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
+  const [exportFrom, setExportFrom] = useState("");
+  const [exportTo, setExportTo] = useState("");
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [tableFilterText, setTableFilterText] = useState("");
   const [staffFilterValue, setStaffFilterValue] = useState("");
@@ -98,8 +102,19 @@ export default function OrderLog() {
   }) ?? [];
 
   const exportCSV = () => {
+    const from = exportFrom ? new Date(exportFrom) : null;
+    const to = exportTo ? new Date(exportTo) : null;
+    if (to) to.setHours(23, 59, 59, 999);
+
+    const ordersToExport = (orders ?? []).filter(o => {
+      const orderDate = new Date((o as any).backdatedAt ?? o.createdAt);
+      if (from && orderDate < from) return false;
+      if (to && orderDate > to) return false;
+      return true;
+    });
+
     const headers = ["Order ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Total", "Discount"];
-    const rows = filteredOrders.map(o => [
+    const rows = ordersToExport.map(o => [
       o.id,
       new Date((o as any).backdatedAt ?? o.createdAt).toLocaleString(),
       o.tableNumber ? ((o as any).tableName || `Table ${o.tableNumber}`) : "Takeaway",
@@ -114,9 +129,11 @@ export default function OrderLog() {
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `order-log-${new Date().toISOString().slice(0,10)}.csv`;
+    const rangeLabel = exportFrom || exportTo ? `${exportFrom || "start"}_to_${exportTo || "now"}` : new Date().toISOString().slice(0,10);
+    a.href = url; a.download = `order-log-${rangeLabel}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+    setExportDialogOpen(false);
   };
 
   const totalSales = filteredOrders.reduce((sum, o) => o.paymentStatus !== 'paid' ? sum : sum + parseFloat(String(o.totalAmount)), 0);
@@ -160,7 +177,7 @@ export default function OrderLog() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl md:text-3xl font-serif font-bold">Order Log</h1>
         <div className="flex items-center gap-3 flex-wrap">
-          <Button variant="outline" size="sm" onClick={exportCSV} className="gap-2"><Download className="w-4 h-4" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => setExportDialogOpen(true)} className="gap-2"><Download className="w-4 h-4" /> Export CSV</Button>
           <div className="flex items-center gap-2 text-sm">
           <span className={`text-xs ${!useNepaliDate ? "text-foreground font-medium" : "text-muted-foreground"}`}>AD</span>
           <button
@@ -488,6 +505,27 @@ export default function OrderLog() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Export Order Log</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase">From Date</Label>
+              <Input type="date" value={exportFrom} onChange={e => setExportFrom(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase">To Date</Label>
+              <Input type="date" value={exportTo} onChange={e => setExportTo(e.target.value)} />
+            </div>
+            <p className="text-xs text-muted-foreground">Leave both blank to export everything.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExportDialogOpen(false)}>Cancel</Button>
+            <Button onClick={exportCSV}>Export</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

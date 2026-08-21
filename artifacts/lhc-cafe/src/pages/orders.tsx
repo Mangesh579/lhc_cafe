@@ -32,7 +32,6 @@ export default function Orders() {
   const [savingNotes, setSavingNotes] = useState<Set<number>>(new Set());
   const [tableRequests, setTableRequests] = useState<any[]>([]);
   const knownOrderIds = useRef<Set<number> | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
 
   const { data: orders, isLoading, refetch, dataUpdatedAt } = useListOrders(
     {},
@@ -136,22 +135,13 @@ export default function Orders() {
     }
   };
 
+  const NEW_ORDER_SOUND_URL = "https://res.cloudinary.com/hrehqahe/video/upload/Order_aayo_zatsrf.3gp";
+
   const playNewOrderChime = () => {
     try {
-      if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const ctx = audioCtxRef.current;
-      [880, 1175].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.001, ctx.currentTime + i * 0.15);
-        gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + i * 0.15 + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.start(ctx.currentTime + i * 0.15);
-        osc.stop(ctx.currentTime + i * 0.15 + 0.3);
-      });
+      const audio = new Audio(NEW_ORDER_SOUND_URL);
+      audio.volume = 0.7;
+      audio.play().catch(() => { /* browser blocked autoplay until user interacts once */ });
     } catch { /* audio not available, silent fail */ }
   };
 

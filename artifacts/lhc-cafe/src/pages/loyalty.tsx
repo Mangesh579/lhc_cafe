@@ -64,6 +64,8 @@ export default function Loyalty() {
   const [adjustReason, setAdjustReason] = useState("");
   const [adjustLoading, setAdjustLoading] = useState(false);
 
+  const [pointLogs, setPointLogs] = useState<any[]>([]);
+
   const handleAdjustPoints = async () => {
     if (!adjustCustomer || !adjustPoints) return;
     setAdjustLoading(true);
@@ -77,7 +79,7 @@ export default function Loyalty() {
       if (!r.ok) throw new Error();
       queryClient.invalidateQueries({ queryKey: getListLoyaltyCustomersQueryKey() });
       toast({ title: "Points adjusted" });
-      setAdjustCustomer(null); setAdjustPoints(""); setAdjustReason("");
+      setAdjustCustomer(null); setAdjustPoints(""); setAdjustReason(""); setPointLogs([]);
     } catch { toast({ title: "Failed to adjust points", variant: "destructive" }); }
     finally { setAdjustLoading(false); }
   };
@@ -241,7 +243,14 @@ export default function Loyalty() {
                     {customer.createdAt ? format(new Date(customer.createdAt), 'MMM yyyy') : '-'}
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <Button variant="ghost" size="icon" onClick={() => { setAdjustCustomer(customer); setAdjustPoints(""); setAdjustReason(""); }} title="Adjust points">
+                    <Button variant="ghost" size="icon" onClick={async () => {
+                      setAdjustCustomer(customer); setAdjustPoints(""); setAdjustReason("");
+                      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+                      try {
+                        const r = await fetch(`${API_BASE}/api/loyalty/customers/${customer.id}/point-logs`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+                        setPointLogs(r.ok ? await r.json() : []);
+                      } catch { setPointLogs([]); }
+                    }} title="Adjust points">
                       <Sparkles className="w-4 h-4 text-muted-foreground" />
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => openHistory(customer)} title="Order history">
@@ -386,6 +395,22 @@ export default function Loyalty() {
               <p className="text-sm text-muted-foreground">
                 New balance: {(adjustCustomer.totalPoints + (parseInt(adjustPoints) || 0))} points
               </p>
+            )}
+            {pointLogs.length > 0 && (
+              <div className="space-y-1 max-h-40 overflow-y-auto border-t pt-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">History</p>
+                {pointLogs.map((log: any) => (
+                  <div key={log.id} className="text-xs flex justify-between items-start gap-2 py-1">
+                    <div>
+                      <span className={log.pointsChange >= 0 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
+                        {log.pointsChange >= 0 ? "+" : ""}{log.pointsChange}
+                      </span>
+                      <span className="text-muted-foreground ml-1.5">{log.reason}</span>
+                    </div>
+                    <span className="text-muted-foreground whitespace-nowrap">{format(new Date(log.createdAt), "MMM d, h:mm a")}</span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
           <DialogFooter>

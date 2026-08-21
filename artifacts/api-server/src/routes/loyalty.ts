@@ -1,7 +1,7 @@
-import { Router } from "express";
-import { db, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable } from "@workspace/db";
+import { Router, Response } from "express";
+import { db, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable, loyaltyPointLogsTable } from "@workspace/db";
 import { eq, ilike, and, desc } from "drizzle-orm";
-import { authenticate } from "../middlewares/auth";
+import { authenticate, AuthRequest } from "../middlewares/auth";
 
 const router = Router();
 
@@ -59,13 +59,32 @@ router.patch("/loyalty/customers/:id", authenticate, async (req, res): Promise<v
   res.json(customer);
 });
 
-router.post("/loyalty/customers/:id/points", authenticate, async (req, res): Promise<void> => {
+router.post("/loyalty/customers/:id/points", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const { points } = req.body;
+  const { points, reason } = req.body;
   const [customer] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, id));
   if (!customer) { res.status(404).json({ error: "Customer not found" }); return; }
   const [updated] = await db.update(loyaltyCustomersTable).set({ totalPoints: customer.totalPoints + points }).where(eq(loyaltyCustomersTable.id, id)).returning();
+
+  await db.insert(loyaltyPointLogsTable).values({
+    loyaltyCustomerId: id,
+    pointsChange: points,
+    reason: reason || "Manual adjustment",
+    changedBy: req.user?.username ?? "admin",
+  });
+
   res.json(updated);
+});
+
+// GET /api/loyalty/customers/:id/point-logs
+router.get("/loyalty/customers/:id/point-logs", authenticate, async (req, res): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  const logs = await db
+    .select()
+    .from(loyaltyPointLogsTable)
+    .where(eq(loyaltyPointLogsTable.loyaltyCustomerId, id))
+    .orderBy(desc(loyaltyPointLogsTable.createdAt));
+  res.json(logs);
 });
 
 // GET /api/loyalty/customers/:id/orders
