@@ -39,27 +39,6 @@ type MyOrder = {
   items: { id: number; menuItemId: number; menuItemName: string; quantity: number; subtotal: string; notes?: string | null }[];
 };
 
-// ── Newari-inspired lattice/rosette texture — a single continuous pattern
-// tiled behind the whole page, evoking carved wood window screens (jhya)
-// without repeating an identical motif on every card.
-function HeritagePatternBackground() {
-  return (
-    <svg width="100%" height="100%" style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.9 }}>
-      <defs>
-        <pattern id="newariLattice" width="64" height="64" patternUnits="userSpaceOnUse">
-          <g stroke={WARN} strokeWidth="1" fill="none">
-            <circle cx="32" cy="32" r="9" />
-            <path d="M32 10 L39 22 L32 32 L25 22 Z" />
-            <path d="M32 54 L39 42 L32 32 L25 42 Z" />
-            <path d="M10 32 L22 25 L32 32 L22 39 Z" />
-            <path d="M54 32 L42 25 L32 32 L42 39 Z" />
-          </g>
-        </pattern>
-      </defs>
-      <rect width="100%" height="100%" fill="url(#newariLattice)" />
-    </svg>
-  );
-}
 
 // ── Stylized Newari peacock window (Ka:l Jhya) — Patan's most iconic carved
 // wood motif. Placed once per card, quietly, in the corner — specific to
@@ -254,6 +233,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   ];
 
   const [mutedItems, setMutedItems] = useState<Record<number, boolean>>({});
+  const [menuSearch, setMenuSearch] = useState("");
   const toggleMute = (itemId: number) => setMutedItems(prev => ({ ...prev, [itemId]: prev[itemId] !== false ? false : true }));
 
   const [expandedItems, setExpandedItems] = useState<Record<number, boolean>>({});
@@ -287,6 +267,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [orderId, setOrderId] = useState<number|null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
+  const [requestSending, setRequestSending] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<"menu"|"myorder"|"loyalty">("menu");
   const [displayTab, setDisplayTab] = useState<"menu"|"myorder"|"loyalty">("menu");
@@ -522,6 +503,20 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     } catch { alert("Network error. Please try again."); }
     finally { setRedeemLoading(false); }
   };
+  
+  const sendRequest = async (type: "waiter" | "bill") => {
+    if (!sessionToken) return;
+    setRequestSending(type);
+    try {
+      const r = await fetch(`${API_BASE}/api/public/request`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionToken, requestType: type }),
+      });
+      const d = await r.json();
+      alert(d.alreadyPending ? "Already requested — staff is on the way." : type === "waiter" ? "Waiter notified!" : "Bill requested!");
+    } catch { alert("Failed to send request. Please try again."); }
+    finally { setRequestSending(null); }
+  };
 
   const placeOrder = async () => {
     if (!cart.length || isSubmitting || !sessionToken) return;
@@ -663,6 +658,15 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
             ))}
           </div>
         )}
+        <div style={{ position: "relative", marginTop: 10 }}>
+          <input
+            type="text"
+            placeholder="Search the menu…"
+            value={menuSearch}
+            onChange={e => setMenuSearch(e.target.value)}
+            style={{ width: "100%", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 20, padding: "9px 14px", color: TEXT, fontFamily: SANS, fontSize: 13 }}
+          />
+        </div>
       </div>
 
       {bestsellerItems.length > 0 && (
@@ -694,7 +698,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       <div ref={feedRef} style={{ display: "flex", flexDirection: "column", gap: 10, padding: "0 16px 16px" }}>
         {categories.map((cat) => (
           <div key={cat.id} ref={el => { catRefs.current[cat.id] = el; }} data-catid={cat.id} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {cat.items.map((item) => {
+            {cat.items.filter(item => !menuSearch.trim() || item.name.toLowerCase().includes(menuSearch.toLowerCase())).map((item) => {
               const inCart = cartQty(item.id) > 0;
 
               return (
@@ -1051,6 +1055,18 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
           </div>
         </div>
       )}
+
+      {/* Call Waiter / Request Bill — floating, always accessible */}
+      <div style={{ position: "fixed", bottom: 68, right: 16, zIndex: 47, display: "flex", flexDirection: "column", gap: 8 }}>
+        <button onClick={() => sendRequest("bill")} disabled={!!requestSending}
+          style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 20, padding: "8px 14px", color: TEXT, fontFamily: SANS, fontSize: 11, fontWeight: 600, cursor: "pointer", boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
+          {requestSending === "bill" ? "…" : "🧾 Request Bill"}
+        </button>
+        <button onClick={() => sendRequest("waiter")} disabled={!!requestSending}
+          style={{ background: WARN, border: "none", borderRadius: 20, padding: "8px 14px", color: BG, fontFamily: SANS, fontSize: 11, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
+          {requestSending === "waiter" ? "…" : "🔔 Call Waiter"}
+        </button>
+      </div>
 
       <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:50, background:BG, borderTop:`1px solid ${BORDER}`, display:"flex", justifyContent:"center", height:58 }}>
         <div style={{ width:"100%", maxWidth:PAGE_MAX_WIDTH, display:"flex" }}>

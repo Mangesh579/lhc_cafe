@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable, bestsellerCacheTable, loyaltyEmailVerificationsTable, loyaltyCustomersTable, loyaltyRedemptionsTable } from "@workspace/db";
+import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable, bestsellerCacheTable, loyaltyEmailVerificationsTable, loyaltyCustomersTable, loyaltyRedemptionsTable, tableRequestsTable } from "@workspace/db";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 import { randomBytes, randomInt } from "crypto";
 import { publicOrderRateLimiter } from "../middlewares/rateLimit";
@@ -347,6 +347,28 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to place order" });
+  }
+});
+
+// POST /api/public/request
+router.post("/request", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
+  try {
+    const { sessionToken, requestType } = req.body;
+    if (!["waiter", "bill"].includes(requestType)) { res.status(400).json({ error: "Invalid request type" }); return; }
+    const session = await resolveSession(sessionToken);
+    if (!session) { res.status(401).json({ error: "Session expired" }); return; }
+
+    // Avoid duplicate spam — don't create a new pending request of the same type
+    const [existing] = await db.select().from(tableRequestsTable)
+      .where(and(eq(tableRequestsTable.tableId, session.tableId), eq(tableRequestsTable.requestType, requestType), eq(tableRequestsTable.status, "pending")))
+      .limit(1);
+    if (existing) { res.json({ success: true, alreadyPending: true }); return; }
+
+    await db.insert(tableRequestsTable).values({ tableId: session.tableId, requestType });
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to send request" });
   }
 });
 

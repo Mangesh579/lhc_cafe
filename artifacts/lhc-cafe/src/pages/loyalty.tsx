@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Star, DollarSign, ShoppingBag, Edit2, History } from "lucide-react";
+import { Plus, Search, Star, DollarSign, ShoppingBag, Edit2, History, Sparkles } from "lucide-react";
 import { format } from "date-fns";
 import { allCountries } from "country-telephone-data";
 
@@ -59,6 +59,29 @@ export default function Loyalty() {
   const [historyData, setHistoryData] = useState<{ orders: any[]; favoriteItems: any[] } | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  const [adjustCustomer, setAdjustCustomer] = useState<any>(null);
+  const [adjustPoints, setAdjustPoints] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+  const [adjustLoading, setAdjustLoading] = useState(false);
+
+  const handleAdjustPoints = async () => {
+    if (!adjustCustomer || !adjustPoints) return;
+    setAdjustLoading(true);
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+      const r = await fetch(`${API_BASE}/api/loyalty/customers/${adjustCustomer.id}/points`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+        body: JSON.stringify({ points: parseInt(adjustPoints), reason: adjustReason }),
+      });
+      if (!r.ok) throw new Error();
+      queryClient.invalidateQueries({ queryKey: getListLoyaltyCustomersQueryKey() });
+      toast({ title: "Points adjusted" });
+      setAdjustCustomer(null); setAdjustPoints(""); setAdjustReason("");
+    } catch { toast({ title: "Failed to adjust points", variant: "destructive" }); }
+    finally { setAdjustLoading(false); }
+  };
+  
   const openHistory = async (customer: any) => {
     setHistoryCustomer(customer);
     setHistoryLoading(true);
@@ -218,6 +241,9 @@ export default function Loyalty() {
                     {customer.createdAt ? format(new Date(customer.createdAt), 'MMM yyyy') : '-'}
                   </td>
                   <td className="px-6 py-4 text-right">
+                    <Button variant="ghost" size="icon" onClick={() => { setAdjustCustomer(customer); setAdjustPoints(""); setAdjustReason(""); }} title="Adjust points">
+                      <Sparkles className="w-4 h-4 text-muted-foreground" />
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => openHistory(customer)} title="Order history">
                       <History className="w-4 h-4 text-muted-foreground" />
                     </Button>
@@ -334,6 +360,37 @@ export default function Loyalty() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setHistoryCustomer(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!adjustCustomer} onOpenChange={o => !o && setAdjustCustomer(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Adjust Points — {adjustCustomer?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="p-3 bg-muted/40 rounded-md text-center">
+              <p className="text-sm text-muted-foreground">Current Points</p>
+              <p className="text-2xl font-bold text-amber-600">{adjustCustomer?.totalPoints ?? 0}</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Points Change (+ to add, − to deduct)</Label>
+              <Input type="number" value={adjustPoints} onChange={e => setAdjustPoints(e.target.value)} placeholder="e.g. 50 or -20" />
+            </div>
+            <div className="space-y-2">
+              <Label>Reason *</Label>
+              <Input value={adjustReason} onChange={e => setAdjustReason(e.target.value)} placeholder="Compensation, correction, promo..." />
+            </div>
+            {adjustPoints && adjustCustomer && (
+              <p className="text-sm text-muted-foreground">
+                New balance: {(adjustCustomer.totalPoints + (parseInt(adjustPoints) || 0))} points
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdjustCustomer(null)}>Cancel</Button>
+            <Button onClick={handleAdjustPoints} disabled={adjustLoading || !adjustPoints || !adjustReason}>Confirm</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

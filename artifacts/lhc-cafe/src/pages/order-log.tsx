@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import NepaliDate from "nepali-date-converter";
 import { format } from "date-fns";
-import { ChevronDown, ChevronUp, User } from "lucide-react";
+import { ChevronDown, ChevronUp, User, Download } from "lucide-react";
 
 function toNepaliDate(dateStr: string): string {
   try {
@@ -97,6 +97,28 @@ export default function OrderLog() {
     return true;
   }) ?? [];
 
+  const exportCSV = () => {
+    const headers = ["Order ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Total", "Discount"];
+    const rows = filteredOrders.map(o => [
+      o.id,
+      new Date((o as any).backdatedAt ?? o.createdAt).toLocaleString(),
+      o.tableNumber ? ((o as any).tableName || `Table ${o.tableNumber}`) : "Takeaway",
+      (o as any).createdBy ?? "",
+      (o as any).loyaltyCustomerName ?? "",
+      o.orderStatus,
+      o.paymentStatus,
+      parseFloat(String(o.totalAmount)).toFixed(0),
+      parseFloat(String((o as any).discountAmount ?? 0)).toFixed(0),
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `order-log-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const totalSales = filteredOrders.reduce((sum, o) => o.paymentStatus !== 'paid' ? sum : sum + parseFloat(String(o.totalAmount)), 0);
   const paidCount = filteredOrders.filter(o => o.paymentStatus === 'paid').length;
 
@@ -137,7 +159,9 @@ export default function OrderLog() {
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl md:text-3xl font-serif font-bold">Order Log</h1>
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button variant="outline" size="sm" onClick={exportCSV} className="gap-2"><Download className="w-4 h-4" /> Export CSV</Button>
+          <div className="flex items-center gap-2 text-sm">
           <span className={`text-xs ${!useNepaliDate ? "text-foreground font-medium" : "text-muted-foreground"}`}>AD</span>
           <button
             onClick={() => setUseNepaliDate(n => !n)}
@@ -146,6 +170,7 @@ export default function OrderLog() {
             <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${useNepaliDate ? "translate-x-4" : "translate-x-1"}`} />
           </button>
           <span className={`text-xs ${useNepaliDate ? "text-foreground font-medium" : "text-muted-foreground"}`}>BS</span>
+          </div>
         </div>
       </div>
 

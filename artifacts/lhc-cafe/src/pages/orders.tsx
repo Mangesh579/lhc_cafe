@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   useListOrders,
   useUpdateOrderStatus,
@@ -16,12 +16,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Clock, Printer, CreditCard, AlertCircle, RefreshCw, ChevronDown, ChevronUp, User } from "lucide-react";
+import { Clock, Printer, CreditCard, AlertCircle, RefreshCw, ChevronDown, ChevronUp, User, Bell, Receipt, Check } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 const POLL_INTERVAL = 30_000;
 
 export default function Orders() {
+  const API_BASE = import.meta.env.VITE_API_BASE ?? "";
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const [paymentModalOrder, setPaymentModalOrder] = useState<any>(null);
   const [paymentMethod, setPaymentMethod] = useState<string>("cash");
@@ -29,6 +30,9 @@ export default function Orders() {
   const [secondsToRefresh, setSecondsToRefresh] = useState(POLL_INTERVAL / 1000);
   const [editingNotes, setEditingNotes] = useState<Record<number, string>>({});
   const [savingNotes, setSavingNotes] = useState<Set<number>>(new Set());
+  const [tableRequests, setTableRequests] = useState<any[]>([]);
+  const knownOrderIds = useRef<Set<number> | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   const { data: orders, isLoading, refetch, dataUpdatedAt } = useListOrders(
     {},
@@ -46,6 +50,41 @@ export default function Orders() {
     }, 1000);
     return () => clearInterval(interval);
   }, [dataUpdatedAt]);
+
+  // Play a chime whenever a genuinely new pending order appears — compares
+  // current order IDs against the previous poll's set rather than just
+  // counting, so it correctly ignores status changes on existing orders.
+  useEffect(() => {
+    if (!orders) return;
+    const currentIds = new Set(orders.filter(o => o.orderStatus === "pending").map(o => o.id));
+    if (knownOrderIds.current !== null) {
+      const hasNew = [...currentIds].some(id => !knownOrderIds.current!.has(id));
+      if (hasNew) playNewOrderChime();
+    }
+    knownOrderIds.current = currentIds;
+  }, [orders]);
+
+  // Poll table requests (Call Waiter / Request Bill) alongside orders
+  const loadTableRequests = async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/table-requests`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      if (r.ok) setTableRequests(await r.json());
+    } catch { /* non-critical */ }
+  };
+  useEffect(() => {
+    loadTableRequests();
+    const interval = setInterval(loadTableRequests, POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, []);
+
+  const resolveRequest = async (id: number) => {
+    try {
+      await fetch(`${API_BASE}/api/table-requests/${id}/resolve`, { method: "PATCH", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      setTableRequests(prev => prev.filter(r => r.id !== id));
+    } catch {
+      toast({ title: "Failed to resolve request", variant: "destructive" });
+    }
+  };
 
   const toggleExpand = (id: number) => {
     setExpandedOrders(prev => {
@@ -78,8 +117,6 @@ export default function Orders() {
     }
   };
 
-  const API_BASE = import.meta.env.VITE_API_BASE ?? "";
-
   const handleSaveNotes = async (id: number) => {
     const notes = editingNotes[id] ?? "";
     setSavingNotes(prev => new Set(prev).add(id));
@@ -97,6 +134,25 @@ export default function Orders() {
     } finally {
       setSavingNotes(prev => { const n = new Set(prev); n.delete(id); return n; });
     }
+  };
+
+  const playNewOrderChime = () => {
+    try {
+      if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const ctx = audioCtxRef.current;
+      [880, 1175].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.001, ctx.currentTime + i * 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + i * 0.15 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + i * 0.15);
+        osc.stop(ctx.currentTime + i * 0.15 + 0.3);
+      });
+    } catch { /* audio not available, silent fail */ }
   };
 
   const handlePayment = async () => {
@@ -162,6 +218,26 @@ export default function Orders() {
           </Button>
         </div>
       </div>
+
+      {/* Call Waiter / Request Bill — pending table requests */}
+      {tableRequests.length > 0 && (
+        <div className="space-y-2">
+          {tableRequests.map((req: any) => (
+            <div key={req.id} className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${req.requestType === "waiter" ? "bg-amber-50 border-amber-300" : "bg-blue-50 border-blue-300"}`}>
+              <div className="flex items-center gap-2">
+                {req.requestType === "waiter" ? <Bell className="w-4 h-4 text-amber-700" /> : <Receipt className="w-4 h-4 text-blue-700" />}
+                <span className="text-sm font-medium">
+                  {req.tableName || `Table ${req.tableNumber}`} — {req.requestType === "waiter" ? "needs a waiter" : "requested the bill"}
+                </span>
+                <span className="text-xs text-muted-foreground">{format(new Date(req.createdAt), 'h:mm a')}</span>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => resolveRequest(req.id)} className="gap-1.5">
+                <Check className="w-3.5 h-3.5" /> Resolve
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Order cards */}
       <div className="space-y-3">
