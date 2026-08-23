@@ -1,7 +1,7 @@
 import { Router, Response } from "express";
-import { db, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable, loyaltyPointLogsTable } from "@workspace/db";
+import { db, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable, loyaltyPointLogsTable, loyaltyRedemptionsTable } from "@workspace/db";
 import { eq, ilike, and, desc } from "drizzle-orm";
-import { authenticate, AuthRequest } from "../middlewares/auth";
+import { authenticate, AuthRequest, requireAdmin } from "../middlewares/auth";
 
 const router = Router();
 
@@ -128,6 +128,50 @@ router.get("/loyalty/customers/:id/orders", authenticate, async (req, res): Prom
     .map(([name, count]) => ({ name, count }));
 
   res.json({ orders: ordersWithItems, favoriteItems });
+});
+
+// GET /api/loyalty/point-logs — all point adjustments across all customers
+router.get("/loyalty/point-logs", authenticate, async (_req, res): Promise<void> => {
+  const logs = await db
+    .select({
+      id: loyaltyPointLogsTable.id,
+      customerId: loyaltyPointLogsTable.loyaltyCustomerId,
+      customerName: loyaltyCustomersTable.name,
+      pointsChange: loyaltyPointLogsTable.pointsChange,
+      reason: loyaltyPointLogsTable.reason,
+      changedBy: loyaltyPointLogsTable.changedBy,
+      createdAt: loyaltyPointLogsTable.createdAt,
+    })
+    .from(loyaltyPointLogsTable)
+    .leftJoin(loyaltyCustomersTable, eq(loyaltyPointLogsTable.loyaltyCustomerId, loyaltyCustomersTable.id))
+    .orderBy(desc(loyaltyPointLogsTable.createdAt))
+    .limit(200);
+  res.json(logs);
+});
+
+// GET /api/loyalty/redemption-logs — all reward redemptions across all customers
+router.get("/loyalty/redemption-logs", authenticate, async (_req, res): Promise<void> => {
+  const logs = await db
+    .select({
+      id: loyaltyRedemptionsTable.id,
+      customerId: loyaltyRedemptionsTable.loyaltyCustomerId,
+      customerName: loyaltyCustomersTable.name,
+      level: loyaltyRedemptionsTable.level,
+      loopNumber: loyaltyRedemptionsTable.loopNumber,
+      orderId: loyaltyRedemptionsTable.orderId,
+      redeemedAt: loyaltyRedemptionsTable.redeemedAt,
+    })
+    .from(loyaltyRedemptionsTable)
+    .leftJoin(loyaltyCustomersTable, eq(loyaltyRedemptionsTable.loyaltyCustomerId, loyaltyCustomersTable.id))
+    .orderBy(desc(loyaltyRedemptionsTable.redeemedAt))
+    .limit(200);
+  res.json(logs);
+});
+
+router.delete("/loyalty/customers/:id", authenticate, requireAdmin, async (req, res): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  await db.delete(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, id));
+  res.sendStatus(204);
 });
 
 export default router;

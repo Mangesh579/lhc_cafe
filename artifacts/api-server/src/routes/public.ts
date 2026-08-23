@@ -358,11 +358,25 @@ router.post("/request", requireCafeWifi, publicOrderRateLimiter, async (req, res
     const session = await resolveSession(sessionToken);
     if (!session) { res.status(401).json({ error: "Session expired" }); return; }
 
-    // Avoid duplicate spam — don't create a new pending request of the same type
-    const [existing] = await db.select().from(tableRequestsTable)
-      .where(and(eq(tableRequestsTable.tableId, session.tableId), eq(tableRequestsTable.requestType, requestType), eq(tableRequestsTable.status, "pending")))
+    const COOLDOWN_MS = 5 * 60 * 1000;
+
+    // Check the most recent request of this type for this table, regardless
+    // of resolved status — enforces a real cooldown, not just "no duplicates
+    // while pending" (which could be bypassed once staff resolved it).
+    const [lastRequest] = await db.select().from(tableRequestsTable)
+      .where(and(eq(tableRequestsTable.tableId, session.tableId), eq(tableRequestsTable.requestType, requestType)))
+      .orderBy(desc(tableRequestsTable.createdAt))
       .limit(1);
-    if (existing) { res.json({ success: true, alreadyPending: true }); return; }
+
+    if (lastRequest) {
+      const elapsed = Date.now() - new Date(lastRequest.createdAt).getTime();
+      if (elapsed < COOLDOWN_MS) {
+        const secondsLeft = Math.ceil((COOLDOWN_MS - elapsed) / 1000);
+        const minutesLeft = Math.ceil(secondsLeft / 60);
+        res.status(429).json({ error: `Please wait ${minutesLeft} more minute${minutesLeft === 1 ? "" : "s"} before requesting again.` });
+        return;
+      }
+    }
 
     await db.insert(tableRequestsTable).values({ tableId: session.tableId, requestType });
     res.json({ success: true });

@@ -513,7 +513,8 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         body: JSON.stringify({ sessionToken, requestType: type }),
       });
       const d = await r.json();
-      alert(d.alreadyPending ? "Already requested — staff is on the way." : type === "waiter" ? "Waiter notified!" : "Bill requested!");
+      if (!r.ok) { alert(d.error ?? "Please wait before requesting again."); return; }
+      alert(type === "waiter" ? "Waiter notified!" : "Bill requested!");
     } catch { alert("Failed to send request. Please try again."); }
     finally { setRequestSending(null); }
   };

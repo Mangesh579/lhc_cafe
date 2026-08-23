@@ -7,9 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Star, DollarSign, ShoppingBag, Edit2, History, Sparkles } from "lucide-react";
+import { Plus, Search, Star, DollarSign, ShoppingBag, Edit2, History, Sparkles, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { allCountries } from "country-telephone-data";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useAuth } from "@/contexts/auth";
 
 const COUNTRY_CODES_ADMIN = [
   { dialCode: "977", name: "Nepal", iso2: "np" },
@@ -47,8 +49,31 @@ function CountryCodeSelect({ value, onChange }: { value: string; onChange: (v: s
   );
 }
 
+
+
 export default function Loyalty() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [search, setSearch] = useState("");
+  const [deleteCustomer, setDeleteCustomer] = useState<any>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const handleDeleteCustomer = async () => {
+    if (!deleteCustomer) return;
+    setDeleteLoading(true);
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+      const r = await fetch(`${API_BASE}/api/loyalty/customers/${deleteCustomer.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+      });
+      if (!r.ok) throw new Error();
+      queryClient.invalidateQueries({ queryKey: getListLoyaltyCustomersQueryKey() });
+      toast({ title: "Customer deleted" });
+      setDeleteCustomer(null);
+    } catch { toast({ title: "Failed to delete customer", variant: "destructive" }); }
+    finally { setDeleteLoading(false); }
+  };
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [formData, setFormData] = useState({ name: "", phone: "", email: "", countryCode: "+977" });
   const [editCustomer, setEditCustomer] = useState<any>(null);
@@ -65,6 +90,25 @@ export default function Loyalty() {
   const [adjustLoading, setAdjustLoading] = useState(false);
 
   const [pointLogs, setPointLogs] = useState<any[]>([]);
+
+  const [logType, setLogType] = useState<"points" | "redemptions">("points");
+  const [globalPointLogs, setGlobalPointLogs] = useState<any[]>([]);
+  const [globalRedemptionLogs, setGlobalRedemptionLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+
+  const loadGlobalLogs = async () => {
+    setLogsLoading(true);
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+      const [pointsRes, redeemRes] = await Promise.all([
+        fetch(`${API_BASE}/api/loyalty/point-logs`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } }),
+        fetch(`${API_BASE}/api/loyalty/redemption-logs`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } }),
+      ]);
+      setGlobalPointLogs(pointsRes.ok ? await pointsRes.json() : []);
+      setGlobalRedemptionLogs(redeemRes.ok ? await redeemRes.json() : []);
+    } catch { /* non-critical */ }
+    finally { setLogsLoading(false); }
+  };
 
   const handleAdjustPoints = async () => {
     if (!adjustCustomer || !adjustPoints) return;
@@ -188,6 +232,13 @@ export default function Loyalty() {
         </Button>
       </div>
 
+      <Tabs defaultValue="customers" onValueChange={v => v === "log" && loadGlobalLogs()}>
+        <TabsList>
+          <TabsTrigger value="customers">Customers</TabsTrigger>
+          <TabsTrigger value="log">Points & Rewards Log</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="customers" className="space-y-4 mt-4">
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
         <Input 
@@ -259,6 +310,11 @@ export default function Loyalty() {
                     <Button variant="ghost" size="icon" onClick={() => openEdit(customer)}>
                       <Edit2 className="w-4 h-4 text-muted-foreground" />
                     </Button>
+                    {isAdmin && (
+                      <Button variant="ghost" size="icon" onClick={() => setDeleteCustomer(customer)}>
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -269,6 +325,78 @@ export default function Loyalty() {
           </table>
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="log" className="space-y-4 mt-4">
+          <div className="flex gap-2">
+            <Button variant={logType === "points" ? "default" : "outline"} size="sm" onClick={() => setLogType("points")}>Point Adjustments</Button>
+            <Button variant={logType === "redemptions" ? "default" : "outline"} size="sm" onClick={() => setLogType("redemptions")}>Redeemed Rewards</Button>
+          </div>
+          <Card>
+            <CardContent className="p-0">
+              {logType === "points" ? (
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-muted/50 text-muted-foreground uppercase tracking-wider text-xs">
+                    <tr>
+                      <th className="px-5 py-3">Time</th>
+                      <th className="px-5 py-3">Customer</th>
+                      <th className="px-5 py-3">Change</th>
+                      <th className="px-5 py-3">Reason</th>
+                      <th className="px-5 py-3">By</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {logsLoading ? (
+                      <tr><td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">Loading...</td></tr>
+                    ) : globalPointLogs.length === 0 ? (
+                      <tr><td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">No point adjustments yet.</td></tr>
+                    ) : globalPointLogs.map((log: any) => (
+                      <tr key={log.id} className="hover:bg-muted/20">
+                        <td className="px-5 py-3 text-xs text-muted-foreground">{format(new Date(log.createdAt), 'MMM d, h:mm a')}</td>
+                        <td className="px-5 py-3 font-medium">{log.customerName}</td>
+                        <td className="px-5 py-3">
+                          <span className={log.pointsChange >= 0 ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>
+                            {log.pointsChange >= 0 ? "+" : ""}{log.pointsChange}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3 text-muted-foreground">{log.reason}</td>
+                        <td className="px-5 py-3 text-muted-foreground">{log.changedBy}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-muted/50 text-muted-foreground uppercase tracking-wider text-xs">
+                    <tr>
+                      <th className="px-5 py-3">Time</th>
+                      <th className="px-5 py-3">Customer</th>
+                      <th className="px-5 py-3">Level</th>
+                      <th className="px-5 py-3">Loop</th>
+                      <th className="px-5 py-3">Order</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {logsLoading ? (
+                      <tr><td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">Loading...</td></tr>
+                    ) : globalRedemptionLogs.length === 0 ? (
+                      <tr><td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">No redemptions yet.</td></tr>
+                    ) : globalRedemptionLogs.map((log: any) => (
+                      <tr key={log.id} className="hover:bg-muted/20">
+                        <td className="px-5 py-3 text-xs text-muted-foreground">{format(new Date(log.redeemedAt), 'MMM d, h:mm a')}</td>
+                        <td className="px-5 py-3 font-medium">{log.customerName}</td>
+                        <td className="px-5 py-3">Level {log.level}</td>
+                        <td className="px-5 py-3 text-muted-foreground">Loop {log.loopNumber}</td>
+                        <td className="px-5 py-3 text-muted-foreground">#{log.orderId}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
         <DialogContent>
@@ -416,6 +544,16 @@ export default function Loyalty() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setAdjustCustomer(null)}>Cancel</Button>
             <Button onClick={handleAdjustPoints} disabled={adjustLoading || !adjustPoints || !adjustReason}>Confirm</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+            <Dialog open={!!deleteCustomer} onOpenChange={o => !o && setDeleteCustomer(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Delete Customer</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Delete <strong>{deleteCustomer?.name}</strong>? This permanently removes their loyalty account, points, and history.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteCustomer(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteCustomer} disabled={deleteLoading}>Delete</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
