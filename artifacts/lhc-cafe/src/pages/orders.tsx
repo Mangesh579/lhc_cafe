@@ -18,6 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Clock, Printer, CreditCard, AlertCircle, RefreshCw, ChevronDown, ChevronUp, User, Bell, Receipt, Check } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useNotifications } from "@/contexts/notifications";
 
 const POLL_INTERVAL = 5_000;
 
@@ -30,8 +31,7 @@ export default function Orders() {
   const [secondsToRefresh, setSecondsToRefresh] = useState(POLL_INTERVAL / 1000);
   const [editingNotes, setEditingNotes] = useState<Record<number, string>>({});
   const [savingNotes, setSavingNotes] = useState<Set<number>>(new Set());
-  const [tableRequests, setTableRequests] = useState<any[]>([]);
-  const knownOrderIds = useRef<Set<number> | null>(null);
+    const { tableRequests, refreshRequests } = useNotifications();
 
   const { data: orders, isLoading, refetch, dataUpdatedAt } = useListOrders(
     {},
@@ -50,50 +50,11 @@ export default function Orders() {
     return () => clearInterval(interval);
   }, [dataUpdatedAt]);
 
-  // Play a chime whenever a genuinely new pending order appears — compares
-  // current order IDs against the previous poll's set rather than just
-  // counting, so it correctly ignores status changes on existing orders.
-  useEffect(() => {
-    if (!orders) return;
-    const currentIds = new Set(orders.filter(o => o.orderStatus === "pending").map(o => o.id));
-    if (knownOrderIds.current !== null) {
-      const hasNew = [...currentIds].some(id => !knownOrderIds.current!.has(id));
-      if (hasNew) playNewOrderChime();
-    }
-    knownOrderIds.current = currentIds;
-  }, [orders]);
 
-  // Poll table requests (Call Waiter / Request Bill) alongside orders
-  const knownRequestIds = useRef<Set<number> | null>(null);
-  const loadTableRequests = async () => {
-    try {
-      const r = await fetch(`${API_BASE}/api/table-requests`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
-      if (!r.ok) return;
-      const data = await r.json();
-      setTableRequests(data);
-
-      const currentIds = new Set<number>(data.map((req: any) => req.id));
-      if (knownRequestIds.current !== null) {
-        data.forEach((req: any) => {
-          if (!knownRequestIds.current!.has(req.id)) {
-            if (req.requestType === "waiter") playWaiterRequestSound();
-            else if (req.requestType === "bill") playBillRequestSound();
-          }
-        });
-      }
-      knownRequestIds.current = currentIds;
-    } catch { /* non-critical */ }
-  };
-  useEffect(() => {
-    loadTableRequests();
-    const interval = setInterval(loadTableRequests, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const resolveRequest = async (id: number) => {
+    const resolveRequest = async (id: number) => {
     try {
       await fetch(`${API_BASE}/api/table-requests/${id}/resolve`, { method: "PATCH", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
-      setTableRequests(prev => prev.filter(r => r.id !== id));
+      refreshRequests();
     } catch {
       toast({ title: "Failed to resolve request", variant: "destructive" });
     }
@@ -148,35 +109,6 @@ export default function Orders() {
       setSavingNotes(prev => { const n = new Set(prev); n.delete(id); return n; });
     }
   };
-
-  const NEW_ORDER_SOUND_URL = "https://res.cloudinary.com/hrehqahe/video/upload/Order_aayo_zatsrf.3gp";
-  const BILL_REQUEST_SOUND_URL = "https://res.cloudinary.com/hrehqahe/video/upload/Bill_magyo_qi4myj.3gp";
-  const WAITER_REQUEST_SOUND_URL = "https://res.cloudinary.com/hrehqahe/video/upload/Bolayo_g2qslr.3gp";
-
-  const soundQueueRef = useRef<string[]>([]);
-  const isPlayingRef = useRef(false);
-
-  const playNextInQueue = () => {
-    if (isPlayingRef.current || soundQueueRef.current.length === 0) return;
-    const url = soundQueueRef.current.shift()!;
-    isPlayingRef.current = true;
-    try {
-      const audio = new Audio(url);
-      audio.volume = 0.7;
-      audio.onended = () => { isPlayingRef.current = false; playNextInQueue(); };
-      audio.onerror = () => { isPlayingRef.current = false; playNextInQueue(); };
-      audio.play().catch(() => { isPlayingRef.current = false; playNextInQueue(); });
-    } catch { isPlayingRef.current = false; playNextInQueue(); }
-  };
-
-  const enqueueSound = (url: string) => {
-    soundQueueRef.current.push(url);
-    playNextInQueue();
-  };
-
-  const playNewOrderChime = () => enqueueSound(NEW_ORDER_SOUND_URL);
-  const playBillRequestSound = () => enqueueSound(BILL_REQUEST_SOUND_URL);
-  const playWaiterRequestSound = () => enqueueSound(WAITER_REQUEST_SOUND_URL);
 
   const handlePayment = async () => {
     if (!paymentModalOrder) return;
