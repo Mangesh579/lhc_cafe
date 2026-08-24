@@ -317,6 +317,7 @@ export default function OrderLog() {
               <SelectItem value="all">All Methods</SelectItem>
               <SelectItem value="cash">Cash</SelectItem>
               <SelectItem value="nabil_qr">Nabil QR</SelectItem>
+              <SelectItem value="card">Card</SelectItem>
             </SelectContent>
           </Select>
         </div>

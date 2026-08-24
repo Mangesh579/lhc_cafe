@@ -294,16 +294,18 @@ export default function Loyalty() {
                     {customer.createdAt ? format(new Date(customer.createdAt), 'MMM yyyy') : '-'}
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <Button variant="ghost" size="icon" onClick={async () => {
-                      setAdjustCustomer(customer); setAdjustPoints(""); setAdjustReason("");
-                      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
-                      try {
-                        const r = await fetch(`${API_BASE}/api/loyalty/customers/${customer.id}/point-logs`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
-                        setPointLogs(r.ok ? await r.json() : []);
-                      } catch { setPointLogs([]); }
-                    }} title="Adjust points">
-                      <Sparkles className="w-4 h-4 text-muted-foreground" />
-                    </Button>
+                    {isAdmin && (
+                      <Button variant="ghost" size="icon" onClick={async () => {
+                        setAdjustCustomer(customer); setAdjustPoints(""); setAdjustReason("");
+                        const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+                        try {
+                          const r = await fetch(`${API_BASE}/api/loyalty/customers/${customer.id}/point-logs`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+                          setPointLogs(r.ok ? await r.json() : []);
+                        } catch { setPointLogs([]); }
+                      }} title="Adjust points">
+                        <Sparkles className="w-4 h-4 text-muted-foreground" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="icon" onClick={() => openHistory(customer)} title="Order history">
                       <History className="w-4 h-4 text-muted-foreground" />
                     </Button>

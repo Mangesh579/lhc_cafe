@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Clock, LogIn, LogOut as LogOutIcon, Save, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Clock, LogIn, LogOut as LogOutIcon, Save, Trash2, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isToday, isFuture, parseISO } from "date-fns";
 import NepaliDate from "nepali-date-converter";
 
@@ -496,6 +496,30 @@ function AttendanceTable({ punches, comments, shifts, onSaved, targetUserId, isA
         <span className="text-xs font-medium text-primary self-center ml-auto">
           Total: {Math.floor(totalMinutes / 60)}h {Math.round(totalMinutes % 60)}m
         </span>
+        <Button variant="outline" size="sm" onClick={() => {
+          const headers = ["Date", "Status", "Punches", "Hours", "Comment"];
+          const rows = filteredDates.map(date => {
+            const dayPunches = (byDate[date] ?? []).sort((a, b) => new Date(a.punchedAt).getTime() - new Date(b.punchedAt).getTime());
+            const status = getDayStatus(new Date(date), dayPunches, shifts);
+            const comment = comments.find(c => c.commentDate === date);
+            const ins = dayPunches.filter(p => p.punchType === "in");
+            const outs = dayPunches.filter(p => p.punchType === "out");
+            const dayMinutes = ins.reduce((sum, inP, i) => {
+              const outP = outs[i];
+              if (!outP) return sum;
+              return sum + (new Date(outP.punchedAt).getTime() - new Date(inP.punchedAt).getTime()) / 60000;
+            }, 0);
+            const punchList = dayPunches.map(p => `${p.punchType}@${format(new Date(p.punchedAt), "h:mma")}`).join("; ");
+            return [date, STATUS_LABEL[status] || "-", punchList, `${Math.floor(dayMinutes/60)}h ${Math.round(dayMinutes%60)}m`, comment?.comment ?? ""];
+          });
+          const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+          const blob = new Blob([csv], { type: "text/csv" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url; a.download = `attendance-${months[filterMonth-1]}-${filterYear}.csv`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }} className="gap-1.5"><Download className="w-3.5 h-3.5" /> Export CSV</Button>
       </div>
 
       <Card>

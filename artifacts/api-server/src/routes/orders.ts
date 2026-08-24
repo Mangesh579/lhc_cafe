@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable } from "@workspace/db";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
-import { authenticate } from "../middlewares/auth";
+import { authenticate, requireAdmin } from "../middlewares/auth";
 
 const router = Router();
 
@@ -258,7 +258,7 @@ router.patch("/orders/:id/discount", authenticate, async (req, res): Promise<voi
   res.json(result);
 });
 
-router.patch("/orders/:id/cancel", authenticate, async (req, res): Promise<void> => {
+router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
 
   // Restore inventory before cancelling

@@ -61,6 +61,33 @@ export default function Tables() {
       toast({ title: "Failed to delete", variant: "destructive" });
     }
   };
+  
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  const handleBulkToggle = async (openAll: boolean) => {
+    if (!tables) return;
+    if (!confirm(openAll ? "Open all tables?" : "Close all tables?")) return;
+    setBulkLoading(true);
+    try {
+      await Promise.all(
+        tables
+          .filter((t: any) => t.isOccupied !== openAll)
+          .map((t: any) =>
+            fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/tables/${t.id}/occupy`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+              body: JSON.stringify({ isOccupied: openAll }),
+            })
+          )
+      );
+      queryClient.invalidateQueries({ queryKey: getListTablesQueryKey() });
+      toast({ title: openAll ? "All tables opened" : "All tables closed" });
+    } catch {
+      toast({ title: "Bulk update failed", variant: "destructive" });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
 
   const handleToggleOccupied = async (table: any) => {
     setTogglingId(table.id);
@@ -88,9 +115,13 @@ export default function Tables() {
     <div className="p-8 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-serif font-bold text-foreground">Table Management</h1>
-        <Button onClick={handleAddTable} className="gap-2" disabled={createTable.isPending}>
-          <Plus className="w-4 h-4" /> Add Table
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => handleBulkToggle(true)} disabled={bulkLoading}>Open All</Button>
+          <Button variant="outline" onClick={() => handleBulkToggle(false)} disabled={bulkLoading}>Close All</Button>
+          <Button onClick={handleAddTable} className="gap-2" disabled={createTable.isPending}>
+            <Plus className="w-4 h-4" /> Add Table
+          </Button>
+        </div>
       </div>
 
       <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3 text-sm">

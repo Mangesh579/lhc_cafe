@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Edit2, Trash2, ChefHat, FolderPlus, BookOpen, RefreshCw, Coffee, Search, X } from "lucide-react";
+import { Plus, Edit2, Trash2, ChefHat, FolderPlus, BookOpen, RefreshCw, Coffee, Search, X, Copy } from "lucide-react";
 import { format } from "date-fns";
 
 const API = (path: string) => fetch(`/api${path}`, { headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
@@ -365,6 +365,11 @@ export default function Menu() {
     } catch { toast({ title: "Failed to update", variant: "destructive" }); }
   };
 
+  const handleDuplicate = (item: any) => {
+    const { id, createdAt, categoryName, ...rest } = item;
+    setItemDialog({ open: true, item: { ...rest, name: `${item.name} (Copy)` } as any });
+  };
+
   const handleDelete = async (id: number, name: string) => {
     if (!confirm(`Delete "${name}"? This will also remove its recipes.`)) return;
     try {
@@ -467,6 +472,9 @@ export default function Menu() {
                         <div className="flex items-center justify-end gap-1">
                           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setRecipeDialog({ open: true, item })}>
                             <ChefHat className="w-3.5 h-3.5" /> Recipes
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDuplicate(item)} title="Duplicate">
+                            <Copy className="w-4 h-4 text-muted-foreground" />
                           </Button>
                           <Button variant="ghost" size="icon" onClick={() => setItemDialog({ open: true, item })}>
                             <Edit2 className="w-4 h-4 text-muted-foreground" />

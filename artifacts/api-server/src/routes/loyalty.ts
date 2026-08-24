@@ -59,7 +59,7 @@ router.patch("/loyalty/customers/:id", authenticate, async (req, res): Promise<v
   res.json(customer);
 });
 
-router.post("/loyalty/customers/:id/points", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post("/loyalty/customers/:id/points", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
   const { points, reason } = req.body;
   const [customer] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, id));

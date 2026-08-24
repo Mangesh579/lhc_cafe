@@ -330,6 +330,8 @@ export default function Inventory() {
   const [wasteLogs, setWasteLogs] = useState<any[]>([]);
   const [wasteReport, setWasteReport] = useState<any[]>([]);
   const [invLogs, setInvLogs] = useState<any[]>([]);
+  const [invLogDateFilter, setInvLogDateFilter] = useState("");
+  const [invLogIngredientFilter, setInvLogIngredientFilter] = useState("");
   const [logsLoaded, setLogsLoaded] = useState<string | null>(null);
 
   const loadTab = async (tab: string, force = false) => {
@@ -381,6 +383,11 @@ export default function Inventory() {
     !ingredientSearch.trim() || i.name.toLowerCase().includes(ingredientSearch.toLowerCase())
   );
 
+  const [equipmentSearch, setEquipmentSearch] = useState("");
+  const filteredEquipment = equipment.filter((e: any) =>
+    !equipmentSearch.trim() || e.name.toLowerCase().includes(equipmentSearch.toLowerCase())
+  );
+
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
@@ -388,9 +395,24 @@ export default function Inventory() {
       </div>
 
       {lowStockItems.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
-          <span className="text-sm text-red-800 font-medium">{lowStockItems.length} item{lowStockItems.length > 1 ? "s" : ""} below minimum stock: {lowStockItems.map(i => i.name).join(", ")}</span>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+            <span className="text-sm text-red-800 font-medium">{lowStockItems.length} item{lowStockItems.length > 1 ? "s" : ""} below minimum stock</span>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => {
+            const lines = lowStockItems.map(i => {
+              const needed = parseFloat(String(i.minStockLevel)) - parseFloat(String(i.currentStock));
+              return `${i.name}: need ~${needed.toFixed(1)} ${i.unit} (current ${parseFloat(String(i.currentStock)).toFixed(1)}, min ${parseFloat(String(i.minStockLevel)).toFixed(1)})`;
+            });
+            const text = `Shopping List — LHC Cafe\n${new Date().toLocaleDateString()}\n\n${lines.join("\n")}`;
+            const blob = new Blob([text], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = `shopping-list-${new Date().toISOString().slice(0,10)}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}>Export Shopping List</Button>
         </div>
       )}
 
@@ -509,7 +531,12 @@ export default function Inventory() {
 
         {/* ── Equipment Tab ───────────────────────────────────────────────── */}
         <TabsContent value="equipment" className="space-y-4 mt-4">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="relative max-w-sm flex-1 min-w-48">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input placeholder="Search equipment…" value={equipmentSearch} onChange={e => setEquipmentSearch(e.target.value)} className="pl-9 h-9" />
+              {equipmentSearch && <button onClick={() => setEquipmentSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>}
+            </div>
             <Button onClick={() => setEqDialog({ open: true })} className="gap-2"><Plus className="w-4 h-4" /> Add Equipment</Button>
           </div>
           <Card>
@@ -528,9 +555,9 @@ export default function Inventory() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {equipment.length === 0 ? (
-                    <tr><td colSpan={7} className="px-5 py-8 text-center text-muted-foreground">No equipment added yet.</td></tr>
-                  ) : equipment.map(eq => (
+                  {filteredEquipment.length === 0 ? (
+                    <tr><td colSpan={7} className="px-5 py-8 text-center text-muted-foreground">{equipmentSearch ? "No equipment matches your search." : "No equipment added yet."}</td></tr>
+                  ) : filteredEquipment.map((eq: any) => (
                     <tr key={eq.id} className="hover:bg-muted/20">
                       <td className="px-5 py-3">
                         <div className="font-medium">{eq.name}</div>
@@ -619,7 +646,20 @@ export default function Inventory() {
 
         {/* ── Stock Log Tab ────────────────────────────────────────────────── */}
         <TabsContent value="inv-log" className="space-y-4 mt-4">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex gap-2 flex-wrap">
+              <Input type="date" value={invLogDateFilter} onChange={e => setInvLogDateFilter(e.target.value)} className="h-9 w-40" />
+              <Select value={invLogIngredientFilter || "all"} onValueChange={v => setInvLogIngredientFilter(v === "all" ? "" : v)}>
+                <SelectTrigger className="h-9 w-48"><SelectValue placeholder="All ingredients" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Ingredients</SelectItem>
+                  {(inventory as any[]).map(i => <SelectItem key={i.id} value={i.name}>{i.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {(invLogDateFilter || invLogIngredientFilter) && (
+                <Button variant="ghost" size="sm" onClick={() => { setInvLogDateFilter(""); setInvLogIngredientFilter(""); }}>Clear</Button>
+              )}
+            </div>
             <Button variant="outline" size="sm" onClick={() => loadTab("inv-log", true)} className="gap-2"><RefreshCw className="w-4 h-4" /> Refresh</Button>
           </div>
           <Card>
@@ -636,9 +676,14 @@ export default function Inventory() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {invLogs.length === 0 ? (
-                    <tr><td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">No log entries.</td></tr>
-                  ) : invLogs.map((log: any) => {
+                  {(() => {
+                    const filteredLogs = invLogs.filter((log: any) => {
+                      if (invLogDateFilter && !log.createdAt.startsWith(invLogDateFilter)) return false;
+                      if (invLogIngredientFilter && log.ingredientName !== invLogIngredientFilter) return false;
+                      return true;
+                    });
+                    if (filteredLogs.length === 0) return <tr><td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">No log entries match the filter.</td></tr>;
+                    return filteredLogs.map((log: any) => {
                     const change = parseFloat(String(log.changeAmount));
                     return (
                       <tr key={log.id} className="hover:bg-muted/20">
@@ -655,7 +700,8 @@ export default function Inventory() {
                         <td className="px-5 py-3 text-muted-foreground">{log.reason}</td>
                       </tr>
                     );
-                  })}
+                  });
+                  })()}
                 </tbody>
               </table>
               </div>

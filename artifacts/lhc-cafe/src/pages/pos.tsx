@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useListMenuItems,
   useListMenuCategories,
@@ -22,6 +22,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import NepaliDate from "nepali-date-converter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 
 interface CartItem extends MenuItem {
   cartQuantity: number;
@@ -82,6 +84,14 @@ export default function POS() {
   const [mobileTab, setMobileTab] = useState<"menu" | "order">("menu");
 
   const { data: menuItems } = useListMenuItems({ available: true });
+  const [openTables, setOpenTables] = useState<any[]>([]);
+  useEffect(() => {
+    const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+    fetch(`${API_BASE}/api/tables`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then((tables: any[]) => setOpenTables(tables.filter(t => t.isOccupied)))
+      .catch(() => {});
+  }, []);
   const { data: categories } = useListMenuCategories();
   const { data: allLoyaltyCustomers } = useListLoyaltyCustomers();
   const customerMatches = phone.length >= 2
@@ -318,8 +328,16 @@ export default function POS() {
       <div className="p-4 border-t space-y-2 bg-muted/10 overflow-y-auto max-h-72 shrink-0">
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <Label className="text-xs font-semibold text-muted-foreground uppercase">Table # or Name (opt.)</Label>
-            <Input placeholder="e.g. 1 or ABC" value={tableNumber} onChange={e => setTableNumber(e.target.value)} className="mt-1 h-8 text-sm" />
+            <Label className="text-xs font-semibold text-muted-foreground uppercase">Table (opt.)</Label>
+            <Select value={tableNumber || "none"} onValueChange={v => setTableNumber(v === "none" ? "" : v)}>
+              <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select table" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Takeaway</SelectItem>
+                {openTables.map((t: any) => (
+                  <SelectItem key={t.id} value={String(t.tableNumber)}>{t.name || `Table ${t.tableNumber}`}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label className="text-xs font-semibold text-muted-foreground uppercase">Customer Phone / Name</Label>
@@ -386,9 +404,10 @@ export default function POS() {
         <div>
           <Label className="text-xs font-semibold text-muted-foreground uppercase">Payment</Label>
           <Tabs value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as OrderInputPaymentMethod)} className="mt-1">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="cash">Cash</TabsTrigger>
               <TabsTrigger value="nabil_qr">Nabil QR</TabsTrigger>
+              <TabsTrigger value="esewa">Card</TabsTrigger>
             </TabsList>
             <TabsContent value="nabil_qr" className="mt-1">
               <div className="flex justify-center p-2 bg-white rounded-md border">

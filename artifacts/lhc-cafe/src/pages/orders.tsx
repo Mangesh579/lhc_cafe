@@ -19,6 +19,7 @@ import { format } from "date-fns";
 import { Clock, Printer, CreditCard, AlertCircle, RefreshCw, ChevronDown, ChevronUp, User, Bell, Receipt, Check } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useNotifications } from "@/contexts/notifications";
+import { useAuth } from "@/contexts/auth";
 
 const POLL_INTERVAL = 5_000;
 
@@ -31,7 +32,9 @@ export default function Orders() {
   const [secondsToRefresh, setSecondsToRefresh] = useState(POLL_INTERVAL / 1000);
   const [editingNotes, setEditingNotes] = useState<Record<number, string>>({});
   const [savingNotes, setSavingNotes] = useState<Set<number>>(new Set());
-    const { tableRequests, refreshRequests } = useNotifications();
+  const { tableRequests, refreshRequests } = useNotifications();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const { data: orders, isLoading, refetch, dataUpdatedAt } = useListOrders(
     {},
@@ -152,7 +155,16 @@ export default function Orders() {
     cancelled: "bg-red-100 text-red-800 border-red-200",
   };
 
-  const activeOrders = orders?.filter(o => !['completed', 'cancelled'].includes(o.orderStatus)) ?? [];
+  const [orderSearch, setOrderSearch] = useState("");
+  const activeOrders = (orders?.filter(o => !['completed', 'cancelled'].includes(o.orderStatus)) ?? [])
+    .filter(o => {
+      if (!orderSearch.trim()) return true;
+      const q = orderSearch.toLowerCase();
+      const tableMatch = o.tableNumber ? (((o as any).tableName || `table ${o.tableNumber}`).toLowerCase().includes(q)) : false;
+      const staffMatch = (o as any).createdBy?.toLowerCase().includes(q) ?? false;
+      const customerMatch = o.loyaltyCustomerName?.toLowerCase().includes(q) ?? false;
+      return tableMatch || staffMatch || customerMatch;
+    });
 
   if (isLoading) return <div className="p-8 text-center">Loading orders...</div>;
 
@@ -173,6 +185,13 @@ export default function Orders() {
           </Button>
         </div>
       </div>
+
+      <Input
+        placeholder="Search by table, staff, or customer…"
+        value={orderSearch}
+        onChange={e => setOrderSearch(e.target.value)}
+        className="max-w-sm"
+      />
 
       {/* Call Waiter / Request Bill — pending table requests */}
       {tableRequests.length > 0 && (
@@ -270,7 +289,7 @@ export default function Orders() {
                       <CreditCard className="w-3 h-3" /> Pay
                     </Button>
                   )}
-                  {['pending', 'preparing'].includes(order.orderStatus) && (
+                  {isAdmin && ['pending', 'preparing'].includes(order.orderStatus) && (
                     <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive text-xs h-8 px-3" onClick={() => handleCancelOrder(order.id)}>
                       Cancel
                     </Button>
@@ -393,9 +412,10 @@ export default function Orders() {
             <div className="space-y-2">
               <Label className="text-xs font-semibold text-muted-foreground uppercase">Payment Method</Label>
               <Tabs value={paymentMethod} onValueChange={setPaymentMethod}>
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="cash">Cash</TabsTrigger>
                   <TabsTrigger value="nabil_qr">Nabil QR</TabsTrigger>
+                  <TabsTrigger value="esewa">Card</TabsTrigger>
                 </TabsList>
                 <TabsContent value="nabil_qr" className="mt-2 flex justify-center p-4 bg-white rounded-md border">
                   <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=NabilBankLHCCafe" alt="Nabil QR" className="w-40 h-40" />
