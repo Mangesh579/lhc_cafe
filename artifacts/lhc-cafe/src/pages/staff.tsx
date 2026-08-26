@@ -11,6 +11,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Clock, LogIn, LogOut as LogOutIcon, Save, Trash2, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isToday, isFuture, parseISO } from "date-fns";
 import NepaliDate from "nepali-date-converter";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const APIJSON = (path: string, method = "GET", body?: object) =>
@@ -144,7 +147,7 @@ function PunchWidget({ punches, onPunched }: { punches: Punch[]; onPunched: () =
 
 // ── Calendar view ────────────────────────────────────────────────────────────
 function AttendanceCalendar({
-  punches, comments, shifts, onSaved, targetUserId, isAdmin
+  punches, comments, shifts, onSaved, targetUserId, isAdmin, readOnly = false
 }: {
   punches: Punch[];
   comments: CommentEntry[];
@@ -152,6 +155,7 @@ function AttendanceCalendar({
   onSaved: () => void;
   targetUserId?: number;
   isAdmin: boolean;
+  readOnly?: boolean;
 }) {
   const now = new Date();
   const [viewMonth, setViewMonth] = useState(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -397,16 +401,19 @@ function AttendanceCalendar({
               onChange={e => setCommentText(e.target.value)}
               className="resize-none h-16 text-sm"
             />
-            <div className="flex gap-2">
-              <Button size="sm" onClick={handleSaveComment} disabled={savingComment || !commentText.trim()} className="gap-1.5">
-                <Save className="w-3.5 h-3.5" /> {existingComment ? "Update" : "Save"}
-              </Button>
-              {existingComment && (
-                <Button size="sm" variant="ghost" onClick={handleDeleteComment} disabled={deletingComment} className="gap-1.5 text-destructive hover:text-destructive">
-                  <Trash2 className="w-3.5 h-3.5" /> Delete
+            {!readOnly && (
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleSaveComment} disabled={savingComment || !commentText.trim()} className="gap-1.5">
+                  <Save className="w-3.5 h-3.5" /> {existingComment ? "Update" : "Save"}
                 </Button>
-              )}
-            </div>
+                {existingComment && (
+                  <Button size="sm" variant="ghost" onClick={handleDeleteComment} disabled={deletingComment} className="gap-1.5 text-destructive hover:text-destructive">
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                  </Button>
+                )}
+              </div>
+            )}
+          {readOnly && <p className="text-xs text-muted-foreground italic">View only</p>}
           </div>
         </CardContent>
       </Card>
@@ -415,13 +422,14 @@ function AttendanceCalendar({
 }
 
 // ── Table view (for payroll/reports) ─────────────────────────────────────────
-function AttendanceTable({ punches, comments, shifts, onSaved, targetUserId, isAdmin }: {
+function AttendanceTable({ punches, comments, shifts, onSaved, targetUserId, isAdmin, readOnly = false }: {
   punches: Punch[];
   comments: CommentEntry[];
   shifts: Shift[];
   onSaved: () => void;
   targetUserId?: number;
   isAdmin: boolean;
+  readOnly?: boolean;
 }) {
   const now = new Date();
   const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1);
@@ -496,9 +504,8 @@ function AttendanceTable({ punches, comments, shifts, onSaved, targetUserId, isA
         <span className="text-xs font-medium text-primary self-center ml-auto">
           Total: {Math.floor(totalMinutes / 60)}h {Math.round(totalMinutes % 60)}m
         </span>
-        <Button variant="outline" size="sm" onClick={() => {
-          const headers = ["Date", "Status", "Punches", "Hours", "Comment"];
-          const rows = filteredDates.map(date => {
+        {(() => {
+          const buildRows = () => filteredDates.map(date => {
             const dayPunches = (byDate[date] ?? []).sort((a, b) => new Date(a.punchedAt).getTime() - new Date(b.punchedAt).getTime());
             const status = getDayStatus(new Date(date), dayPunches, shifts);
             const comment = comments.find(c => c.commentDate === date);
@@ -510,16 +517,57 @@ function AttendanceTable({ punches, comments, shifts, onSaved, targetUserId, isA
               return sum + (new Date(outP.punchedAt).getTime() - new Date(inP.punchedAt).getTime()) / 60000;
             }, 0);
             const punchList = dayPunches.map(p => `${p.punchType}@${format(new Date(p.punchedAt), "h:mma")}`).join("; ");
-            return [date, STATUS_LABEL[status] || "-", punchList, `${Math.floor(dayMinutes/60)}h ${Math.round(dayMinutes%60)}m`, comment?.comment ?? ""];
+            return { date, status: STATUS_LABEL[status] || "-", punches: punchList, hours: `${Math.floor(dayMinutes/60)}h ${Math.round(dayMinutes%60)}m`, comment: comment?.comment ?? "" };
           });
-          const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-          const blob = new Blob([csv], { type: "text/csv" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url; a.download = `attendance-${months[filterMonth-1]}-${filterYear}.csv`;
-          a.click();
-          URL.revokeObjectURL(url);
-        }} className="gap-1.5"><Download className="w-3.5 h-3.5" /> Export CSV</Button>
+
+          const filenameBase = `attendance-${months[filterMonth-1]}-${filterYear}`;
+
+          const exportCSV = () => {
+            const rows = buildRows();
+            const headers = ["Date", "Status", "Punches", "Hours", "Comment"];
+            const csv = [headers, ...rows.map(r => [r.date, r.status, r.punches, r.hours, r.comment])]
+              .map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(","))
+              .join("\n");
+            const blob = new Blob([csv], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = `${filenameBase}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+          };
+
+          const exportExcel = () => {
+            const rows = buildRows();
+            const ws = XLSX.utils.json_to_sheet(rows.map(r => ({
+              "Date": r.date, "Status": r.status, "Punches": r.punches, "Hours": r.hours, "Comment": r.comment,
+            })));
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+            XLSX.writeFile(wb, `${filenameBase}.xlsx`);
+          };
+
+          const exportPDF = () => {
+            const rows = buildRows();
+            const doc = new jsPDF();
+            doc.setFontSize(14);
+            doc.text(`LHC Cafe — Attendance (${months[filterMonth-1]} ${filterYear})`, 14, 15);
+            autoTable(doc, {
+              startY: 22,
+              head: [["Date", "Status", "Punches", "Hours", "Comment"]],
+              body: rows.map(r => [r.date, r.status, r.punches, r.hours, r.comment]),
+              styles: { fontSize: 8 },
+            });
+            doc.save(`${filenameBase}.pdf`);
+          };
+
+          return (
+            <div className="flex gap-1.5">
+              <Button variant="outline" size="sm" onClick={exportCSV} className="gap-1.5"><Download className="w-3.5 h-3.5" /> CSV</Button>
+              <Button variant="outline" size="sm" onClick={exportExcel}>Excel</Button>
+              <Button variant="outline" size="sm" onClick={exportPDF}>PDF</Button>
+            </div>
+          );
+        })()}
       </div>
 
       <Card>
@@ -590,10 +638,14 @@ function AttendanceTable({ punches, comments, shifts, onSaved, targetUserId, isA
                               <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingComment(prev => { const n = { ...prev }; delete n[date]; return n; })}>Cancel</Button>
                             </div>
                           </div>
+                        ) : readOnly ? (
+                          <div className="text-xs text-muted-foreground flex items-start gap-2">
+                            <span className="flex-1">{comment?.comment || <span className="italic opacity-60">No comment</span>}</span>
+                          </div>
                         ) : (
                           <div className="text-xs text-muted-foreground cursor-pointer hover:text-foreground group flex items-start gap-2"
                             onClick={() => setEditingComment(prev => ({ ...prev, [date]: comment?.comment ?? "" }))}>
-                            <span className="flex-1">{comment?.comment ?? <span className="italic">Click to add…</span>}</span>
+                            <span className="flex-1">{comment?.comment ?? <span className="italic">Click to add...</span>}</span>
                             <span className="opacity-0 group-hover:opacity-100 text-primary shrink-0">Edit</span>
                           </div>
                         )}
@@ -662,6 +714,8 @@ function ShiftEditor({ userId }: { userId: number }) {
 export default function Staff() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const canViewOthers = isAdmin || (user?.role as string) === "supervisor";
+  const isSupervisorViewing = !isAdmin && (user?.role as string) === "supervisor";
 
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -670,7 +724,7 @@ export default function Staff() {
   const [shifts, setShifts] = useState<Shift[]>([]);
 
   const loadMembers = async () => {
-    if (!isAdmin) return;
+    if (!canViewOthers) return;
     try {
       const data = await APIJSON("/staff/members");
       setMembers(data);
@@ -680,7 +734,7 @@ export default function Staff() {
 
   const loadData = async () => {
     try {
-      const userIdParam = isAdmin && selectedUserId ? `?userId=${selectedUserId}` : "";
+      const userIdParam = canViewOthers && selectedUserId ? `?userId=${selectedUserId}` : "";
       const [p, c, s] = await Promise.all([
         APIJSON(`/staff/punches${userIdParam}`),
         APIJSON(`/staff/comments${userIdParam}`),
@@ -692,17 +746,17 @@ export default function Staff() {
     } catch { }
   };
 
-  useEffect(() => { loadMembers(); }, [isAdmin]);
-  useEffect(() => { loadData(); }, [isAdmin, selectedUserId]);
+  useEffect(() => { loadMembers(); }, [canViewOthers]);
+  useEffect(() => { loadData(); }, [canViewOthers, selectedUserId]);
 
-  const myPunches = !isAdmin ? punches : [];
-  const currentTargetUserId = isAdmin ? (selectedUserId ?? undefined) : undefined;
+  const myPunches = !canViewOthers ? punches : [];
+  const currentTargetUserId = canViewOthers ? (selectedUserId ?? undefined) : undefined;
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl md:text-3xl font-serif font-bold">Staff</h1>
-        {isAdmin && members.length > 0 && (
+        {canViewOthers && members.length > 0 && (
           <Select value={selectedUserId ? String(selectedUserId) : ""} onValueChange={v => setSelectedUserId(parseInt(v))}>
             <SelectTrigger className="w-56"><SelectValue placeholder="Select staff member" /></SelectTrigger>
             <SelectContent>
@@ -712,7 +766,7 @@ export default function Staff() {
         )}
       </div>
 
-      {/* Staff punch widget */}
+      {/* Staff punch widget — shown for staff and supervisor, not for pure admin */}
       {!isAdmin && (
         <PunchWidget punches={myPunches} onPunched={loadData} />
       )}
@@ -734,6 +788,7 @@ export default function Staff() {
               onSaved={loadData}
               targetUserId={currentTargetUserId}
               isAdmin={isAdmin}
+              readOnly={isSupervisorViewing}
             />
           ) : (
             <p className="text-muted-foreground text-sm py-8 text-center">Select a staff member to view their calendar.</p>
@@ -749,6 +804,7 @@ export default function Staff() {
               onSaved={loadData}
               targetUserId={currentTargetUserId}
               isAdmin={isAdmin}
+              readOnly={isSupervisorViewing}
             />
           ) : (
             <p className="text-muted-foreground text-sm py-8 text-center">Select a staff member to view their attendance.</p>

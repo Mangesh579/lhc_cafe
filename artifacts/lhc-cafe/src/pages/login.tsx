@@ -34,10 +34,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-md shadow-xl border-primary/20">
         <CardHeader className="space-y-1 flex flex-col items-center text-center pb-8">
-          <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center mb-4 text-primary-foreground">
-            <Coffee className="w-8 h-8" />
-          </div>
-          <CardTitle className="text-3xl font-serif text-sidebar">LHC Cafe</CardTitle>
+          <img src="/LHC_logo.png" alt="LHC Cafe" className="w-16 h-16 rounded-full object-cover mb-4" />
           <CardDescription className="text-base text-muted-foreground">
             Sign in to access the management system
           </CardDescription>

@@ -2,8 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Plus, Minus, X, Clock, CheckCircle2, ChefHat, Bell, ChevronDown, Gift } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
-const SESSION_KEY = "lhc_session_token";
-const STATUS_POLL_MS = 15_000;
+const STATUS_POLL_MS = 5_000;
 const PAGE_MAX_WIDTH = 480;
 
 // ── Heritage design tokens (Sulimha Durbar) ────────────────────────────────
@@ -207,6 +206,7 @@ function DishMedia({ item, height, muted = true, onToggleMute, variant = "hero" 
 
 export default function PublicOrder({ params }: { params: { token: string } }) {
   const tableToken = params.token;
+  const SESSION_KEY = `lhc_session_${tableToken}`;
 
   const [loyaltyOpen, setLoyaltyOpen] = useState(false);
   const [loyaltyPhone, setLoyaltyPhone] = useState("");

@@ -29,6 +29,32 @@ export default function Orders() {
   const [paymentModalOrder, setPaymentModalOrder] = useState<any>(null);
   const [paymentMethod, setPaymentMethod] = useState<string>("cash");
   const [discount, setDiscount] = useState<string>("");
+  const [discountComment, setDiscountComment] = useState<string>("");
+  const [billType, setBillType] = useState<"pan" | "vat">("pan");
+  const [otherPartyName, setOtherPartyName] = useState("");
+  const [otherPartyPan, setOtherPartyPan] = useState("");
+  const [nonTaxableAmount, setNonTaxableAmount] = useState("0");
+  const [correctionOrder, setCorrectionOrder] = useState<any>(null);
+  const [correctionType, setCorrectionType] = useState<"credit" | "debit">("credit");
+  const [correctionAmount, setCorrectionAmount] = useState("");
+  const [correctionReason, setCorrectionReason] = useState("");
+  const [correctionSaving, setCorrectionSaving] = useState(false);
+
+  const handleAddCorrection = async () => {
+    if (!correctionOrder || !correctionAmount || !correctionReason) return;
+    setCorrectionSaving(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/orders/${correctionOrder.id}/corrections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+        body: JSON.stringify({ correctionType, amount: parseFloat(correctionAmount), reason: correctionReason }),
+      });
+      if (!r.ok) throw new Error();
+      toast({ title: "Correction recorded" });
+      setCorrectionOrder(null); setCorrectionAmount(""); setCorrectionReason("");
+    } catch { toast({ title: "Failed to record correction", variant: "destructive" }); }
+    finally { setCorrectionSaving(false); }
+  };
   const [secondsToRefresh, setSecondsToRefresh] = useState(POLL_INTERVAL / 1000);
   const [editingNotes, setEditingNotes] = useState<Record<number, string>>({});
   const [savingNotes, setSavingNotes] = useState<Set<number>>(new Set());
@@ -75,6 +101,11 @@ export default function Orders() {
     setPaymentModalOrder(order);
     setPaymentMethod(order.paymentMethod ?? "cash");
     setDiscount("");
+    setDiscountComment("");
+    setBillType("pan");
+    setOtherPartyName("");
+    setOtherPartyPan("");
+    setNonTaxableAmount("0");
   };
 
   const handleStatusChange = async (id: number, status: OrderStatusUpdateStatus) => {
@@ -121,12 +152,33 @@ export default function Orders() {
         await fetch(`${API_BASE}/api/orders/${paymentModalOrder.id}/discount`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
-          body: JSON.stringify({ discountPercent: discountValue }),
+          body: JSON.stringify({ discountPercent: discountValue, comment: discountComment }),
         });
       }
-      await updatePayment.mutateAsync({
-        id: paymentModalOrder.id,
-        data: { paymentStatus: "paid", paymentMethod: paymentMethod as OrderPaymentUpdatePaymentMethod, loyaltyCustomerId: paymentModalOrder.loyaltyCustomerId }
+
+      // Compute VAT if a VAT bill is selected — the recorded totalAmount
+      // will include VAT, so Order Log / reports reflect what was actually collected.
+      let vatAmount: number | undefined;
+      let recordedFinalTotal: number | undefined;
+      if (billType === "vat") {
+        const alreadyDiscounted = parseFloat(String(paymentModalOrder?.totalAmount ?? 0)) - (parseFloat(String(paymentModalOrder?.totalAmount ?? 0)) * (discountValue / 100));
+        const nonTaxable = Math.min(parseFloat(nonTaxableAmount) || 0, alreadyDiscounted);
+        const taxable = alreadyDiscounted - nonTaxable;
+        vatAmount = taxable * 0.13;
+        recordedFinalTotal = alreadyDiscounted + vatAmount;
+      }
+
+      await fetch(`${API_BASE}/api/orders/${paymentModalOrder.id}/payment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+        body: JSON.stringify({
+          paymentStatus: "paid",
+          paymentMethod,
+          loyaltyCustomerId: paymentModalOrder.loyaltyCustomerId,
+          billType,
+          vatAmount,
+          finalTotal: recordedFinalTotal,
+        }),
       });
       queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
       toast({ title: "Payment recorded" });
@@ -317,26 +369,38 @@ export default function Orders() {
                     </div>
                   </div>
 
-                  {/* Inline notes editor */}
-                  <div>
-                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Order Notes</h4>
-                    <Textarea
-                      placeholder="Add notes for this order…"
-                      value={currentNotes}
-                      onChange={e => setEditingNotes(prev => ({ ...prev, [order.id]: e.target.value }))}
-                      className="resize-none h-16 text-sm"
-                    />
-                    {notesEdited && (
-                      <Button
-                        size="sm"
-                        className="mt-1.5"
-                        onClick={() => handleSaveNotes(order.id)}
-                        disabled={savingNotes.has(order.id)}
-                      >
-                        {savingNotes.has(order.id) ? "Saving…" : "Save Notes"}
-                      </Button>
-                    )}
-                  </div>
+                  {/* Inline notes editor — locked once paid, per invoice immutability policy */}
+                  {order.paymentStatus === "paid" ? (
+                    <div>
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Order Notes (locked — order is paid)</h4>
+                      <p className="text-sm text-muted-foreground bg-muted/30 rounded p-2">{order.notes || "No notes."}</p>
+                      {isAdmin && (
+                        <Button size="sm" variant="outline" className="mt-1.5" onClick={() => setCorrectionOrder(order)}>
+                          Add Correction
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Order Notes</h4>
+                      <Textarea
+                        placeholder="Add notes for this order…"
+                        value={currentNotes}
+                        onChange={e => setEditingNotes(prev => ({ ...prev, [order.id]: e.target.value }))}
+                        className="resize-none h-16 text-sm"
+                      />
+                      {notesEdited && (
+                        <Button
+                          size="sm"
+                          className="mt-1.5"
+                          onClick={() => handleSaveNotes(order.id)}
+                          disabled={savingNotes.has(order.id)}
+                        >
+                          {savingNotes.has(order.id) ? "Saving…" : "Save Notes"}
+                        </Button>
+                      )}
+                    </div>
+                  )}
 
                   {/* Discount + loyalty info */}
                   {(parseFloat(String((order as any).discountAmount ?? 0)) > 0 || order.loyaltyCustomerName) && (
@@ -407,6 +471,9 @@ export default function Orders() {
                 <Input type="number" min="0" max="100" placeholder="0" value={discount} onChange={e => setDiscount(e.target.value)} className="h-9 w-24 text-center font-bold text-lg" />
                 <span className="text-muted-foreground text-sm">% off the total</span>
               </div>
+              {parseFloat(discount) > 0 && (
+                <Input placeholder="Reason (optional) — e.g. loyal customer, manager approved" value={discountComment} onChange={e => setDiscountComment(e.target.value)} className="h-8 text-sm" />
+              )}
             </div>
 
             <div className="space-y-2">
@@ -421,6 +488,32 @@ export default function Orders() {
                   <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=NabilBankLHCCafe" alt="Nabil QR" className="w-40 h-40" />
                 </TabsContent>
               </Tabs>
+            </div>
+
+            <div className="space-y-2 border-t pt-4">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase">Bill Type</Label>
+              <Tabs value={billType} onValueChange={(v) => setBillType(v as "pan" | "vat")}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="pan">PAN Bill</TabsTrigger>
+                  <TabsTrigger value="vat">VAT Bill</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Other Party Name (opt.)</Label>
+                  <Input value={otherPartyName} onChange={e => setOtherPartyName(e.target.value)} className="h-8 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">PAN Number (opt.)</Label>
+                  <Input value={otherPartyPan} onChange={e => setOtherPartyPan(e.target.value)} className="h-8 text-sm" />
+                </div>
+              </div>
+              {billType === "vat" && (
+                <div className="space-y-1 mt-2">
+                  <Label className="text-xs text-muted-foreground">Non-Taxable Amount (Rs., opt.)</Label>
+                  <Input type="number" value={nonTaxableAmount} onChange={e => setNonTaxableAmount(e.target.value)} className="h-8 text-sm w-32" />
+                </div>
+              )}
             </div>
 
             <div className="bg-muted/30 rounded-md p-3 space-y-1 max-h-36 overflow-y-auto">
@@ -454,20 +547,23 @@ export default function Orders() {
         </DialogContent>
       </Dialog>
 
-      {/* Hidden receipt */}
+            {/* Hidden receipt */}
       {paymentModalOrder && (
         <div id="order-receipt-preview" className="hidden">
           <div className="bg-white text-black p-5 font-mono text-sm">
             <div className="text-center mb-3 border-b border-dashed border-gray-400 pb-3">
               <h2 className="text-lg font-bold">Legendary House Cafe & Barista School</h2>
               <p className="text-xs">Sulimha Durbar, Pimbahal, Nepal</p>
+              {billType === "vat" && <p className="text-xs font-bold mt-1">TAX INVOICE (VAT)</p>}
             </div>
             <div className="mb-3 text-xs space-y-0.5">
               <p>Order #{paymentModalOrder.id}</p>
               <p>{new Date().toLocaleString()}</p>
               {paymentModalOrder.notes && <p>Note: {paymentModalOrder.notes}</p>}
               {(paymentModalOrder as any).createdBy && <p>Staff: {(paymentModalOrder as any).createdBy}</p>}
-              <p>Payment: {paymentMethod === 'cash' ? 'Cash' : 'Nabil QR'}</p>
+              <p>Payment: {paymentMethod === 'cash' ? 'Cash' : paymentMethod === 'card' ? 'Card' : 'Nabil QR'}</p>
+              {otherPartyName && <p>Billed To: {otherPartyName}</p>}
+              {otherPartyPan && <p>PAN: {otherPartyPan}</p>}
             </div>
             <div className="border-t border-b border-dashed border-gray-400 py-2 mb-3 space-y-1">
               {paymentModalOrder.items?.map((item: any) => (
@@ -484,6 +580,27 @@ export default function Orders() {
               const pct = parseFloat(discount) || 0;
               const additionalDiscAmt = alreadyDiscounted * (pct / 100);
               const final = alreadyDiscounted - additionalDiscAmt;
+
+              if (billType === "vat") {
+                const nonTaxable = Math.min(parseFloat(nonTaxableAmount) || 0, final);
+                const taxable = final - nonTaxable;
+                const vatAmount = taxable * 0.13;
+                const grandTotal = final + vatAmount;
+                return (
+                  <>
+                    {existingDiscount > 0 && <div className="flex justify-between text-xs mb-1"><span>Subtotal</span><span>Rs. {originalSubtotal.toFixed(0)}</span></div>}
+                    {existingDiscount > 0 && <div className="flex justify-between text-xs mb-1 text-gray-600"><span>Loyalty discount</span><span>−Rs. {existingDiscount.toFixed(0)}</span></div>}
+                    {additionalDiscAmt > 0 && <div className="flex justify-between text-xs mb-1 text-gray-600"><span>Staff discount ({pct}%)</span><span>−Rs. {additionalDiscAmt.toFixed(0)}</span></div>}
+                    <div className="border-t border-dashed border-gray-400 pt-2 mt-2 space-y-1">
+                      {nonTaxable > 0 && <div className="flex justify-between text-xs"><span>Non-Taxable Sales</span><span>Rs. {nonTaxable.toFixed(2)}</span></div>}
+                      <div className="flex justify-between text-xs"><span>Taxable Sales</span><span>Rs. {taxable.toFixed(2)}</span></div>
+                      <div className="flex justify-between text-xs"><span>VAT @ 13%</span><span>Rs. {vatAmount.toFixed(2)}</span></div>
+                      <div className="flex justify-between font-bold text-sm border-t border-gray-400 pt-1 mt-1"><span>GRAND TOTAL</span><span>Rs. {grandTotal.toFixed(2)}</span></div>
+                    </div>
+                  </>
+                );
+              }
+
               return (
                 <>
                   {existingDiscount > 0 && <div className="flex justify-between text-xs mb-1"><span>Subtotal</span><span>Rs. {originalSubtotal.toFixed(0)}</span></div>}
@@ -497,6 +614,32 @@ export default function Orders() {
           </div>
         </div>
       )}
+            <Dialog open={!!correctionOrder} onOpenChange={o => !o && setCorrectionOrder(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Add Correction — Order #{correctionOrder?.id}</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-xs text-muted-foreground">This order is paid and cannot be edited directly. A correction is recorded as a separate linked record referencing this order — the original is never modified.</p>
+            <Tabs value={correctionType} onValueChange={(v) => setCorrectionType(v as "credit" | "debit")}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="credit">Credit (refund)</TabsTrigger>
+                <TabsTrigger value="debit">Debit (extra charge)</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="space-y-1">
+              <Label className="text-xs">Amount (Rs.)</Label>
+              <Input type="number" value={correctionAmount} onChange={e => setCorrectionAmount(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Reason *</Label>
+              <Input value={correctionReason} onChange={e => setCorrectionReason(e.target.value)} placeholder="e.g. Item was wrong, customer complaint..." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCorrectionOrder(null)}>Cancel</Button>
+            <Button onClick={handleAddCorrection} disabled={correctionSaving || !correctionAmount || !correctionReason}>Save Correction</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

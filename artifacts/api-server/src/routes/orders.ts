@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable } from "@workspace/db";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth";
 
@@ -199,10 +199,13 @@ router.patch("/orders/:id/status", authenticate, async (req, res): Promise<void>
 
 router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
-  const { paymentMethod, paymentStatus, loyaltyCustomerId } = req.body;
+  const { paymentMethod, paymentStatus, loyaltyCustomerId, vatAmount, billType, finalTotal } = req.body;
   const updateData: Record<string, unknown> = {};
   if (paymentMethod) updateData.paymentMethod = paymentMethod;
   if (paymentStatus) updateData.paymentStatus = paymentStatus;
+  if (billType) updateData.billType = billType;
+  if (vatAmount !== undefined) updateData.vatAmount = String(vatAmount);
+  if (finalTotal !== undefined) updateData.totalAmount = String(finalTotal);
 
   if (paymentStatus === "paid") {
     const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
@@ -238,20 +241,25 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
 
 router.patch("/orders/:id/discount", authenticate, async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
-  const { discountPercent } = req.body;
+  const { discountPercent, comment } = req.body;
   if (discountPercent === undefined) { res.status(400).json({ error: "discountPercent required" }); return; }
 
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+  if (order.paymentStatus === "paid") {
+    res.status(400).json({ error: "This order is already paid. Use a correction instead of editing it directly." });
+    return;
+  }
 
   const base = parseFloat(String(order.totalAmount));
   const discountAmount = base * (parseFloat(String(discountPercent)) / 100);
   const newTotal = base - discountAmount;
+  const noteText = comment?.trim() ? `Staff discount: ${discountPercent}% — ${comment.trim()}` : `Staff discount: ${discountPercent}%`;
 
   await db.update(ordersTable).set({
     discountAmount: String(discountAmount),
     totalAmount: String(newTotal),
-    notes: [order.notes, `Staff discount: ${discountPercent}%`].filter(Boolean).join(" | "),
+    notes: [order.notes, noteText].filter(Boolean).join(" | "),
   }).where(eq(ordersTable.id, id));
 
   const result = await getOrderWithItems(id);
@@ -323,10 +331,43 @@ router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req, res):
 router.patch("/orders/:id/notes", authenticate, async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
   const { notes } = req.body;
+  const [existing] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Order not found" }); return; }
+  if (existing.paymentStatus === "paid") {
+    res.status(400).json({ error: "This order is already paid. Use a correction instead of editing it directly." });
+    return;
+  }
   await db.update(ordersTable).set({ notes: notes ?? null }).where(eq(ordersTable.id, id));
   const result = await getOrderWithItems(id);
   if (!result) { res.status(404).json({ error: "Order not found" }); return; }
   res.json(result);
+});
+
+router.post("/orders/:id/corrections", authenticate, requireAdmin, async (req: any, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  const { correctionType, amount, reason } = req.body;
+  if (!correctionType || amount === undefined || !reason) {
+    res.status(400).json({ error: "correctionType, amount, and reason are required" });
+    return;
+  }
+  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+
+  const [correction] = await db.insert(orderCorrectionsTable).values({
+    originalOrderId: id,
+    correctionType,
+    amount: String(amount),
+    reason,
+    createdBy: req.user?.username ?? "admin",
+  }).returning();
+
+  res.status(201).json(correction);
+});
+
+router.get("/orders/:id/corrections", authenticate, async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  const corrections = await db.select().from(orderCorrectionsTable).where(eq(orderCorrectionsTable.originalOrderId, id)).orderBy(desc(orderCorrectionsTable.createdAt));
+  res.json(corrections);
 });
 
 export default router;

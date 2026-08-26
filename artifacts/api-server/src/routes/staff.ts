@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, staffShiftsTable, attendancePunchesTable, attendanceCommentsTable, usersTable } from "@workspace/db";
 import { eq, and, gte, lte, desc, asc } from "drizzle-orm";
-import { authenticate, requireAdmin, type AuthRequest } from "../middlewares/auth";
+import { authenticate, requireAdmin, requireAdminOrSupervisor, type AuthRequest } from "../middlewares/auth";
 import type { Response } from "express";
 
 const router = Router();
@@ -10,7 +10,7 @@ const router = Router();
 
 // GET /api/staff/shifts — staff sees own, admin sees all (optionally filtered by userId)
 router.get("/staff/shifts", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const isAdmin = req.user!.role === "admin";
+  const isAdmin = ["admin", "supervisor"].includes(req.user!.role);
   const queryUserId = req.query.userId ? parseInt(req.query.userId as string, 10) : undefined;
 
   const targetUserId = isAdmin ? queryUserId : req.user!.id;
@@ -62,7 +62,7 @@ router.post("/staff/punch", authenticate, async (req: AuthRequest, res: Response
 
 // GET /api/staff/punches — staff sees own, admin sees all (optionally filtered by userId, date range)
 router.get("/staff/punches", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const isAdmin = req.user!.role === "admin";
+  const isAdmin = ["admin", "supervisor"].includes(req.user!.role);
   const queryUserId = req.query.userId ? parseInt(req.query.userId as string, 10) : undefined;
   const targetUserId = isAdmin ? queryUserId : req.user!.id;
 
@@ -142,7 +142,7 @@ router.delete("/staff/comments/:id", authenticate, async (req: AuthRequest, res:
 });
 
 router.get("/staff/comments", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const isAdmin = req.user!.role === "admin";
+  const isAdmin = ["admin", "supervisor"].includes(req.user!.role);
   const queryUserId = req.query.userId ? parseInt(req.query.userId as string, 10) : undefined;
   const targetUserId = isAdmin ? queryUserId : req.user!.id;
 
@@ -163,7 +163,7 @@ router.get("/staff/comments", authenticate, async (req: AuthRequest, res: Respon
 });
 
 // GET /api/staff/members — admin only, list of all staff for the filter dropdown
-router.get("/staff/members", authenticate, requireAdmin, async (_req, res): Promise<void> => {
+router.get("/staff/members", authenticate, requireAdminOrSupervisor, async (_req, res): Promise<void> => {
   const members = await db.select({ id: usersTable.id, username: usersTable.username, role: usersTable.role }).from(usersTable);
   res.json(members);
 });

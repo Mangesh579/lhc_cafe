@@ -55,6 +55,7 @@ function UserDialog({ user, open, onClose, onSaved }: { user?: any; open: boolea
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="staff">Staff</SelectItem>
+                <SelectItem value="supervisor">Supervisor</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
               </SelectContent>
             </Select>
@@ -159,7 +160,7 @@ export default function Users() {
                     {user.id === currentUser?.id && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
                   </td>
                   <td className="px-5 py-3">
-                    <Badge variant={user.role === "admin" ? "default" : "secondary"} className="gap-1">
+                    <Badge variant={user.role === "admin" ? "default" : user.role === "supervisor" ? "outline" : "secondary"} className="gap-1">
                       {user.role === "admin" ? <UserCheck className="w-3 h-3" /> : <UserX className="w-3 h-3" />}
                       {user.role}
                     </Badge>

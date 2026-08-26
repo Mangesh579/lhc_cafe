@@ -10,6 +10,9 @@ import { Label } from "@/components/ui/label";
 import NepaliDate from "nepali-date-converter";
 import { format } from "date-fns";
 import { ChevronDown, ChevronUp, User, Download } from "lucide-react";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 function toNepaliDate(dateStr: string): string {
   try {
@@ -133,6 +136,69 @@ export default function OrderLog() {
     a.href = url; a.download = `order-log-${rangeLabel}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+    setExportDialogOpen(false);
+  };
+
+    const exportExcel = () => {
+    const from = exportFrom ? new Date(exportFrom) : null;
+    const to = exportTo ? new Date(exportTo) : null;
+    if (to) to.setHours(23, 59, 59, 999);
+    const ordersToExport = (orders ?? []).filter(o => {
+      const orderDate = new Date((o as any).backdatedAt ?? o.createdAt);
+      if (from && orderDate < from) return false;
+      if (to && orderDate > to) return false;
+      return true;
+    });
+    const rows = ordersToExport.map(o => ({
+      "Order ID": o.id,
+      "Date": new Date((o as any).backdatedAt ?? o.createdAt).toLocaleString(),
+      "Table": o.tableNumber ? ((o as any).tableName || `Table ${o.tableNumber}`) : "Takeaway",
+      "Staff": (o as any).createdBy ?? "",
+      "Customer": (o as any).loyaltyCustomerName ?? "",
+      "Status": o.orderStatus,
+      "Payment": o.paymentStatus,
+      "Total": parseFloat(String(o.totalAmount)).toFixed(0),
+      "Discount": parseFloat(String((o as any).discountAmount ?? 0)).toFixed(0),
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Orders");
+    const rangeLabel = exportFrom || exportTo ? `${exportFrom || "start"}_to_${exportTo || "now"}` : new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb, `order-log-${rangeLabel}.xlsx`);
+    setExportDialogOpen(false);
+  };
+
+  const exportPDF = () => {
+    const from = exportFrom ? new Date(exportFrom) : null;
+    const to = exportTo ? new Date(exportTo) : null;
+    if (to) to.setHours(23, 59, 59, 999);
+    const ordersToExport = (orders ?? []).filter(o => {
+      const orderDate = new Date((o as any).backdatedAt ?? o.createdAt);
+      if (from && orderDate < from) return false;
+      if (to && orderDate > to) return false;
+      return true;
+    });
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text("LHC Cafe — Order Log", 14, 15);
+    autoTable(doc, {
+      startY: 22,
+      head: [["ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Total", "Discount"]],
+      body: ordersToExport.map(o => [
+        o.id,
+        new Date((o as any).backdatedAt ?? o.createdAt).toLocaleDateString(),
+        o.tableNumber ? ((o as any).tableName || `Table ${o.tableNumber}`) : "Takeaway",
+        (o as any).createdBy ?? "",
+        (o as any).loyaltyCustomerName ?? "",
+        o.orderStatus,
+        o.paymentStatus,
+        `Rs.${parseFloat(String(o.totalAmount)).toFixed(0)}`,
+        `Rs.${parseFloat(String((o as any).discountAmount ?? 0)).toFixed(0)}`,
+      ]),
+      styles: { fontSize: 8 },
+    });
+    const rangeLabel = exportFrom || exportTo ? `${exportFrom || "start"}_to_${exportTo || "now"}` : new Date().toISOString().slice(0,10);
+    doc.save(`order-log-${rangeLabel}.pdf`);
     setExportDialogOpen(false);
   };
 
@@ -521,9 +587,11 @@ export default function OrderLog() {
             </div>
             <p className="text-xs text-muted-foreground">Leave both blank to export everything.</p>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-wrap gap-2">
             <Button variant="outline" onClick={() => setExportDialogOpen(false)}>Cancel</Button>
-            <Button onClick={exportCSV}>Export</Button>
+            <Button variant="outline" onClick={exportCSV}>CSV</Button>
+            <Button variant="outline" onClick={exportExcel}>Excel</Button>
+            <Button onClick={exportPDF}>PDF</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -20,17 +20,17 @@ import { Button } from "@/components/ui/button";
 import { UserRole } from "@workspace/api-client-react";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "staff"] },
-  { href: "/pos", label: "POS", icon: Coffee, roles: ["admin", "staff"] },
-  { href: "/orders", label: "Active Orders", icon: ClipboardList, roles: ["admin", "staff"] },
-  { href: "/order-log", label: "Order Log", icon: History, roles: ["admin", "staff"] },
-  { href: "/menu", label: "Menu", icon: MenuSquare, roles: ["admin"] },
-  { href: "/inventory", label: "Inventory", icon: PackageSearch, roles: ["admin", "staff"] },
-  { href: "/tables", label: "Tables", icon: Grid2X2, roles: ["admin"] },
-  { href: "/loyalty", label: "Loyalty", icon: Users, roles: ["admin", "staff"] },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "supervisor", "staff"] },
+  { href: "/pos", label: "POS", icon: Coffee, roles: ["admin", "supervisor", "staff"] },
+  { href: "/orders", label: "Active Orders", icon: ClipboardList, roles: ["admin", "supervisor", "staff"] },
+  { href: "/order-log", label: "Order Log", icon: History, roles: ["admin", "supervisor", "staff"] },
+  { href: "/menu", label: "Menu", icon: MenuSquare, roles: ["admin", "supervisor"] },
+  { href: "/inventory", label: "Inventory", icon: PackageSearch, roles: ["admin", "supervisor", "staff"] },
+  { href: "/tables", label: "Tables", icon: Grid2X2, roles: ["admin", "supervisor"] },
+  { href: "/loyalty", label: "Loyalty", icon: Users, roles: ["admin", "supervisor", "staff"] },
   { href: "/users", label: "Users", icon: UserCog, roles: ["admin"] },
-  { href: "/staff", label: "Staff", icon: CalendarCheck, roles: ["admin", "staff"] },
-  { href: "/settings", label: "Settings", icon: Settings, roles: ["admin", "staff"] },
+  { href: "/staff", label: "Staff", icon: CalendarCheck, roles: ["admin", "supervisor", "staff"] },
+  { href: "/settings", label: "Settings", icon: Settings, roles: ["admin", "supervisor", "staff"] },
 ];
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {

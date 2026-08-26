@@ -76,6 +76,9 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "nepali-date-converter": "^3.4.0"
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "nepali-date-converter": "^3.4.0",
+    "xlsx": "^0.18.5"
   }
 }
