@@ -56,7 +56,7 @@ export default function Dashboard() {
     <div className="p-8 space-y-8 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <img src="/LHC_logo.png" alt="LHC Cafe" className="w-10 h-10 rounded-full object-cover" />
+          <img src="/LHC_logo.png" alt="LHC Cafe" className="w-100 h-100 rounded-full object-cover" />
           <h1 className="text-3xl font-serif font-bold text-foreground">Dashboard</h1>
         </div>
         <div className="text-muted-foreground text-sm">
