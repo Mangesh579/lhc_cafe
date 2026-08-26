@@ -482,7 +482,7 @@ export default function Orders() {
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="cash">Cash</TabsTrigger>
                   <TabsTrigger value="nabil_qr">Nabil QR</TabsTrigger>
-                  <TabsTrigger value="esewa">Card</TabsTrigger>
+                  <TabsTrigger value="card">Card</TabsTrigger>
                 </TabsList>
                 <TabsContent value="nabil_qr" className="mt-2 flex justify-center p-4 bg-white rounded-md border">
                   <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=NabilBankLHCCafe" alt="Nabil QR" className="w-40 h-40" />
@@ -561,7 +561,7 @@ export default function Orders() {
               <p>{new Date().toLocaleString()}</p>
               {paymentModalOrder.notes && <p>Note: {paymentModalOrder.notes}</p>}
               {(paymentModalOrder as any).createdBy && <p>Staff: {(paymentModalOrder as any).createdBy}</p>}
-              <p>Payment: {paymentMethod === 'cash' ? 'Cash' : paymentMethod === 'card' ? 'Card' : 'Nabil QR'}</p>
+              <p>Payment: {paymentMethod === 'cash' ? 'Cash' : paymentMethod === 'card' ? 'Card' : paymentMethod === 'nabil_qr' ? 'Nabil QR' : 'Nabil QR'}</p>
               {otherPartyName && <p>Billed To: {otherPartyName}</p>}
               {otherPartyPan && <p>PAN: {otherPartyPan}</p>}
             </div>
