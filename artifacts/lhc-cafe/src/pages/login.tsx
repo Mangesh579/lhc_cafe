@@ -34,7 +34,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-md shadow-xl border-primary/20">
         <CardHeader className="space-y-1 flex flex-col items-center text-center pb-8">
-          <img src="/LHC_logo.png" alt="LHC Cafe" className="w-160 h-160 rounded-full object-cover mb-4" />
+          <img src="/LHC_logo.png" alt="LHC Cafe" className="w-50 h-50 rounded-full object-cover mb-4" />
           <CardDescription className="text-base text-muted-foreground">
             Sign in to access the management system
           </CardDescription>
