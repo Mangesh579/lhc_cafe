@@ -17,3 +17,5 @@ export { loyaltyCustomersTable, loyaltyRedemptionsTable } from "./loyalty";
 export { tableRequestsTable } from "./table-requests";
 export { loyaltyPointLogsTable } from "./loyalty-point-logs";
 export { orderCorrectionsTable } from "./order-corrections";
+export { billPrintLogsTable } from "./bill-print-logs";
+export { invoiceSequencesTable } from "./invoice-sequences";

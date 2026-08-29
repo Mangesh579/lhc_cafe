@@ -17,6 +17,10 @@ export const ordersTable = pgTable("orders", {
   backdatedAt: timestamp("backdated_at"),
   vatAmount: numeric("vat_amount", { precision: 10, scale: 2 }).default("0"),
   billType: text("bill_type"),
+  otherPartyName: text("other_party_name"),
+  otherPartyPan: text("other_party_pan"),
+  nonTaxableAmount: numeric("non_taxable_amount", { precision: 10, scale: 2 }).default("0"),
+  invoiceNumber: text("invoice_number"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

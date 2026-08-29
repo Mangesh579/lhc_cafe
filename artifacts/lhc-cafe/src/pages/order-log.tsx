@@ -13,6 +13,8 @@ import { ChevronDown, ChevronUp, User, Download } from "lucide-react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { useAuth } from "@/contexts/auth";
+import { useToast } from "@/hooks/use-toast";
 
 function toNepaliDate(dateStr: string): string {
   try {
@@ -50,6 +52,15 @@ export default function OrderLog() {
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const [allCustomers, setAllCustomers] = useState<any[]>([]);
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const { toast } = useToast();
+  const [printOrder, setPrintOrder] = useState<any>(null);
+  const [printBillType, setPrintBillType] = useState<"pan" | "vat">("pan");
+  const [printReason, setPrintReason] = useState("");
+  const [printSaving, setPrintSaving] = useState(false);
+  const [showPrintLogTab, setShowPrintLogTab] = useState(false);
+  const [printLogs, setPrintLogs] = useState<any[]>([]);
 
   useEffect(() => {
     const API_BASE = import.meta.env.VITE_API_BASE ?? "";
@@ -70,6 +81,8 @@ export default function OrderLog() {
     : [];
 
   const { data: orders, isLoading } = useListOrders({ date: dateFilter || undefined });
+
+  
 
   useEffect(() => {
     if (!orders) return;
@@ -202,6 +215,77 @@ export default function OrderLog() {
     setExportDialogOpen(false);
   };
 
+    const handleConfirmPrint = async () => {
+    if (!printOrder || !printReason.trim()) return;
+    setPrintSaving(true);
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+      const r = await fetch(`${API_BASE}/api/orders/${printOrder.id}/print-log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+        body: JSON.stringify({ billType: printBillType, reason: printReason }),
+      });
+      if (!r.ok) throw new Error();
+
+      // Build and print a simple receipt using the same data pattern as POS
+      const order = printOrder;
+      const billTypeToUse = (order as any).billType || printBillType;
+      const vatAmt = parseFloat(String((order as any).vatAmount ?? 0));
+      const nonTaxable = parseFloat(String((order as any).nonTaxableAmount ?? 0));
+      const total = parseFloat(String(order.totalAmount));
+      const preVatTotal = billTypeToUse === "vat" ? total - vatAmt : total;
+      const taxable = preVatTotal - nonTaxable;
+
+      const receiptHtml = `
+        <div style="font-family:monospace;font-size:12px;padding:20px;color:black;background:white;">
+          <div style="text-align:center;margin-bottom:12px;border-bottom:1px dashed #999;padding-bottom:12px;">
+            <h2 style="font-size:16px;font-weight:bold;margin:0;">Legendary House Cafe & Barista School</h2>
+            <p style="font-size:11px;">Sulimha Durbar, Pimbahal, Nepal</p>
+            ${billTypeToUse === "vat" ? '<p style="font-size:11px;font-weight:bold;">TAX INVOICE (VAT) — REPRINT</p>' : '<p style="font-size:11px;">REPRINT</p>'}
+          </div>
+          <p>Order #${order.id}</p>
+          ${(order as any).invoiceNumber ? `<p style="font-weight:bold;">Invoice No: ${(order as any).invoiceNumber}</p>` : ""}
+          <p>${new Date().toLocaleString()} (reprinted)</p>
+          ${(order as any).otherPartyName ? `<p>Billed To: ${(order as any).otherPartyName}</p>` : ""}
+          ${(order as any).otherPartyPan ? `<p>PAN: ${(order as any).otherPartyPan}</p>` : ""}
+          <div style="border-top:1px dashed #999;border-bottom:1px dashed #999;padding:8px 0;margin:8px 0;">
+            ${order.items?.map((i: any) => `<div style="display:flex;justify-content:space-between;"><span>${i.quantity}× ${i.menuItemName}</span><span>Rs. ${parseFloat(i.subtotal).toFixed(0)}</span></div>`).join("")}
+          </div>
+          ${billTypeToUse === "vat" ? `
+            ${nonTaxable > 0 ? `<div style="display:flex;justify-content:space-between;"><span>Non-Taxable Sales</span><span>Rs. ${nonTaxable.toFixed(2)}</span></div>` : ""}
+            <div style="display:flex;justify-content:space-between;"><span>Taxable Sales</span><span>Rs. ${taxable.toFixed(2)}</span></div>
+            <div style="display:flex;justify-content:space-between;"><span>VAT @ 13%</span><span>Rs. ${vatAmt.toFixed(2)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-weight:bold;border-top:1px solid #333;padding-top:4px;margin-top:4px;"><span>GRAND TOTAL</span><span>Rs. ${total.toFixed(2)}</span></div>
+          ` : `
+            <div style="display:flex;justify-content:space-between;font-weight:bold;"><span>TOTAL</span><span>Rs. ${total.toFixed(0)}</span></div>
+          `}
+        </div>
+      `;
+      const iframe = document.createElement("iframe");
+      iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+      document.body.appendChild(iframe);
+      const doc = iframe.contentWindow?.document;
+      if (doc) {
+        doc.open();
+        doc.write(`<!DOCTYPE html><html><body>${receiptHtml}</body></html>`);
+        doc.close();
+        setTimeout(() => { iframe.contentWindow?.print(); setTimeout(() => document.body.removeChild(iframe), 1000); }, 300);
+      }
+
+      toast({ title: "Bill printed and logged" });
+      setPrintOrder(null); setPrintReason("");
+    } catch { toast({ title: "Failed to print/log", variant: "destructive" }); }
+    finally { setPrintSaving(false); }
+  };
+
+  const loadPrintLogs = async () => {
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+      const r = await fetch(`${API_BASE}/api/bill-print-logs`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      setPrintLogs(r.ok ? await r.json() : []);
+    } catch { setPrintLogs([]); }
+  };
+
   const totalSales = filteredOrders.reduce((sum, o) => o.paymentStatus !== 'paid' ? sum : sum + parseFloat(String(o.totalAmount)), 0);
   const paidCount = filteredOrders.filter(o => o.paymentStatus === 'paid').length;
 
@@ -244,6 +328,11 @@ export default function OrderLog() {
         <h1 className="text-2xl md:text-3xl font-serif font-bold">Order Log</h1>
         <div className="flex items-center gap-3 flex-wrap">
           <Button variant="outline" size="sm" onClick={() => setExportDialogOpen(true)} className="gap-2"><Download className="w-4 h-4" /> Export CSV</Button>
+          {isAdmin && (
+            <Button variant="outline" size="sm" onClick={() => { setShowPrintLogTab(v => !v); if (!showPrintLogTab) loadPrintLogs(); }}>
+              {showPrintLogTab ? "Hide" : "View"} Print Log
+            </Button>
+          )}
           <div className="flex items-center gap-2 text-sm">
           <span className={`text-xs ${!useNepaliDate ? "text-foreground font-medium" : "text-muted-foreground"}`}>AD</span>
           <button
@@ -401,6 +490,37 @@ export default function OrderLog() {
         </div>
       </div>
 
+      {showPrintLogTab && isAdmin && (
+        <Card>
+          <CardContent className="p-0">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-muted/50 text-muted-foreground uppercase tracking-wider text-xs">
+                <tr>
+                  <th className="px-4 py-3">Time</th>
+                  <th className="px-4 py-3">Order</th>
+                  <th className="px-4 py-3">Bill Type</th>
+                  <th className="px-4 py-3">Reason</th>
+                  <th className="px-4 py-3">Printed By</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {printLogs.length === 0 ? (
+                  <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No bills printed yet.</td></tr>
+                ) : printLogs.map((log: any) => (
+                  <tr key={log.id} className="hover:bg-muted/20">
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{format(new Date(log.createdAt), 'MMM d, h:mm a')}</td>
+                    <td className="px-4 py-3">#{log.orderId} · Rs. {parseFloat(log.orderTotal ?? "0").toFixed(0)}</td>
+                    <td className="px-4 py-3 uppercase text-xs">{log.billType}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{log.reason}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{log.printedBy}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Mobile: cards. Desktop: table */}
       <div className="md:hidden space-y-3">
         {isLoading ? (
@@ -462,6 +582,15 @@ export default function OrderLog() {
                 )}
                 {parseFloat(String((order as any).discountAmount ?? 0)) > 0 && (
                   <p className="text-xs text-blue-600">Discount: −Rs. {parseFloat(String((order as any).discountAmount)).toFixed(0)}</p>
+                )}
+                {(order as any).corrections?.length > 0 && (
+                  <div className="space-y-1 mt-1">
+                    {(order as any).corrections.map((c: any) => (
+                      <p key={c.id} className={`text-xs ${c.correctionType === "credit" ? "text-red-600" : "text-green-600"}`}>
+                        {c.correctionType === "credit" ? "− " : "+ "}Rs. {parseFloat(c.amount).toFixed(0)} — {c.reason} ({c.createdBy})
+                      </p>
+                    ))}
+                  </div>
                 )}
                 <p className="text-xs text-muted-foreground capitalize">{String(order.paymentMethod).replace('_', ' ')}</p>
               </div>
@@ -542,7 +671,16 @@ export default function OrderLog() {
                           </Badge>
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-bold text-right text-primary">Rs. {parseFloat(String(order.totalAmount)).toFixed(0)}</td>
+                      <td className="px-4 py-3 font-bold text-right text-primary">
+                        <div className="flex items-center justify-end gap-2">
+                          Rs. {parseFloat(String(order.totalAmount)).toFixed(0)}
+                          {isAdmin && (
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); setPrintOrder(order); setPrintBillType("pan"); setPrintReason(""); }}>
+                              Print
+                            </Button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                     {expandedOrders.has(order.id) && (
                       <tr key={`${order.id}-items`} className="bg-muted/10">
@@ -592,6 +730,25 @@ export default function OrderLog() {
             <Button variant="outline" onClick={exportCSV}>CSV</Button>
             <Button variant="outline" onClick={exportExcel}>Excel</Button>
             <Button onClick={exportPDF}>PDF</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+            <Dialog open={!!printOrder} onOpenChange={o => !o && setPrintOrder(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Print Bill — Order #{printOrder?.id}</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="flex gap-2">
+              <Button variant={printBillType === "pan" ? "default" : "outline"} size="sm" onClick={() => setPrintBillType("pan")} className="flex-1">PAN Bill</Button>
+              <Button variant={printBillType === "vat" ? "default" : "outline"} size="sm" onClick={() => setPrintBillType("vat")} className="flex-1">VAT Bill</Button>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Reason for reprint *</Label>
+              <Input value={printReason} onChange={e => setPrintReason(e.target.value)} placeholder="e.g. Customer lost original, needed for accounting..." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPrintOrder(null)}>Cancel</Button>
+            <Button onClick={handleConfirmPrint} disabled={printSaving || !printReason.trim()}>Print & Log</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

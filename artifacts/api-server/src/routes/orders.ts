@@ -1,9 +1,35 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable } from "@workspace/db";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth";
 
 const router = Router();
+
+// Nepal's fiscal year runs Shrawan 1 (~mid-July) to Ashadh end (~mid-July next year).
+// BS months: 1=Baisakh...4=Shrawan...12=Chaitra. FY label format: "2082/83".
+async function getNextInvoiceNumber(): Promise<string> {
+  const NepaliDate = (await import("nepali-date-converter")).default;
+  const nowBS = new NepaliDate(new Date());
+  const bsYear = nowBS.getYear();
+  const bsMonth = nowBS.getMonth() + 1; // 1-indexed
+
+  // If we're in Baisakh–Ashadh (months 1-3), we're still in the fiscal year that started last Shrawan.
+  const fiscalStartYear = bsMonth >= 4 ? bsYear : bsYear - 1;
+  const fiscalLabel = `${fiscalStartYear}/${String((fiscalStartYear + 1) % 100).padStart(2, "0")}`;
+
+  const [existing] = await db.select().from(invoiceSequencesTable).where(eq(invoiceSequencesTable.fiscalYear, fiscalLabel));
+
+  let nextNum: number;
+  if (existing) {
+    nextNum = existing.lastNumber + 1;
+    await db.update(invoiceSequencesTable).set({ lastNumber: nextNum }).where(eq(invoiceSequencesTable.fiscalYear, fiscalLabel));
+  } else {
+    nextNum = 1;
+    await db.insert(invoiceSequencesTable).values({ fiscalYear: fiscalLabel, lastNumber: 1 });
+  }
+
+  return `${fiscalLabel}-${String(nextNum).padStart(5, "0")}`;
+}
 
 function parseId(raw: string | string[]): number {
   return parseInt(Array.isArray(raw) ? raw[0] : raw, 10);
@@ -26,6 +52,12 @@ async function getOrderWithItems(orderId: number) {
       loyaltyCustomerEmail: loyaltyCustomersTable.email,
       loyaltyPointsEarned: ordersTable.loyaltyPointsEarned,
       discountAmount: ordersTable.discountAmount,
+      billType: ordersTable.billType,
+      vatAmount: ordersTable.vatAmount,
+      otherPartyName: ordersTable.otherPartyName,
+      otherPartyPan: ordersTable.otherPartyPan,
+      nonTaxableAmount: ordersTable.nonTaxableAmount,
+      invoiceNumber: ordersTable.invoiceNumber,
       createdBy: ordersTable.createdBy,
       notes: ordersTable.notes,
       backdatedAt: ordersTable.backdatedAt,
@@ -53,7 +85,8 @@ async function getOrderWithItems(orderId: number) {
     .leftJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id))
     .where(eq(orderItemsTable.orderId, orderId));
 
-  return { ...order, items };
+  const corrections = await db.select().from(orderCorrectionsTable).where(eq(orderCorrectionsTable.originalOrderId, orderId)).orderBy(desc(orderCorrectionsTable.createdAt));
+  return { ...order, items, corrections };
 }
 
 router.get("/orders", authenticate, async (req, res): Promise<void> => {
@@ -84,6 +117,12 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
       loyaltyCustomerEmail: loyaltyCustomersTable.email,
       loyaltyPointsEarned: ordersTable.loyaltyPointsEarned,
       discountAmount: ordersTable.discountAmount,
+      billType: ordersTable.billType,
+      vatAmount: ordersTable.vatAmount,
+      otherPartyName: ordersTable.otherPartyName,
+      otherPartyPan: ordersTable.otherPartyPan,
+      nonTaxableAmount: ordersTable.nonTaxableAmount,
+      invoiceNumber: ordersTable.invoiceNumber,
       createdBy: ordersTable.createdBy,
       notes: ordersTable.notes,
       backdatedAt: ordersTable.backdatedAt,
@@ -111,7 +150,10 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
         .from(orderItemsTable)
         .leftJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id))
         .where(eq(orderItemsTable.orderId, order.id));
-      return { ...order, items };
+
+      const corrections = await db.select().from(orderCorrectionsTable).where(eq(orderCorrectionsTable.originalOrderId, order.id)).orderBy(desc(orderCorrectionsTable.createdAt));
+
+      return { ...order, items, corrections };
     })
   );
 
@@ -199,17 +241,24 @@ router.patch("/orders/:id/status", authenticate, async (req, res): Promise<void>
 
 router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
-  const { paymentMethod, paymentStatus, loyaltyCustomerId, vatAmount, billType, finalTotal } = req.body;
+  const { paymentMethod, paymentStatus, loyaltyCustomerId, vatAmount, billType, finalTotal, otherPartyName, otherPartyPan, nonTaxableAmount } = req.body;
   const updateData: Record<string, unknown> = {};
   if (paymentMethod) updateData.paymentMethod = paymentMethod;
   if (paymentStatus) updateData.paymentStatus = paymentStatus;
   if (billType) updateData.billType = billType;
   if (vatAmount !== undefined) updateData.vatAmount = String(vatAmount);
   if (finalTotal !== undefined) updateData.totalAmount = String(finalTotal);
+  if (otherPartyName !== undefined) updateData.otherPartyName = otherPartyName || null;
+  if (otherPartyPan !== undefined) updateData.otherPartyPan = otherPartyPan || null;
+  if (nonTaxableAmount !== undefined) updateData.nonTaxableAmount = String(nonTaxableAmount);
 
   if (paymentStatus === "paid") {
     const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
     if (order) {
+      // Only assign an invoice number once — reprints/edits must never get a new one
+      if (!order.invoiceNumber) {
+        updateData.invoiceNumber = await getNextInvoiceNumber();
+      }
       const customerId = loyaltyCustomerId ?? order.loyaltyCustomerId;
       if (customerId) {
         const points = Math.floor(parseFloat(String(order.totalAmount)) / 10);
@@ -368,6 +417,39 @@ router.get("/orders/:id/corrections", authenticate, async (req, res): Promise<vo
   const id = parseId(req.params.id);
   const corrections = await db.select().from(orderCorrectionsTable).where(eq(orderCorrectionsTable.originalOrderId, id)).orderBy(desc(orderCorrectionsTable.createdAt));
   res.json(corrections);
+});
+
+router.post("/orders/:id/print-log", authenticate, requireAdmin, async (req: any, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  const { billType, reason } = req.body;
+  if (!billType || !reason) { res.status(400).json({ error: "billType and reason are required" }); return; }
+
+  const [log] = await db.insert(billPrintLogsTable).values({
+    orderId: id,
+    billType,
+    reason,
+    printedBy: req.user?.username ?? "admin",
+  }).returning();
+
+  res.status(201).json(log);
+});
+
+router.get("/bill-print-logs", authenticate, requireAdmin, async (_req, res): Promise<void> => {
+  const logs = await db
+    .select({
+      id: billPrintLogsTable.id,
+      orderId: billPrintLogsTable.orderId,
+      billType: billPrintLogsTable.billType,
+      reason: billPrintLogsTable.reason,
+      printedBy: billPrintLogsTable.printedBy,
+      createdAt: billPrintLogsTable.createdAt,
+      orderTotal: ordersTable.totalAmount,
+    })
+    .from(billPrintLogsTable)
+    .leftJoin(ordersTable, eq(billPrintLogsTable.orderId, ordersTable.id))
+    .orderBy(desc(billPrintLogsTable.createdAt))
+    .limit(200);
+  res.json(logs);
 });
 
 export default router;

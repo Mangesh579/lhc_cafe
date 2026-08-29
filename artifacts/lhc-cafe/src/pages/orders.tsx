@@ -178,6 +178,9 @@ export default function Orders() {
           billType,
           vatAmount,
           finalTotal: recordedFinalTotal,
+          otherPartyName: otherPartyName || undefined,
+          otherPartyPan: otherPartyPan || undefined,
+          nonTaxableAmount: billType === "vat" ? (parseFloat(nonTaxableAmount) || 0) : undefined,
         }),
       });
       queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
@@ -374,6 +377,22 @@ export default function Orders() {
                     <div>
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Order Notes (locked — order is paid)</h4>
                       <p className="text-sm text-muted-foreground bg-muted/30 rounded p-2">{order.notes || "No notes."}</p>
+                      {(order as any).corrections?.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Corrections</p>
+                          {(order as any).corrections.map((c: any) => (
+                            <div key={c.id} className="text-xs bg-muted/40 rounded p-2 flex justify-between items-start gap-2">
+                              <div>
+                                <span className={c.correctionType === "credit" ? "text-red-600 font-medium" : "text-green-600 font-medium"}>
+                                  {c.correctionType === "credit" ? "− " : "+ "}Rs. {parseFloat(c.amount).toFixed(0)}
+                                </span>
+                                <span className="text-muted-foreground ml-1.5">{c.reason}</span>
+                              </div>
+                              <span className="text-muted-foreground whitespace-nowrap">{format(new Date(c.createdAt), "MMM d, h:mm a")} · {c.createdBy}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {isAdmin && (
                         <Button size="sm" variant="outline" className="mt-1.5" onClick={() => setCorrectionOrder(order)}>
                           Add Correction
@@ -558,6 +577,7 @@ export default function Orders() {
             </div>
             <div className="mb-3 text-xs space-y-0.5">
               <p>Order #{paymentModalOrder.id}</p>
+              {(paymentModalOrder as any).invoiceNumber && <p style={{ fontWeight: "bold" }}>Invoice No: {(paymentModalOrder as any).invoiceNumber}</p>}
               <p>{new Date().toLocaleString()}</p>
               {paymentModalOrder.notes && <p>Note: {paymentModalOrder.notes}</p>}
               {(paymentModalOrder as any).createdBy && <p>Staff: {(paymentModalOrder as any).createdBy}</p>}
