@@ -2,13 +2,14 @@ import { Router } from "express";
 import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable } from "@workspace/db";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth";
+import * as NepaliDateModule from "nepali-date-converter";
+const NepaliDate: any = (NepaliDateModule as any).default ?? NepaliDateModule;
 
 const router = Router();
 
 // Nepal's fiscal year runs Shrawan 1 (~mid-July) to Ashadh end (~mid-July next year).
 // BS months: 1=Baisakh...4=Shrawan...12=Chaitra. FY label format: "2082/83".
 async function getNextInvoiceNumber(): Promise<string> {
-  const NepaliDate = (await import("nepali-date-converter")).default;
   const nowBS = new NepaliDate(new Date());
   const bsYear = nowBS.getYear();
   const bsMonth = nowBS.getMonth() + 1; // 1-indexed
