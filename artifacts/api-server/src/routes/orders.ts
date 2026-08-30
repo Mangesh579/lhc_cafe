@@ -240,6 +240,7 @@ router.patch("/orders/:id/status", authenticate, async (req, res): Promise<void>
 });
 
 router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void> => {
+  try {
   const id = parseId(req.params.id);
   const { paymentMethod, paymentStatus, loyaltyCustomerId, vatAmount, billType, finalTotal, otherPartyName, otherPartyPan, nonTaxableAmount } = req.body;
   const updateData: Record<string, unknown> = {};
@@ -286,6 +287,10 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   const result = await getOrderWithItems(id);
   if (!result) { res.status(404).json({ error: "Order not found" }); return; }
   res.json(result);
+  } catch (err: any) {
+    console.error("PAYMENT ROUTE ERROR:", err?.message, err?.stack);
+    res.status(500).json({ error: "Failed to process payment", detail: err?.message });
+  }
 });
 
 router.patch("/orders/:id/discount", authenticate, async (req, res): Promise<void> => {
