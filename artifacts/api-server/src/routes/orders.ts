@@ -322,8 +322,23 @@ router.patch("/orders/:id/discount", authenticate, async (req, res): Promise<voi
   res.json(result);
 });
 
-router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req, res): Promise<void> => {
+router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req: any, res): Promise<void> => {
   const id = parseId(req.params.id);
+
+  // If this order was already paid, cancelling it is effectively a full
+  // refund — record it as a credit correction so the audit trail shows
+  // exactly what was reversed, when, and by whom. This never touches the
+  // original order row itself.
+  const [orderBeforeCancel] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (orderBeforeCancel?.paymentStatus === "paid") {
+    await db.insert(orderCorrectionsTable).values({
+      originalOrderId: id,
+      correctionType: "credit",
+      amount: orderBeforeCancel.totalAmount,
+      reason: "Order cancelled after payment — full refund",
+      createdBy: req.user?.username ?? "admin",
+    });
+  }
 
   // Restore inventory before cancelling
   const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
