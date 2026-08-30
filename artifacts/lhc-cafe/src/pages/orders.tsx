@@ -579,7 +579,7 @@ export default function Orders() {
               <p>Order #{paymentModalOrder.id}</p>
               {(paymentModalOrder as any).invoiceNumber && <p style={{ fontWeight: "bold" }}>Invoice No: {(paymentModalOrder as any).invoiceNumber}</p>}
               <p>{new Date().toLocaleString()}</p>
-              {paymentModalOrder.notes && <p>Note: {paymentModalOrder.notes}</p>}
+              {paymentModalOrder.notes && <p>Notes: {paymentModalOrder.notes}</p>}
               {(paymentModalOrder as any).createdBy && <p>Staff: {(paymentModalOrder as any).createdBy}</p>}
               <p>Payment: {paymentMethod === 'cash' ? 'Cash' : paymentMethod === 'card' ? 'Card' : paymentMethod === 'nabil_qr' ? 'Nabil QR' : 'Nabil QR'}</p>
               {otherPartyName && <p>Billed To: {otherPartyName}</p>}
