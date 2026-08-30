@@ -10,6 +10,7 @@ const router = Router();
 // Nepal's fiscal year runs Shrawan 1 (~mid-July) to Ashadh end (~mid-July next year).
 // BS months: 1=Baisakh...4=Shrawan...12=Chaitra. FY label format: "2082/83".
 async function getNextInvoiceNumber(): Promise<string> {
+  console.log("NepaliDate diagnostic:", typeof NepaliDate, typeof NepaliDateLib, Object.keys(NepaliDateLib ?? {}), Object.keys(NepaliDateLib?.default ?? {}));
   const nowBS = new NepaliDate(new Date());
   const bsYear = nowBS.getYear();
   const bsMonth = nowBS.getMonth() + 1; // 1-indexed
