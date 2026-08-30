@@ -426,6 +426,26 @@ router.get("/orders/:id/corrections", authenticate, async (req, res): Promise<vo
   res.json(corrections);
 });
 
+router.get("/order-corrections", authenticate, requireAdmin, async (_req, res): Promise<void> => {
+  const corrections = await db
+    .select({
+      id: orderCorrectionsTable.id,
+      originalOrderId: orderCorrectionsTable.originalOrderId,
+      correctionType: orderCorrectionsTable.correctionType,
+      amount: orderCorrectionsTable.amount,
+      reason: orderCorrectionsTable.reason,
+      createdBy: orderCorrectionsTable.createdBy,
+      createdAt: orderCorrectionsTable.createdAt,
+      orderTotal: ordersTable.totalAmount,
+      invoiceNumber: ordersTable.invoiceNumber,
+    })
+    .from(orderCorrectionsTable)
+    .leftJoin(ordersTable, eq(orderCorrectionsTable.originalOrderId, ordersTable.id))
+    .orderBy(desc(orderCorrectionsTable.createdAt))
+    .limit(200);
+  res.json(corrections);
+});
+
 router.post("/orders/:id/print-log", authenticate, requireAdmin, async (req: any, res): Promise<void> => {
   const id = parseId(req.params.id);
   const { billType, reason } = req.body;

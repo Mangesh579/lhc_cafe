@@ -60,6 +60,16 @@ export default function OrderLog() {
   const [printReason, setPrintReason] = useState("");
   const [printSaving, setPrintSaving] = useState(false);
   const [showPrintLogTab, setShowPrintLogTab] = useState(false);
+  const [showCorrectionsTab, setShowCorrectionsTab] = useState(false);
+  const [correctionLogs, setCorrectionLogs] = useState<any[]>([]);
+
+  const loadCorrectionLogs = async () => {
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+      const r = await fetch(`${API_BASE}/api/order-corrections`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      setCorrectionLogs(r.ok ? await r.json() : []);
+    } catch { setCorrectionLogs([]); }
+  };
   const [printLogs, setPrintLogs] = useState<any[]>([]);
 
   useEffect(() => {
@@ -241,6 +251,7 @@ export default function OrderLog() {
           <div style="text-align:center;margin-bottom:12px;border-bottom:1px dashed #999;padding-bottom:12px;">
             <h2 style="font-size:16px;font-weight:bold;margin:0;">Legendary House Cafe & Barista School</h2>
             <p style="font-size:11px;">Sulimha Durbar, Pimbahal, Nepal</p>
+            <p style="font-size:11px;">PAN/VAT No: YOUR_PAN_NUMBER_HERE</p>
             ${billTypeToUse === "vat" ? '<p style="font-size:11px;font-weight:bold;">TAX INVOICE (VAT) — REPRINT</p>' : '<p style="font-size:11px;">REPRINT</p>'}
           </div>
           <p>Order #${order.id}</p>
@@ -331,6 +342,11 @@ export default function OrderLog() {
           {isAdmin && (
             <Button variant="outline" size="sm" onClick={() => { setShowPrintLogTab(v => !v); if (!showPrintLogTab) loadPrintLogs(); }}>
               {showPrintLogTab ? "Hide" : "View"} Print Log
+            </Button>
+          )}
+          {isAdmin && (
+            <Button variant="outline" size="sm" onClick={() => { setShowCorrectionsTab(v => !v); if (!showCorrectionsTab) loadCorrectionLogs(); }}>
+              {showCorrectionsTab ? "Hide" : "View"} Corrections Log
             </Button>
           )}
           <div className="flex items-center gap-2 text-sm">
@@ -521,6 +537,41 @@ export default function OrderLog() {
         </Card>
       )}
 
+            {showCorrectionsTab && isAdmin && (
+        <Card>
+          <CardContent className="p-0">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-muted/50 text-muted-foreground uppercase tracking-wider text-xs">
+                <tr>
+                  <th className="px-4 py-3">Time</th>
+                  <th className="px-4 py-3">Order / Invoice</th>
+                  <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">Amount</th>
+                  <th className="px-4 py-3">Reason</th>
+                  <th className="px-4 py-3">By</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {correctionLogs.length === 0 ? (
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No corrections recorded yet.</td></tr>
+                ) : correctionLogs.map((c: any) => (
+                  <tr key={c.id} className="hover:bg-muted/20">
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{format(new Date(c.createdAt), 'MMM d, h:mm a')}</td>
+                    <td className="px-4 py-3">#{c.originalOrderId}{c.invoiceNumber ? ` · ${c.invoiceNumber}` : ""}</td>
+                    <td className="px-4 py-3 uppercase text-xs">{c.correctionType}</td>
+                    <td className={`px-4 py-3 font-medium ${c.correctionType === "credit" ? "text-red-600" : "text-green-600"}`}>
+                      {c.correctionType === "credit" ? "− " : "+ "}Rs. {parseFloat(c.amount).toFixed(0)}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{c.reason}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{c.createdBy}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Mobile: cards. Desktop: table */}
       <div className="md:hidden space-y-3">
         {isLoading ? (
@@ -698,6 +749,15 @@ export default function OrderLog() {
                             {order.notes && <p className="text-xs mt-1 text-amber-700 italic">Note: {order.notes}</p>}
                             {parseFloat(String((order as any).discountAmount ?? 0)) > 0 && (
                               <p className="text-xs text-blue-600">Discount: −Rs. {parseFloat(String((order as any).discountAmount)).toFixed(0)}</p>
+                            )}
+                            {(order as any).corrections?.length > 0 && (
+                              <div className="space-y-1 mt-1">
+                                {(order as any).corrections.map((c: any) => (
+                                  <p key={c.id} className={`text-xs ${c.correctionType === "credit" ? "text-red-600" : "text-green-600"}`}>
+                                    {c.correctionType === "credit" ? "− " : "+ "}Rs. {parseFloat(c.amount).toFixed(0)} — {c.reason} ({c.createdBy}, {format(new Date(c.createdAt), 'MMM d, h:mm a')})
+                                  </p>
+                                ))}
+                              </div>
                             )}
                           </div>
                         </td>

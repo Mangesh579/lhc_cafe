@@ -573,6 +573,7 @@ export default function Orders() {
             <div className="text-center mb-3 border-b border-dashed border-gray-400 pb-3">
               <h2 className="text-lg font-bold">Legendary House Cafe & Barista School</h2>
               <p className="text-xs">Sulimha Durbar, Pimbahal, Nepal</p>
+            <p className="text-xs">PAN/VAT No: YOUR_PAN_NUMBER_HERE</p>
               {billType === "vat" && <p className="text-xs font-bold mt-1">TAX INVOICE (VAT)</p>}
             </div>
             <div className="mb-3 text-xs space-y-0.5">
