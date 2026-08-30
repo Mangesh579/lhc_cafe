@@ -2,8 +2,8 @@ import { Router } from "express";
 import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable } from "@workspace/db";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth";
-import * as NepaliDateModule from "nepali-date-converter";
-const NepaliDate: any = (NepaliDateModule as any).default ?? NepaliDateModule;
+const NepaliDateLib = require("nepali-date-converter");
+const NepaliDate: any = NepaliDateLib.default ?? NepaliDateLib;
 
 const router = Router();
 
