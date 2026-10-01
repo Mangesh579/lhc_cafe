@@ -1,37 +1,38 @@
 import { Router } from "express";
 import { db, wasteLogsTable, inventoryItemsTable, menuItemsTable, inventoryLogsTable, equipmentItemsTable, equipmentLogsTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
-import { authenticate, type AuthRequest } from "../middlewares/auth";
+import { eq, desc, and } from "drizzle-orm";
+import { authenticate, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
 import type { Response } from "express";
 
 const router = Router();
 
-router.get("/waste", authenticate, async (_req, res): Promise<void> => {
-  const logs = await db
-    .select()
-    .from(wasteLogsTable)
-    .orderBy(desc(wasteLogsTable.createdAt))
-    .limit(200);
+router.get("/waste", authenticate, async (req, res): Promise<void> => {
+  const { department } = req.query;
+  const logs = department
+    ? await db.select().from(wasteLogsTable).where(eq(wasteLogsTable.department, department as string)).orderBy(desc(wasteLogsTable.createdAt)).limit(200)
+    : await db.select().from(wasteLogsTable).orderBy(desc(wasteLogsTable.createdAt)).limit(200);
   res.json(logs);
 });
 
 router.post("/waste", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const { inventoryItemId, menuItemId, equipmentItemId, itemName, quantity, unit, reason, wasteValue } = req.body;
-  if (!itemName || !quantity || !unit || !reason) {
-    res.status(400).json({ error: "itemName, quantity, unit, and reason are required" });
+  const { inventoryItemId, menuItemId, equipmentItemId, itemName, quantity, unit, reason, wasteValue, department } = req.body;
+  if (!itemName || !quantity || !unit || !reason || !department) {
+    res.status(400).json({ error: "itemName, quantity, unit, reason, and department are required" });
+    return;
+  }
+  if (!canWriteDepartment(req.user?.role, department)) {
+    res.status(403).json({ error: `Only ${department === "kitchen" ? "the head chef" : "the head barista"} or an admin can log ${department} waste.` });
     return;
   }
 
   let computedWasteValue = wasteValue != null ? parseFloat(String(wasteValue)) : 0;
 
-  // If linked to equipment, auto-calculate value from unit price and decrement quantity
   if (equipmentItemId) {
     const [eqItem] = await db.select().from(equipmentItemsTable).where(eq(equipmentItemsTable.id, equipmentItemId));
     if (eqItem) {
       const qtyWasted = parseFloat(String(quantity));
       const unitPrice = eqItem.unitPrice != null ? parseFloat(String(eqItem.unitPrice)) : 0;
 
-      // Auto-calculate waste value if not manually provided
       if (!wasteValue || parseFloat(String(wasteValue)) === 0) {
         computedWasteValue = unitPrice * qtyWasted;
       }
@@ -63,10 +64,10 @@ router.post("/waste", authenticate, async (req: AuthRequest, res: Response): Pro
     unit,
     reason,
     wasteValue: String(computedWasteValue),
+    department,
     changedBy: req.user?.username ?? "staff",
   }).returning();
 
-  // If linked to inventory, deduct stock
   if (inventoryItemId) {
     const [inv] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, inventoryItemId));
     if (inv) {
@@ -84,19 +85,27 @@ router.post("/waste", authenticate, async (req: AuthRequest, res: Response): Pro
   res.status(201).json(log);
 });
 
-router.delete("/waste/:id", authenticate, async (req, res): Promise<void> => {
+router.delete("/waste/:id", authenticate, async (req: AuthRequest, res): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  const [existing] = await db.select().from(wasteLogsTable).where(eq(wasteLogsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Waste log not found" }); return; }
+  if (!canWriteDepartment(req.user?.role, existing.department)) {
+    res.status(403).json({ error: `Only ${existing.department === "kitchen" ? "the head chef" : "the head barista"} or an admin can delete this entry.` });
+    return;
+  }
   await db.delete(wasteLogsTable).where(eq(wasteLogsTable.id, id));
   res.sendStatus(204);
 });
 
-// GET /api/waste/monthly-report
-router.get("/waste/monthly-report", authenticate, async (_req, res): Promise<void> => {
-  const logs = await db.select().from(wasteLogsTable).orderBy(desc(wasteLogsTable.createdAt));
+router.get("/waste/monthly-report", authenticate, async (req, res): Promise<void> => {
+  const { department } = req.query;
+  const logs = department
+    ? await db.select().from(wasteLogsTable).where(eq(wasteLogsTable.department, department as string)).orderBy(desc(wasteLogsTable.createdAt))
+    : await db.select().from(wasteLogsTable).orderBy(desc(wasteLogsTable.createdAt));
 
   const byMonth: Record<string, { totalValue: number; count: number; byReason: Record<string, number> }> = {};
   logs.forEach(log => {
-    const monthKey = new Date(log.createdAt).toISOString().slice(0, 7); // "2026-07"
+    const monthKey = new Date(log.createdAt).toISOString().slice(0, 7);
     if (!byMonth[monthKey]) byMonth[monthKey] = { totalValue: 0, count: 0, byReason: {} };
     const value = parseFloat(String(log.wasteValue ?? 0));
     byMonth[monthKey].totalValue += value;

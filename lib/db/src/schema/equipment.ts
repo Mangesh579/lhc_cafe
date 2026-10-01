@@ -11,6 +11,7 @@ export const equipmentItemsTable = pgTable("equipment_items", {
   condition: text("condition").notNull().default("good"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  department: text("department").notNull().default("kitchen"),
 });
 
 export const equipmentLogsTable = pgTable("equipment_logs", {

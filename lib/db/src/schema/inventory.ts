@@ -11,6 +11,7 @@ export const inventoryItemsTable = pgTable("inventory_items", {
   caloriesPerUnit: numeric("calories_per_unit", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  department: text("department").notNull().default("kitchen"),
 });
 
 export const inventoryLogsTable = pgTable("inventory_logs", {

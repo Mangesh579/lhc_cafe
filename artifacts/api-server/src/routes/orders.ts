@@ -60,6 +60,9 @@ async function getOrderWithItems(orderId: number) {
       otherPartyPan: ordersTable.otherPartyPan,
       nonTaxableAmount: ordersTable.nonTaxableAmount,
       invoiceNumber: ordersTable.invoiceNumber,
+      isNc: ordersTable.isNc,
+      ncPersonName: ordersTable.ncPersonName,
+      ncReason: ordersTable.ncReason,
       createdBy: ordersTable.createdBy,
       notes: ordersTable.notes,
       backdatedAt: ordersTable.backdatedAt,
@@ -125,6 +128,9 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
       otherPartyPan: ordersTable.otherPartyPan,
       nonTaxableAmount: ordersTable.nonTaxableAmount,
       invoiceNumber: ordersTable.invoiceNumber,
+      isNc: ordersTable.isNc,
+      ncPersonName: ordersTable.ncPersonName,
+      ncReason: ordersTable.ncReason,
       createdBy: ordersTable.createdBy,
       notes: ordersTable.notes,
       backdatedAt: ordersTable.backdatedAt,
@@ -244,8 +250,11 @@ router.patch("/orders/:id/status", authenticate, async (req, res): Promise<void>
 router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void> => {
   try {
   const id = parseId(req.params.id);
-  const { paymentMethod, paymentStatus, loyaltyCustomerId, vatAmount, billType, finalTotal, otherPartyName, otherPartyPan, nonTaxableAmount } = req.body;
+  const { paymentMethod, paymentStatus, loyaltyCustomerId, vatAmount, billType, finalTotal, otherPartyName, otherPartyPan, nonTaxableAmount, isNc, ncPersonName, ncReason } = req.body;
   const updateData: Record<string, unknown> = {};
+  if (isNc !== undefined) updateData.isNc = isNc;
+  if (ncPersonName !== undefined) updateData.ncPersonName = ncPersonName || null;
+  if (ncReason !== undefined) updateData.ncReason = ncReason || null;
   if (paymentMethod) updateData.paymentMethod = paymentMethod;
   if (paymentStatus) updateData.paymentStatus = paymentStatus;
   if (billType) updateData.billType = billType;
@@ -453,6 +462,9 @@ router.get("/order-corrections", authenticate, requireAdmin, async (_req, res): 
       createdAt: orderCorrectionsTable.createdAt,
       orderTotal: ordersTable.totalAmount,
       invoiceNumber: ordersTable.invoiceNumber,
+      isNc: ordersTable.isNc,
+      ncPersonName: ordersTable.ncPersonName,
+      ncReason: ordersTable.ncReason,
     })
     .from(orderCorrectionsTable)
     .leftJoin(ordersTable, eq(orderCorrectionsTable.originalOrderId, ordersTable.id))

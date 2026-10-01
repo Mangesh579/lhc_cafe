@@ -1,32 +1,46 @@
 import { Router } from "express";
 import { db, equipmentItemsTable, equipmentLogsTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
-import { authenticate, type AuthRequest } from "../middlewares/auth";
+import { eq, desc, and } from "drizzle-orm";
+import { authenticate, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
 import type { Response } from "express";
 
 const router = Router();
 
-router.get("/equipment", authenticate, async (_req, res): Promise<void> => {
-  const items = await db.select().from(equipmentItemsTable).orderBy(equipmentItemsTable.name);
+function withDeptPrefix(name: string, department: string): string {
+  const prefix = department === "kitchen" ? "K " : "D ";
+  const stripped = name.replace(/^[KD]\s+/, "");
+  return prefix + stripped;
+}
+
+router.get("/equipment", authenticate, async (req, res): Promise<void> => {
+  const { department } = req.query;
+  const items = department
+    ? await db.select().from(equipmentItemsTable).where(eq(equipmentItemsTable.department, department as string)).orderBy(equipmentItemsTable.name)
+    : await db.select().from(equipmentItemsTable).orderBy(equipmentItemsTable.name);
   res.json(items);
 });
 
 router.post("/equipment", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const { name, description, purchaseDate, quantity, unitPrice, condition, notes } = req.body;
-  if (!name) { res.status(400).json({ error: "Name required" }); return; }
+  const { name, description, purchaseDate, quantity, unitPrice, condition, notes, department } = req.body;
+  if (!name || !department) { res.status(400).json({ error: "Name and department required" }); return; }
+  if (!canWriteDepartment(req.user?.role, department)) {
+    res.status(403).json({ error: `Only ${department === "kitchen" ? "the head chef" : "the head barista"} or an admin can add ${department} equipment.` });
+    return;
+  }
 
   const qty = quantity != null ? parseInt(quantity, 10) : 1;
   const unitP = unitPrice != null ? parseFloat(unitPrice) : null;
   const totalPrice = unitP != null ? qty * unitP : null;
 
   const [item] = await db.insert(equipmentItemsTable).values({
-    name, description: description ?? null,
+    name: withDeptPrefix(name, department), description: description ?? null,
     purchaseDate: purchaseDate ?? null,
     quantity: qty,
     unitPrice: unitP != null ? String(unitP) : null,
     purchasePrice: totalPrice != null ? String(totalPrice) : null,
     condition: condition ?? "good",
     notes: notes ?? null,
+    department,
   }).returning();
 
   await db.insert(equipmentLogsTable).values({
@@ -39,19 +53,21 @@ router.post("/equipment", authenticate, async (req: AuthRequest, res: Response):
 
 router.patch("/equipment/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const { name, description, purchaseDate, quantity, unitPrice, condition, notes } = req.body;
-
   const [existing] = await db.select().from(equipmentItemsTable).where(eq(equipmentItemsTable.id, id));
   if (!existing) { res.status(404).json({ error: "Equipment not found" }); return; }
+  if (!canWriteDepartment(req.user?.role, existing.department)) {
+    res.status(403).json({ error: `Only ${existing.department === "kitchen" ? "the head chef" : "the head barista"} or an admin can edit this equipment.` });
+    return;
+  }
 
+  const { name, description, purchaseDate, quantity, unitPrice, condition, notes } = req.body;
   const updateData: Record<string, unknown> = {};
-  if (name !== undefined) updateData.name = name;
+  if (name !== undefined) updateData.name = withDeptPrefix(name, existing.department);
   if (description !== undefined) updateData.description = description;
   if (purchaseDate !== undefined) updateData.purchaseDate = purchaseDate;
   if (condition !== undefined) updateData.condition = condition;
   if (notes !== undefined) updateData.notes = notes;
 
-  // Recompute total price if quantity or unitPrice changes
   const newQty = quantity !== undefined ? parseInt(quantity, 10) : (existing.quantity ?? 1);
   const newUnitPrice = unitPrice !== undefined ? (unitPrice != null ? parseFloat(unitPrice) : null) : (existing.unitPrice != null ? parseFloat(String(existing.unitPrice)) : null);
 
@@ -62,7 +78,6 @@ router.patch("/equipment/:id", authenticate, async (req: AuthRequest, res: Respo
   }
 
   const [item] = await db.update(equipmentItemsTable).set(updateData).where(eq(equipmentItemsTable.id, id)).returning();
-  if (!item) { res.status(404).json({ error: "Equipment not found" }); return; }
 
   await db.insert(equipmentLogsTable).values({
     equipmentItemId: id, action: "updated",
@@ -76,6 +91,10 @@ router.delete("/equipment/:id", authenticate, async (req: AuthRequest, res: Resp
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
   const [item] = await db.select().from(equipmentItemsTable).where(eq(equipmentItemsTable.id, id));
   if (!item) { res.status(404).json({ error: "Equipment not found" }); return; }
+  if (!canWriteDepartment(req.user?.role, item.department)) {
+    res.status(403).json({ error: `Only ${item.department === "kitchen" ? "the head chef" : "the head barista"} or an admin can delete this equipment.` });
+    return;
+  }
   await db.insert(equipmentLogsTable).values({
     equipmentItemId: id, action: "removed",
     notes: `${item.name} removed from inventory`,
@@ -86,12 +105,17 @@ router.delete("/equipment/:id", authenticate, async (req: AuthRequest, res: Resp
 });
 
 router.get("/equipment/logs", authenticate, async (req, res): Promise<void> => {
-  const { equipmentItemId } = req.query;
+  const { equipmentItemId, department } = req.query;
+  const conditions = [];
+  if (equipmentItemId) conditions.push(eq(equipmentLogsTable.equipmentItemId, parseInt(equipmentItemId as string, 10)));
+  if (department) conditions.push(eq(equipmentItemsTable.department, department as string));
+
   const logs = await db
     .select({
       id: equipmentLogsTable.id,
       equipmentItemId: equipmentLogsTable.equipmentItemId,
       equipmentName: equipmentItemsTable.name,
+      department: equipmentItemsTable.department,
       action: equipmentLogsTable.action,
       notes: equipmentLogsTable.notes,
       cost: equipmentLogsTable.cost,
@@ -100,6 +124,7 @@ router.get("/equipment/logs", authenticate, async (req, res): Promise<void> => {
     })
     .from(equipmentLogsTable)
     .leftJoin(equipmentItemsTable, eq(equipmentLogsTable.equipmentItemId, equipmentItemsTable.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(equipmentLogsTable.createdAt))
     .limit(200);
   res.json(logs);
@@ -107,6 +132,12 @@ router.get("/equipment/logs", authenticate, async (req, res): Promise<void> => {
 
 router.post("/equipment/:id/log", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  const [existing] = await db.select().from(equipmentItemsTable).where(eq(equipmentItemsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Equipment not found" }); return; }
+  if (!canWriteDepartment(req.user?.role, existing.department)) {
+    res.status(403).json({ error: `Only ${existing.department === "kitchen" ? "the head chef" : "the head barista"} or an admin can log against this equipment.` });
+    return;
+  }
   const { action, notes, cost } = req.body;
   if (!action) { res.status(400).json({ error: "action required" }); return; }
   const [log] = await db.insert(equipmentLogsTable).values({

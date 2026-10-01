@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, numeric, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, numeric, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -21,6 +21,9 @@ export const ordersTable = pgTable("orders", {
   otherPartyPan: text("other_party_pan"),
   nonTaxableAmount: numeric("non_taxable_amount", { precision: 10, scale: 2 }).default("0"),
   invoiceNumber: text("invoice_number"),
+  isNc: boolean("is_nc").notNull().default(false),
+  ncPersonName: text("nc_person_name"),
+  ncReason: text("nc_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

@@ -34,18 +34,35 @@ function getClientIp(req: Request): string {
   return req.socket.remoteAddress ?? "";
 }
 
+// Requests arriving on the cafe's own LAN (customers scanning the QR while
+// physically on-site) have a private IP address by definition — no public
+// internet routing is even involved. This is a stronger guarantee than the
+// old public-IP allowlist, and lets local customers work exactly the same
+// way even if the internet connection itself is down.
+function isPrivateLanIp(ip: string): boolean {
+  const cleaned = ip.replace("::ffff:", "");
+  return (
+    cleaned.startsWith("192.168.") ||
+    cleaned.startsWith("10.") ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(cleaned) ||
+    cleaned === "127.0.0.1" ||
+    cleaned === "::1"
+  );
+}
+
 function requireCafeWifi(req: Request, res: Response, next: NextFunction): void {
-  if (ALLOWED_IPS.length === 0) {
-    res.status(503).json({ error: "Ordering is temporarily unavailable. Please ask staff." });
-    return;
-  }
   const clientIp = getClientIp(req);
-  const isAllowed = ALLOWED_IPS.some(allowed => clientIp === allowed || clientIp.includes(allowed));
-  if (!isAllowed) {
-    res.status(403).json({ error: "Please connect to the cafe Wi-Fi to place an order." });
-    return;
+
+  // Always allow direct LAN traffic — this is the primary path once hosted locally.
+  if (isPrivateLanIp(clientIp)) { next(); return; }
+
+  // Fallback: legacy public-IP allowlist, still useful if ever hosted on a VPS again.
+  if (ALLOWED_IPS.length > 0) {
+    const isAllowed = ALLOWED_IPS.some(allowed => clientIp === allowed || clientIp.includes(allowed));
+    if (isAllowed) { next(); return; }
   }
-  next();
+
+  res.status(403).json({ error: "Please connect to the cafe Wi-Fi to place an order." });
 }
 
 const SESSION_IDLE_MINUTES = 30;

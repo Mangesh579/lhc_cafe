@@ -12,4 +12,5 @@ export const wasteLogsTable = pgTable("waste_logs", {
   wasteValue: numeric("waste_value", { precision: 10, scale: 2 }).default("0"),
   changedBy: text("changed_by").default("staff"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  department: text("department").notNull().default("kitchen"),
 });
