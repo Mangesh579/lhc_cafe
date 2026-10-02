@@ -169,8 +169,9 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
 });
 
 router.post("/orders", authenticate, async (req, res): Promise<void> => {
-  const { tableId, paymentMethod, loyaltyCustomerId, notes, items, discountAmount, backdatedAt } = req.body;
+  const { tableId, paymentMethod, loyaltyCustomerId, notes, items, discountAmount, backdatedAt, isNc, ncPersonName, ncReason } = req.body;
   if (!items?.length) { res.status(400).json({ error: "Order must have at least one item" }); return; }
+  if (isNc && !ncPersonName?.trim()) { res.status(400).json({ error: "Person name is required for Not Chargeable orders" }); return; }
 
   let totalAmount = 0;
   const resolvedItems: Array<{ menuItemId: number; quantity: number; unitPrice: number; subtotal: number; notes?: string }> = [];
@@ -186,17 +187,27 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
   const discountValue = discountAmount ? parseFloat(String(discountAmount)) : 0;
   const finalTotal = Math.max(0, totalAmount - discountValue);
 
+  // NC (Not Chargeable) orders are marked paid immediately — no payment is
+  // ever collected — but still get a real invoice number for the audit
+  // trail, since it's a legitimate bill (hotel comp / owner use), just at
+  // zero collected revenue.
+  const ncInvoiceNumber = isNc ? await getNextInvoiceNumber() : undefined;
+
   const [order] = await db.insert(ordersTable).values({
     tableId: tableId ?? null,
     totalAmount: String(finalTotal),
-    paymentMethod: paymentMethod ?? "cash",
-    paymentStatus: "pending",
+    paymentMethod: isNc ? "nc" : (paymentMethod ?? "cash"),
+    paymentStatus: isNc ? "paid" : "pending",
     orderStatus: "pending",
     loyaltyCustomerId: loyaltyCustomerId ?? null,
     notes: notes ?? null,
     discountAmount: String(discountValue),
     createdBy: (req as any).user?.username ?? null,
     backdatedAt: backdatedAt ? new Date(backdatedAt) : null,
+    isNc: !!isNc,
+    ncPersonName: isNc ? ncPersonName.trim() : null,
+    ncReason: isNc ? (ncReason?.trim() || null) : null,
+    invoiceNumber: ncInvoiceNumber ?? null,
   }).returning();
 
   for (const item of resolvedItems) {
