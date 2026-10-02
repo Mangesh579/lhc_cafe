@@ -81,6 +81,9 @@ export default function POS() {
   const [infoItemId, setInfoItemId] = useState<number | null>(null);
   const [tableNumber, setTableNumber] = useState("");
   const [mobileTab, setMobileTab] = useState<"menu" | "order">("menu");
+  const [isNc, setIsNc] = useState(false);
+  const [ncPersonName, setNcPersonName] = useState("");
+  const [ncReason, setNcReason] = useState("");
 
   const { data: menuItems } = useListMenuItems({ available: true });
   const [openTables, setOpenTables] = useState<any[]>([]);
@@ -172,7 +175,10 @@ export default function POS() {
         paymentMethod,
         loyaltyCustomerId: currentCustomer?.id,
         notes: orderNotes || undefined,
-        items: cart.map(item => ({ menuItemId: item.id, quantity: item.cartQuantity, notes: item.cartNotes }))
+        items: cart.map(item => ({ menuItemId: item.id, quantity: item.cartQuantity, notes: item.cartNotes })),
+        isNc,
+        ncPersonName: isNc ? ncPersonName : undefined,
+        ncReason: isNc ? ncReason : undefined,
       };
       if (tableNumber) {
         const tables = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/tables`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } }).then(r => r.json());
@@ -188,6 +194,7 @@ export default function POS() {
       setLastOrderDetails({ ...result, cartItems: [...cart], subtotal, customer: currentCustomer });
       toast({ title: "Order Placed", description: `Order #${result.id} created successfully.` });
       setCart([]); setPhone(""); setSelectedCustomerId(null); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
+      setIsNc(false); setNcPersonName(""); setNcReason("");
       setIsReceiptOpen(true);
       setMobileTab("menu");
       queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
@@ -371,29 +378,50 @@ export default function POS() {
           <Textarea placeholder="Special instructions, allergies..." value={orderNotes} onChange={e => setOrderNotes(e.target.value)} className="mt-1 text-sm resize-none h-16" />
         </div>
 
-        <div>
-          <Label className="text-xs font-semibold text-muted-foreground uppercase">Payment</Label>
-          <Tabs value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as OrderInputPaymentMethod)} className="mt-1">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="cash">Cash</TabsTrigger>
-              <TabsTrigger value="nabil_qr">Nabil QR</TabsTrigger>
-              <TabsTrigger value="esewa">Card</TabsTrigger>
-            </TabsList>
-            <TabsContent value="nabil_qr" className="mt-1">
-              <div className="flex justify-center p-2 bg-white rounded-md border">
-                <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=NabilBankLHCCafe" alt="Nabil QR" className="w-24 h-24" />
+        <div className="rounded-md border border-dashed p-3 space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={isNc} onChange={e => setIsNc(e.target.checked)} className="w-4 h-4" />
+            <span className="text-sm font-semibold">Not Chargeable (NC) — hotel guest / owner</span>
+          </label>
+          {isNc && (
+            <div className="space-y-2 pt-1">
+              <div>
+                <Label className="text-xs text-muted-foreground">Person Name *</Label>
+                <Input value={ncPersonName} onChange={e => setNcPersonName(e.target.value)} placeholder="e.g. Mr. Sharma, Room 204" className="h-8 text-sm mt-1" />
               </div>
-            </TabsContent>
-          </Tabs>
+              <div>
+                <Label className="text-xs text-muted-foreground">Reason (opt.)</Label>
+                <Input value={ncReason} onChange={e => setNcReason(e.target.value)} placeholder="e.g. Hotel guest complimentary, Owner's use" className="h-8 text-sm mt-1" />
+              </div>
+            </div>
+          )}
         </div>
+
+        {!isNc && (
+          <div>
+            <Label className="text-xs font-semibold text-muted-foreground uppercase">Payment</Label>
+            <Tabs value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as OrderInputPaymentMethod)} className="mt-1">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="cash">Cash</TabsTrigger>
+                <TabsTrigger value="nabil_qr">Nabil QR</TabsTrigger>
+                <TabsTrigger value="esewa">Card</TabsTrigger>
+              </TabsList>
+              <TabsContent value="nabil_qr" className="mt-1">
+                <div className="flex justify-center p-2 bg-white rounded-md border">
+                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=NabilBankLHCCafe" alt="Nabil QR" className="w-24 h-24" />
+                </div>
+              </TabsContent>
+            </Tabs>
+          </div>
+        )}
 
         <div className="pt-2 border-t">
           <div className="flex justify-between items-center mb-3">
-            <span className="font-bold text-lg">Total</span>
-            <span className="font-bold text-2xl text-primary">Rs. {finalTotal.toFixed(0)}</span>
+            <span className="font-bold text-lg">{isNc ? "Value (NC — Free)" : "Total"}</span>
+            <span className={`font-bold text-2xl ${isNc ? "text-muted-foreground line-through" : "text-primary"}`}>Rs. {finalTotal.toFixed(0)}</span>
           </div>
-          <Button className="w-full h-12 text-base font-bold" disabled={cart.length === 0 || createOrder.isPending} onClick={handlePlaceOrder}>
-            {createOrder.isPending ? "Processing..." : "Place Order"}
+          <Button className="w-full h-12 text-base font-bold" disabled={cart.length === 0 || createOrder.isPending || (isNc && !ncPersonName.trim())} onClick={handlePlaceOrder}>
+            {createOrder.isPending ? "Processing..." : isNc ? "Place NC Order" : "Place Order"}
           </Button>
         </div>
       </div>
@@ -460,15 +488,28 @@ export default function POS() {
           </DialogHeader>
           {lastOrderDetails && (
             <div className="bg-white text-black p-5 font-mono text-sm border rounded my-2" id="receipt-preview">
-              <div className="text-center mb-3 border-b border-dashed border-gray-400 pb-3">
+              <div className="text-center mb-3 border-b-2 border-gray-800 pb-3">
+                <img src="/LHC_logo.png" alt="LHC Cafe" style={{ height: 48, margin: "0 auto 8px", display: "block" }} />
                 <h2 className="text-lg font-bold">Legendary House Cafe & Barista School</h2>
                 <p className="text-xs">Sulimha Durbar, Pimbahal, Nepal</p>
+                <p className="text-xs">PAN/VAT No: YOUR_PAN_NUMBER_HERE</p>
+                {lastOrderDetails.isNc && (
+                  <p className="text-xs font-bold mt-1 inline-block border-2 border-gray-800 px-2 py-0.5">NOT CHARGEABLE</p>
+                )}
               </div>
               <div className="mb-3 text-xs space-y-0.5">
                 <p>Order #{lastOrderDetails.id}</p>
+                {lastOrderDetails.invoiceNumber && <p className="font-bold">Invoice No: {lastOrderDetails.invoiceNumber}</p>}
                 <p>{new Date().toLocaleString()}</p>
                 {lastOrderDetails.customer && <p>Customer: {lastOrderDetails.customer.name}</p>}
-                <p>Payment: {lastOrderDetails.paymentMethod === 'cash' ? 'Cash' : 'Nabil QR'}</p>
+                {lastOrderDetails.isNc ? (
+                  <>
+                    <p className="font-bold">Issued To: {lastOrderDetails.ncPersonName}</p>
+                    {lastOrderDetails.ncReason && <p>Reason: {lastOrderDetails.ncReason}</p>}
+                  </>
+                ) : (
+                  <p>Payment: {lastOrderDetails.paymentMethod === 'cash' ? 'Cash' : lastOrderDetails.paymentMethod === 'card' ? 'Card' : 'Nabil QR'}</p>
+                )}
               </div>
               <div className="border-t border-b border-dashed border-gray-400 py-2 mb-3 space-y-1">
                 {lastOrderDetails.cartItems.map((item: any) => (
@@ -484,10 +525,24 @@ export default function POS() {
                 ))}
               </div>
               <div className="flex justify-between font-bold">
-                <span>TOTAL</span>
+                <span>{lastOrderDetails.isNc ? "VALUE (NC — NOT COLLECTED)" : "TOTAL"}</span>
                 <span>Rs. {lastOrderDetails.subtotal.toFixed(0)}</span>
               </div>
               {lastOrderDetails.notes && <p className="text-xs mt-2 text-gray-600">Note: {lastOrderDetails.notes}</p>}
+              {lastOrderDetails.isNc && (
+                <div className="mt-6 pt-4 border-t border-gray-400 space-y-6">
+                  <div className="flex justify-between text-xs">
+                    <div className="w-[45%]">
+                      <div className="border-b border-gray-800 h-8"></div>
+                      <p className="mt-1">Authorized By (Staff)</p>
+                    </div>
+                    <div className="w-[45%]">
+                      <div className="border-b border-gray-800 h-8"></div>
+                      <p className="mt-1">Received By (Signature)</p>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="text-center text-xs mt-4"><p>Thank you for visiting LHC!</p></div>
             </div>
           )}

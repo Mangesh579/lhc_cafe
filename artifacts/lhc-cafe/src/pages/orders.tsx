@@ -191,6 +191,43 @@ export default function Orders() {
     }
   };
 
+  const printNcBill = (order: any) => {
+    const receiptHtml = `
+      <div style="font-family:monospace;font-size:12px;padding:20px;color:black;background:white;">
+        <div style="text-align:center;margin-bottom:12px;border-bottom:2px solid #1a1a1a;padding-bottom:12px;">
+          <img src="YOUR_LOGO_URL_HERE" alt="LHC Cafe" style="height:48px;margin:0 auto 8px;display:block;" />
+          <h2 style="font-size:16px;font-weight:bold;margin:0;">Legendary House Cafe & Barista School</h2>
+          <p style="font-size:11px;">Sulimha Durbar, Pimbahal, Nepal</p>
+          <p style="font-size:11px;">PAN/VAT No: YOUR_PAN_NUMBER_HERE</p>
+          <p style="font-size:11px;font-weight:bold;margin-top:4px;display:inline-block;border:2px solid #1a1a1a;padding:2px 8px;">NOT CHARGEABLE</p>
+        </div>
+        <p>Order #${order.id}</p>
+        ${order.invoiceNumber ? `<p style="font-weight:bold;">Invoice No: ${order.invoiceNumber}</p>` : ""}
+        <p>${new Date().toLocaleString()}</p>
+        <p style="font-weight:bold;">Issued To: ${order.ncPersonName}</p>
+        ${order.ncReason ? `<p>Reason: ${order.ncReason}</p>` : ""}
+        <div style="border-top:1px dashed #999;border-bottom:1px dashed #999;padding:8px 0;margin:8px 0;">
+          ${order.items?.map((i: any) => `<div style="display:flex;justify-content:space-between;"><span>${i.quantity}× ${i.menuItemName}</span><span>Rs. ${parseFloat(i.subtotal).toFixed(0)}</span></div>`).join("")}
+        </div>
+        <div style="display:flex;justify-content:space-between;font-weight:bold;"><span>VALUE (NOT COLLECTED)</span><span>Rs. ${parseFloat(order.totalAmount).toFixed(0)}</span></div>
+        <div style="margin-top:28px;padding-top:16px;border-top:1px solid #999;display:flex;justify-content:space-between;font-size:11px;">
+          <div style="width:45%;"><div style="border-bottom:1px solid #1a1a1a;height:28px;"></div><p style="margin-top:4px;">Authorized By (Staff)</p></div>
+          <div style="width:45%;"><div style="border-bottom:1px solid #1a1a1a;height:28px;"></div><p style="margin-top:4px;">Received By (Signature)</p></div>
+        </div>
+      </div>
+    `;
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(`<!DOCTYPE html><html><body>${receiptHtml}</body></html>`);
+      doc.close();
+      setTimeout(() => { iframe.contentWindow?.print(); setTimeout(() => document.body.removeChild(iframe), 1000); }, 300);
+    }
+  };
+
   const handleCancelOrder = async (id: number) => {
     if (!confirm("Cancel this order?")) return;
     try {
@@ -296,9 +333,13 @@ export default function Orders() {
                       <Badge variant="secondary" className={`text-xs ${statusColors[order.orderStatus]}`}>
                         {order.orderStatus.toUpperCase()}
                       </Badge>
-                      <Badge variant="outline" className={`text-xs ${isPaymentPending ? "text-amber-600 border-amber-300" : "text-green-600 border-green-300"}`}>
-                        {isPaymentPending ? "UNPAID" : "PAID"}
-                      </Badge>
+                      {(order as any).isNc ? (
+                        <Badge variant="outline" className="text-xs text-purple-700 border-purple-300 bg-purple-50">NC — {(order as any).ncPersonName}</Badge>
+                      ) : (
+                        <Badge variant="outline" className={`text-xs ${isPaymentPending ? "text-amber-600 border-amber-300" : "text-green-600 border-green-300"}`}>
+                          {isPaymentPending ? "UNPAID" : "PAID"}
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
@@ -342,6 +383,11 @@ export default function Orders() {
                   {isPaymentPending && (
                     <Button size="sm" variant="outline" onClick={() => openPaymentModal(order)} className="gap-1.5 text-xs h-8 px-4">
                       <CreditCard className="w-3 h-3" /> Pay
+                    </Button>
+                  )}
+                  {(order as any).isNc && (
+                    <Button size="sm" variant="outline" onClick={() => printNcBill(order)} className="gap-1.5 text-xs h-8 px-4">
+                      <Printer className="w-3 h-3" /> Print NC Bill
                     </Button>
                   )}
                   {isAdmin && ['pending', 'preparing'].includes(order.orderStatus) && (
@@ -570,10 +616,11 @@ export default function Orders() {
       {paymentModalOrder && (
         <div id="order-receipt-preview" className="hidden">
           <div className="bg-white text-black p-5 font-mono text-sm">
-            <div className="text-center mb-3 border-b border-dashed border-gray-400 pb-3">
+            <div className="text-center mb-3 border-b-2 border-gray-800 pb-3">
+              <img src="/LHC_logo.png" alt="LHC Cafe" style={{ height: 48, margin: "0 auto 8px", display: "block" }} />
               <h2 className="text-lg font-bold">Legendary House Cafe & Barista School</h2>
               <p className="text-xs">Sulimha Durbar, Pimbahal, Nepal</p>
-            <p className="text-xs">PAN/VAT No: YOUR_PAN_NUMBER_HERE</p>
+              <p className="text-xs">PAN/VAT No: 194139113</p>
               {billType === "vat" && <p className="text-xs font-bold mt-1">TAX INVOICE (VAT)</p>}
             </div>
             <div className="mb-3 text-xs space-y-0.5">
