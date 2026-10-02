@@ -246,12 +246,38 @@ export default function OrderLog() {
       const preVatTotal = billTypeToUse === "vat" ? total - vatAmt : total;
       const taxable = preVatTotal - nonTaxable;
 
-      const receiptHtml = `
+      const isNcOrder = (order as any).isNc;
+
+      const receiptHtml = isNcOrder ? `
         <div style="font-family:monospace;font-size:12px;padding:20px;color:black;background:white;">
-          <div style="text-align:center;margin-bottom:12px;border-bottom:1px dashed #999;padding-bottom:12px;">
+          <div style="text-align:center;margin-bottom:12px;border-bottom:2px solid #1a1a1a;padding-bottom:12px;">
+            <img src="/LHC_logo.png" alt="LHC Cafe" style="height:48px;margin:0 auto 8px;display:block;" />
             <h2 style="font-size:16px;font-weight:bold;margin:0;">Legendary House Cafe & Barista School</h2>
             <p style="font-size:11px;">Sulimha Durbar, Pimbahal, Nepal</p>
-            <p style="font-size:11px;">PAN/VAT No: YOUR_PAN_NUMBER_HERE</p>
+            <p style="font-size:11px;">PAN/VAT No: 194139113</p>
+            <p style="font-size:11px;font-weight:bold;margin-top:4px;display:inline-block;border:2px solid #1a1a1a;padding:2px 8px;">NOT CHARGEABLE — REPRINT</p>
+          </div>
+          <p>Order #${order.id}</p>
+          ${(order as any).invoiceNumber ? `<p style="font-weight:bold;">Invoice No: ${(order as any).invoiceNumber}</p>` : ""}
+          <p>${new Date().toLocaleString()} (reprinted)</p>
+          <p style="font-weight:bold;">Issued To: ${(order as any).ncPersonName}</p>
+          ${(order as any).ncReason ? `<p>Reason: ${(order as any).ncReason}</p>` : ""}
+          <div style="border-top:1px dashed #999;border-bottom:1px dashed #999;padding:8px 0;margin:8px 0;">
+            ${order.items?.map((i: any) => `<div style="display:flex;justify-content:space-between;"><span>${i.quantity}× ${i.menuItemName}</span><span>Rs. ${parseFloat(i.subtotal).toFixed(0)}</span></div>`).join("")}
+          </div>
+          <div style="display:flex;justify-content:space-between;font-weight:bold;"><span>VALUE (NOT COLLECTED)</span><span>Rs. ${total.toFixed(0)}</span></div>
+          <div style="margin-top:28px;padding-top:16px;border-top:1px solid #999;display:flex;justify-content:space-between;font-size:11px;">
+            <div style="width:45%;"><div style="border-bottom:1px solid #1a1a1a;height:28px;"></div><p style="margin-top:4px;">Authorized By (Staff)</p></div>
+            <div style="width:45%;"><div style="border-bottom:1px solid #1a1a1a;height:28px;"></div><p style="margin-top:4px;">Received By (Signature)</p></div>
+          </div>
+        </div>
+      ` : `
+        <div style="font-family:monospace;font-size:12px;padding:20px;color:black;background:white;">
+          <div style="text-align:center;margin-bottom:12px;border-bottom:2px solid #1a1a1a;padding-bottom:12px;">
+            <img src="/LHC_logo.png" alt="LHC Cafe" style="height:48px;margin:0 auto 8px;display:block;" />
+            <h2 style="font-size:16px;font-weight:bold;margin:0;">Legendary House Cafe & Barista School</h2>
+            <p style="font-size:11px;">Sulimha Durbar, Pimbahal, Nepal</p>
+            <p style="font-size:11px;">PAN/VAT No: 194139113</p>
             ${billTypeToUse === "vat" ? '<p style="font-size:11px;font-weight:bold;">TAX INVOICE (VAT) — REPRINT</p>' : '<p style="font-size:11px;">REPRINT</p>'}
           </div>
           <p>Order #${order.id}</p>
@@ -586,9 +612,13 @@ export default function OrderLog() {
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="font-bold text-sm">#{order.id}</span>
                     <Badge variant="secondary" className={`text-xs ${statusColors[order.orderStatus]}`}>{order.orderStatus}</Badge>
-                    <Badge variant="secondary" className={`text-xs ${order.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' : order.paymentStatus === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
-                      {order.paymentStatus}
-                    </Badge>
+                    {(order as any).isNc ? (
+                      <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800">NC</Badge>
+                    ) : (
+                      <Badge variant="secondary" className={`text-xs ${order.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' : order.paymentStatus === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                        {order.paymentStatus}
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {useNepaliDate
@@ -715,18 +745,25 @@ export default function OrderLog() {
                         <Badge variant="secondary" className={statusColors[order.orderStatus]}>{order.orderStatus}</Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-xs capitalize">{String(order.paymentMethod).replace('_', ' ')}</span>
-                          <Badge variant="secondary" className={`text-xs ${order.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' : order.paymentStatus === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
-                            {order.paymentStatus}
-                          </Badge>
-                        </div>
+                        {(order as any).isNc ? (
+                          <div className="flex flex-col gap-0.5">
+                            <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 w-fit">NC</Badge>
+                            <span className="text-xs text-muted-foreground">{(order as any).ncPersonName}</span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-xs capitalize">{String(order.paymentMethod).replace('_', ' ')}</span>
+                            <Badge variant="secondary" className={`text-xs ${order.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' : order.paymentStatus === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                              {order.paymentStatus}
+                            </Badge>
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 font-bold text-right text-primary">
                         <div className="flex items-center justify-end gap-2">
                           Rs. {parseFloat(String(order.totalAmount)).toFixed(0)}
                           {isAdmin && (
-                            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); setPrintOrder(order); setPrintBillType("pan"); setPrintReason(""); }}>
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); setPrintOrder(order); setPrintBillType((order as any).isNc ? "nc" as any : "pan"); setPrintReason(""); }}>
                               Print
                             </Button>
                           )}
@@ -797,10 +834,16 @@ export default function OrderLog() {
         <DialogContent className="sm:max-w-sm">
           <DialogHeader><DialogTitle>Print Bill — Order #{printOrder?.id}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="flex gap-2">
-              <Button variant={printBillType === "pan" ? "default" : "outline"} size="sm" onClick={() => setPrintBillType("pan")} className="flex-1">PAN Bill</Button>
-              <Button variant={printBillType === "vat" ? "default" : "outline"} size="sm" onClick={() => setPrintBillType("vat")} className="flex-1">VAT Bill</Button>
-            </div>
+            {(printOrder as any)?.isNc ? (
+              <div className="text-xs bg-purple-50 text-purple-800 border border-purple-200 rounded-md p-2">
+                This is a Not Chargeable bill, issued to <strong>{(printOrder as any)?.ncPersonName}</strong>.
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button variant={printBillType === "pan" ? "default" : "outline"} size="sm" onClick={() => setPrintBillType("pan")} className="flex-1">PAN Bill</Button>
+                <Button variant={printBillType === "vat" ? "default" : "outline"} size="sm" onClick={() => setPrintBillType("vat")} className="flex-1">VAT Bill</Button>
+              </div>
+            )}
             <div className="space-y-1">
               <Label className="text-xs">Reason for reprint *</Label>
               <Input value={printReason} onChange={e => setPrintReason(e.target.value)} placeholder="e.g. Customer lost original, needed for accounting..." />
