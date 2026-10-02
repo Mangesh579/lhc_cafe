@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
 import {
   useListInventory,
-  useCreateInventoryItem,
-  useUpdateInventoryItem,
   useDeleteInventoryItem,
   useAdjustInventory,
   useListMenuItems,
@@ -21,21 +19,43 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Edit2, Trash2, AlertCircle, RefreshCw, PackageX, Wrench, ClipboardList, Search, X } from "lucide-react";
 import { format } from "date-fns";
+import { useAuth } from "@/contexts/auth";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const APIJSON = (path: string, method = "GET", body?: object) =>
   fetch(`${API_BASE}/api${path}`, {
     method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }, body: body ? JSON.stringify(body) : undefined }).then(r => r.ok ? r.json() : Promise.reject(r));
 
+type Dept = "kitchen" | "drink";
+
+// ─── Kitchen / Drink toggle, reused across all four tabs ───────────────────────
+function DeptToggle({ value, onChange }: { value: Dept; onChange: (v: Dept) => void }) {
+  return (
+    <div className="inline-flex rounded-md border p-0.5 bg-muted/30">
+      <button
+        onClick={() => onChange("kitchen")}
+        className={`px-3 py-1.5 text-sm rounded transition-colors ${value === "kitchen" ? "bg-background shadow-sm font-medium" : "text-muted-foreground"}`}
+      >
+        Kitchen
+      </button>
+      <button
+        onClick={() => onChange("drink")}
+        className={`px-3 py-1.5 text-sm rounded transition-colors ${value === "drink" ? "bg-background shadow-sm font-medium" : "text-muted-foreground"}`}
+      >
+        Drink / Coffee
+      </button>
+    </div>
+  );
+}
+
 // ─── Ingredient Form Dialog ────────────────────────────────────────────────────
-function IngredientDialog({ item, open, onClose, onSaved }: { item?: any; open: boolean; onClose: () => void; onSaved: () => void }) {
+function IngredientDialog({ item, department, open, onClose, onSaved }: { item?: any; department: Dept; open: boolean; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(item?.name ?? "");
   const [unit, setUnit] = useState(item?.unit ?? "grams");
   const [currentStock, setCurrentStock] = useState(item?.currentStock ? String(item.currentStock) : "0");
   const [minStock, setMinStock] = useState(item?.minStockLevel ? String(item.minStockLevel) : "");
   const [calories, setCalories] = useState(item?.caloriesPerUnit ? String(item.caloriesPerUnit) : "");
-  const createMut = useCreateInventoryItem();
-  const updateMut = useUpdateInventoryItem();
+  const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -49,21 +69,28 @@ function IngredientDialog({ item, open, onClose, onSaved }: { item?: any; open: 
 
   const handleSave = async () => {
     if (!name || !unit) { toast({ title: "Name and unit are required", variant: "destructive" }); return; }
-    const data: any = { name, unit, currentStock: parseFloat(currentStock) || 0, minStockLevel: minStock ? parseFloat(minStock) : undefined, caloriesPerUnit: calories ? parseFloat(calories) : undefined };
+    setLoading(true);
+    const data: any = {
+      name, unit, currentStock: parseFloat(currentStock) || 0,
+      minStockLevel: minStock ? parseFloat(minStock) : undefined,
+      caloriesPerUnit: calories ? parseFloat(calories) : undefined,
+      department,
+    };
     try {
-      if (item) await updateMut.mutateAsync({ id: item.id, data });
-      else await createMut.mutateAsync({ data });
+      if (item) await APIJSON(`/inventory/${item.id}`, "PATCH", data);
+      else await APIJSON(`/inventory`, "POST", data);
       toast({ title: item ? "Item updated" : "Item added" }); onSaved(); onClose();
-    } catch (err: any) { toast({ title: "Error", description: err?.data?.error ?? "Failed to save", variant: "destructive" }); }
+    } catch (err: any) { toast({ title: "Error", description: err?.error ?? "Failed to save", variant: "destructive" }); }
+    finally { setLoading(false); }
   };
 
   const UNITS = ["grams", "kg", "ml", "liters", "pieces", "cups", "tbsp", "tsp", "boxes", "bags"];
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader><DialogTitle>{item ? "Edit Ingredient" : "Add Ingredient"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{item ? "Edit Ingredient" : `Add ${department === "kitchen" ? "Kitchen" : "Drink/Coffee"} Ingredient`}</DialogTitle></DialogHeader>
         <div className="grid grid-cols-2 gap-4 py-4">
-          <div className="col-span-2 space-y-1"><Label>Name *</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="Espresso Beans" /></div>
+          <div className="col-span-2 space-y-1"><Label>Name *</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="Espresso Beans" /><p className="text-xs text-muted-foreground">Will be saved as "{department === "kitchen" ? "K" : "D"} {name || "…"}"</p></div>
           <div className="space-y-1">
             <Label>Unit *</Label>
             <Select value={unit} onValueChange={setUnit}>
@@ -77,7 +104,7 @@ function IngredientDialog({ item, open, onClose, onSaved }: { item?: any; open: 
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSave} disabled={createMut.isPending || updateMut.isPending}>{item ? "Update" : "Add"}</Button>
+          <Button onClick={handleSave} disabled={loading}>{item ? "Update" : "Add"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -85,7 +112,7 @@ function IngredientDialog({ item, open, onClose, onSaved }: { item?: any; open: 
 }
 
 // ─── Equipment Dialog ─────────────────────────────────────────────────────────
-function EquipmentDialog({ eq, open, onClose, onSaved }: { eq?: any; open: boolean; onClose: () => void; onSaved: () => void }) {
+function EquipmentDialog({ eq, department, open, onClose, onSaved }: { eq?: any; department: Dept; open: boolean; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(eq?.name ?? "");
   const [description, setDescription] = useState(eq?.description ?? "");
   const [purchaseDate, setPurchaseDate] = useState(eq?.purchaseDate ?? "");
@@ -112,26 +139,27 @@ function EquipmentDialog({ eq, open, onClose, onSaved }: { eq?: any; open: boole
     if (!name) { toast({ title: "Name required", variant: "destructive" }); return; }
     setLoading(true);
     try {
-      const body = {
+      const body: any = {
         name, description: description || undefined,
         purchaseDate: purchaseDate || undefined,
         quantity: quantity ? parseInt(quantity) : 1,
         unitPrice: unitPrice ? parseFloat(unitPrice) : undefined,
         condition, notes: notes || undefined,
+        department,
       };
       if (eq) await APIJSON(`/equipment/${eq.id}`, "PATCH", body);
       else await APIJSON(`/equipment`, "POST", body);
       toast({ title: eq ? "Equipment updated" : "Equipment added" }); onSaved(); onClose();
-    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    } catch (err: any) { toast({ title: "Error", description: err?.error ?? "Failed to save", variant: "destructive" }); }
     finally { setLoading(false); }
   };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader><DialogTitle>{eq ? "Edit Equipment" : "Add Equipment"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{eq ? "Edit Equipment" : `Add ${department === "kitchen" ? "Kitchen" : "Drink/Coffee"} Equipment`}</DialogTitle></DialogHeader>
         <div className="grid grid-cols-2 gap-4 py-4">
-          <div className="col-span-2 space-y-1"><Label>Name *</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="Espresso Machine" /></div>
+          <div className="col-span-2 space-y-1"><Label>Name *</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="Espresso Machine" /><p className="text-xs text-muted-foreground">Will be saved as "{department === "kitchen" ? "K" : "D"} {name || "…"}"</p></div>
           <div className="space-y-1"><Label>Purchase Date</Label><Input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} /></div>
           <div className="space-y-1">
             <Label>Condition</Label>
@@ -163,7 +191,7 @@ function EquipmentDialog({ eq, open, onClose, onSaved }: { eq?: any; open: boole
 }
 
 // ─── Waste Form Dialog ────────────────────────────────────────────────────────
-function WasteDialog({ inventory, menuItems, equipment, open, onClose, onSaved }: { inventory: any[]; menuItems: any[]; equipment: any[]; open: boolean; onClose: () => void; onSaved: () => void }) {
+function WasteDialog({ inventory, menuItems, equipment, department, open, onClose, onSaved }: { inventory: any[]; menuItems: any[]; equipment: any[]; department: Dept; open: boolean; onClose: () => void; onSaved: () => void }) {
   const [invItemId, setInvItemId] = useState("");
   const [menuItemId, setMenuItemId] = useState("");
   const [equipmentItemId, setEquipmentItemId] = useState("");
@@ -175,11 +203,14 @@ function WasteDialog({ inventory, menuItems, equipment, open, onClose, onSaved }
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
+  const deptInventory = inventory.filter(i => i.department === department);
+  const deptEquipment = equipment.filter(e => e.department === department);
+
   const handleInvChange = (id: string) => {
     const val = id === "none" ? "" : id;
     setInvItemId(val); setMenuItemId(""); setEquipmentItemId("");
     if (val) {
-      const inv = inventory.find(i => i.id.toString() === val);
+      const inv = deptInventory.find(i => i.id.toString() === val);
       if (inv) { setItemName(inv.name); setUnit(inv.unit); }
     } else { setItemName(""); setUnit(""); }
   };
@@ -197,17 +228,16 @@ function WasteDialog({ inventory, menuItems, equipment, open, onClose, onSaved }
     const val = id === "none" ? "" : id;
     setEquipmentItemId(val); setInvItemId(""); setMenuItemId("");
     if (val) {
-      const e = equipment.find(i => i.id.toString() === val);
+      const e = deptEquipment.find(i => i.id.toString() === val);
       if (e) {
         setItemName(e.name);
         setUnit("pieces");
-        // Pre-fill estimated value from unit price × 1, staff can adjust quantity
         if (e.unitPrice) setWasteValue(String(parseFloat(e.unitPrice)));
       }
     } else { setItemName(""); setUnit(""); setWasteValue(""); }
   };
 
-  const selectedEquipment = equipment.find(e => e.id.toString() === equipmentItemId);
+  const selectedEquipment = deptEquipment.find(e => e.id.toString() === equipmentItemId);
 
   const handleSave = async () => {
     if (!itemName || !quantity || !unit || !reason) { toast({ title: "Fill all required fields", variant: "destructive" }); return; }
@@ -218,18 +248,19 @@ function WasteDialog({ inventory, menuItems, equipment, open, onClose, onSaved }
         menuItemId: menuItemId ? parseInt(menuItemId) : undefined,
         equipmentItemId: equipmentItemId ? parseInt(equipmentItemId) : undefined,
         itemName, quantity: parseFloat(quantity), unit, reason, wasteValue: wasteValue ? parseFloat(wasteValue) : 0,
+        department,
       });
       toast({ title: "Waste logged" });
       setInvItemId(""); setMenuItemId(""); setEquipmentItemId(""); setItemName(""); setQuantity(""); setUnit(""); setReason(""); setWasteValue("");
       onSaved(); onClose();
-    } catch { toast({ title: "Failed to log waste", variant: "destructive" }); }
+    } catch (err: any) { toast({ title: "Error", description: err?.error ?? "Failed to log waste", variant: "destructive" }); }
     finally { setLoading(false); }
   };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader><DialogTitle>Log Waste</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Log {department === "kitchen" ? "Kitchen" : "Drink/Coffee"} Waste</DialogTitle></DialogHeader>
         <div className="space-y-4 py-4">
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1">
@@ -238,7 +269,7 @@ function WasteDialog({ inventory, menuItems, equipment, open, onClose, onSaved }
                 <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent className="max-h-[300px] overflow-y-auto">
                   <SelectItem value="none">None</SelectItem>
-                  {inventory.map(i => <SelectItem key={i.id} value={String(i.id)}>{i.name}</SelectItem>)}
+                  {deptInventory.map(i => <SelectItem key={i.id} value={String(i.id)}>{i.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -258,7 +289,7 @@ function WasteDialog({ inventory, menuItems, equipment, open, onClose, onSaved }
                 <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent className="max-h-[300px] overflow-y-auto">
                   <SelectItem value="none">None</SelectItem>
-                  {equipment.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.name} ({e.quantity ?? 1} in stock)</SelectItem>)}
+                  {deptEquipment.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.name} ({e.quantity ?? 1} in stock)</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -292,6 +323,11 @@ function WasteDialog({ inventory, menuItems, equipment, open, onClose, onSaved }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Inventory() {
+  const { user } = useAuth();
+  const role = user?.role as string | undefined;
+  const canWriteKitchen = role === "admin" || role === "head_chef";
+  const canWriteDrink = role === "admin" || role === "head_barista";
+
   const { data: inventory = [], isLoading, refetch } = useListInventory();
   const { data: menuItems = [] } = useListMenuItems();
   const deleteMut = useDeleteInventoryItem();
@@ -299,6 +335,11 @@ export default function Inventory() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [usageMap, setUsageMap] = useState<Record<number, { id: number; name: string; isAvailable: boolean }[]>>({});
+
+  const [ingredientDept, setIngredientDept] = useState<Dept>(role === "head_barista" ? "drink" : "kitchen");
+  const [equipmentDept, setEquipmentDept] = useState<Dept>(role === "head_barista" ? "drink" : "kitchen");
+  const [wasteDept, setWasteDept] = useState<Dept>(role === "head_barista" ? "drink" : "kitchen");
+  const [logDept, setLogDept] = useState<Dept>(role === "head_barista" ? "drink" : "kitchen");
 
   const loadUsageMap = async () => {
     try {
@@ -326,7 +367,6 @@ export default function Inventory() {
   const [eqDialog, setEqDialog] = useState<{ open: boolean; eq?: any }>({ open: false });
   const [wasteDialog, setWasteDialog] = useState(false);
   const [equipment, setEquipment] = useState<any[]>([]);
-  const [eqLogs, setEqLogs] = useState<any[]>([]);
   const [wasteLogs, setWasteLogs] = useState<any[]>([]);
   const [wasteReport, setWasteReport] = useState<any[]>([]);
   const [invLogs, setInvLogs] = useState<any[]>([]);
@@ -338,7 +378,6 @@ export default function Inventory() {
     if (!force && logsLoaded === tab) return;
     try {
       if (tab === "equipment") { const d = await APIJSON("/equipment"); setEquipment(Array.isArray(d) ? d : []); }
-      if (tab === "equipment-logs") { const d = await APIJSON("/equipment/logs"); setEqLogs(Array.isArray(d) ? d : []); }
       if (tab === "waste") {
         const d = await APIJSON("/waste"); setWasteLogs(Array.isArray(d) ? d : []);
         const r = await APIJSON("/waste/monthly-report"); setWasteReport(Array.isArray(r) ? r : []);
@@ -369,8 +408,8 @@ export default function Inventory() {
   const handleDeleteEquipment = async (id: number) => {
     if (!confirm("Delete this equipment?")) return;
     try {
-      const r = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/equipment/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
-      if (!r.ok) throw new Error("Failed");
+      const r = await fetch(`${API_BASE}/api/equipment/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); toast({ title: "Failed to delete", description: d?.error, variant: "destructive" }); return; }
       setEquipment(prev => prev.filter(e => e.id !== id)); toast({ title: "Equipment removed" });
     } catch { toast({ title: "Failed to delete", variant: "destructive" }); }
   };
@@ -380,13 +419,31 @@ export default function Inventory() {
   const lowStockItems = (inventory as any[]).filter(i => i.minStockLevel && parseFloat(String(i.currentStock)) < parseFloat(String(i.minStockLevel)));
 
   const filteredInventory = (inventory as any[]).filter(i =>
-    !ingredientSearch.trim() || i.name.toLowerCase().includes(ingredientSearch.toLowerCase())
+    i.department === ingredientDept &&
+    (!ingredientSearch.trim() || i.name.toLowerCase().includes(ingredientSearch.toLowerCase()))
   );
+  const canWriteIngredient = ingredientDept === "kitchen" ? canWriteKitchen : canWriteDrink;
 
   const [equipmentSearch, setEquipmentSearch] = useState("");
   const filteredEquipment = equipment.filter((e: any) =>
-    !equipmentSearch.trim() || e.name.toLowerCase().includes(equipmentSearch.toLowerCase())
+    e.department === equipmentDept &&
+    (!equipmentSearch.trim() || e.name.toLowerCase().includes(equipmentSearch.toLowerCase()))
   );
+  const canWriteEquipment = equipmentDept === "kitchen" ? canWriteKitchen : canWriteDrink;
+
+  const filteredWasteLogs = wasteLogs.filter((w: any) => w.department === wasteDept);
+  const canWriteWaste = wasteDept === "kitchen" ? canWriteKitchen : canWriteDrink;
+
+  const deptIngredientsForLogFilter = (inventory as any[]).filter(i => i.department === logDept);
+  const filteredInvLogs = invLogs.filter((log: any) => {
+    if (log.department !== logDept) return false;
+    if (invLogDateFilter && !log.createdAt.startsWith(invLogDateFilter)) return false;
+    if (invLogIngredientFilter && log.ingredientName !== invLogIngredientFilter) return false;
+    return true;
+  });
+
+  const noWritePermissionMsg = (dept: Dept) =>
+    dept === "kitchen" ? "Only the head chef or an admin can make changes here" : "Only the head barista or an admin can make changes here";
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-5">
@@ -416,7 +473,7 @@ export default function Inventory() {
         </div>
       )}
 
-      <Tabs defaultValue="ingredients" onValueChange={(t) => ["equipment", "equipment-logs", "waste", "inv-log"].includes(t) && loadTab(t)}>
+      <Tabs defaultValue="ingredients" onValueChange={(t) => ["equipment", "waste", "inv-log"].includes(t) && loadTab(t)}>
         <TabsList>
           <TabsTrigger value="ingredients">Ingredients</TabsTrigger>
           <TabsTrigger value="equipment">Equipment</TabsTrigger>
@@ -426,6 +483,7 @@ export default function Inventory() {
 
         {/* ── Ingredients Tab ─────────────────────────────────────────────── */}
         <TabsContent value="ingredients" className="space-y-4 mt-4">
+          <DeptToggle value={ingredientDept} onChange={setIngredientDept} />
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="relative max-w-sm flex-1 min-w-48">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -441,7 +499,9 @@ export default function Inventory() {
                 </button>
               )}
             </div>
-            <Button onClick={() => setIngDialog({ open: true })} className="gap-2"><Plus className="w-4 h-4" /> Add Ingredient</Button>
+            <Button onClick={() => setIngDialog({ open: true })} disabled={!canWriteIngredient} title={!canWriteIngredient ? noWritePermissionMsg(ingredientDept) : undefined} className="gap-2">
+              <Plus className="w-4 h-4" /> Add Ingredient
+            </Button>
           </div>
           <Card>
             <CardContent className="p-0">
@@ -462,7 +522,6 @@ export default function Inventory() {
                     <tr><td colSpan={6} className="px-5 py-8 text-center text-muted-foreground">Loading...</td></tr>
                   ) : filteredInventory.map((item: any) => {
                     const isLow = item.minStockLevel && parseFloat(String(item.currentStock)) < parseFloat(String(item.minStockLevel));
-                    const usedInItems = menuItems?.filter(m => (m as any).recipes?.some((r: any) => r.inventoryItemId === item.id)) ?? [];
                     return (
                       <tr key={item.id} className={`hover:bg-muted/20 ${isLow ? "bg-red-50/50" : ""}`}>
                         <td className="px-5 py-3">
@@ -507,11 +566,11 @@ export default function Inventory() {
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="outline" size="sm" onClick={() => { setAdjustItem(item); setAdjustQty(""); setAdjustReason(""); }} className="gap-1.5">
+                            <Button variant="outline" size="sm" onClick={() => { setAdjustItem(item); setAdjustQty(""); setAdjustReason(""); }} disabled={!canWriteIngredient} title={!canWriteIngredient ? noWritePermissionMsg(ingredientDept) : undefined} className="gap-1.5">
                               <RefreshCw className="w-3 h-3" /> Adjust
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => setIngDialog({ open: true, item })}><Edit2 className="w-4 h-4 text-muted-foreground" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDeleteIngredient(item.id, item.name)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                            <Button variant="ghost" size="icon" onClick={() => setIngDialog({ open: true, item })} disabled={!canWriteIngredient} title={!canWriteIngredient ? noWritePermissionMsg(ingredientDept) : undefined}><Edit2 className="w-4 h-4 text-muted-foreground" /></Button>
+                            <Button variant="ghost" size="icon" onClick={() => handleDeleteIngredient(item.id, item.name)} disabled={!canWriteIngredient} title={!canWriteIngredient ? noWritePermissionMsg(ingredientDept) : undefined}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                           </div>
                         </td>
                       </tr>
@@ -519,7 +578,7 @@ export default function Inventory() {
                   })}
                   {!isLoading && filteredInventory.length === 0 && (
                     <tr><td colSpan={6} className="px-5 py-8 text-center text-muted-foreground">
-                      {ingredientSearch ? "No ingredients match your search." : "No ingredients added yet."}
+                      {ingredientSearch ? "No ingredients match your search." : `No ${ingredientDept === "kitchen" ? "kitchen" : "drink/coffee"} ingredients added yet.`}
                     </td></tr>
                   )}
                 </tbody>
@@ -531,13 +590,14 @@ export default function Inventory() {
 
         {/* ── Equipment Tab ───────────────────────────────────────────────── */}
         <TabsContent value="equipment" className="space-y-4 mt-4">
+          <DeptToggle value={equipmentDept} onChange={setEquipmentDept} />
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="relative max-w-sm flex-1 min-w-48">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input placeholder="Search equipment…" value={equipmentSearch} onChange={e => setEquipmentSearch(e.target.value)} className="pl-9 h-9" />
               {equipmentSearch && <button onClick={() => setEquipmentSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>}
             </div>
-            <Button onClick={() => setEqDialog({ open: true })} className="gap-2"><Plus className="w-4 h-4" /> Add Equipment</Button>
+            <Button onClick={() => setEqDialog({ open: true })} disabled={!canWriteEquipment} title={!canWriteEquipment ? noWritePermissionMsg(equipmentDept) : undefined} className="gap-2"><Plus className="w-4 h-4" /> Add Equipment</Button>
           </div>
           <Card>
             <CardContent className="p-0">
@@ -556,7 +616,7 @@ export default function Inventory() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filteredEquipment.length === 0 ? (
-                    <tr><td colSpan={7} className="px-5 py-8 text-center text-muted-foreground">{equipmentSearch ? "No equipment matches your search." : "No equipment added yet."}</td></tr>
+                    <tr><td colSpan={7} className="px-5 py-8 text-center text-muted-foreground">{equipmentSearch ? "No equipment matches your search." : `No ${equipmentDept === "kitchen" ? "kitchen" : "drink/coffee"} equipment added yet.`}</td></tr>
                   ) : filteredEquipment.map((eq: any) => (
                     <tr key={eq.id} className="hover:bg-muted/20">
                       <td className="px-5 py-3">
@@ -572,8 +632,8 @@ export default function Inventory() {
                       <td className="px-5 py-3 text-muted-foreground">{eq.purchaseDate || "—"}</td>
                       <td className="px-5 py-3 text-right">
                         <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => setEqDialog({ open: true, eq })}><Edit2 className="w-4 h-4 text-muted-foreground" /></Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDeleteEquipment(eq.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                          <Button variant="ghost" size="icon" onClick={() => setEqDialog({ open: true, eq })} disabled={!canWriteEquipment} title={!canWriteEquipment ? noWritePermissionMsg(equipmentDept) : undefined}><Edit2 className="w-4 h-4 text-muted-foreground" /></Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDeleteEquipment(eq.id)} disabled={!canWriteEquipment} title={!canWriteEquipment ? noWritePermissionMsg(equipmentDept) : undefined}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                         </div>
                       </td>
                     </tr>
@@ -587,9 +647,10 @@ export default function Inventory() {
 
         {/* ── Waste Log Tab ───────────────────────────────────────────────── */}
         <TabsContent value="waste" className="space-y-4 mt-4">
+          <DeptToggle value={wasteDept} onChange={setWasteDept} />
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => loadTab("waste", true)} className="gap-2"><RefreshCw className="w-4 h-4" /> Refresh</Button>
-            <Button onClick={() => setWasteDialog(true)} className="gap-2"><PackageX className="w-4 h-4" /> Log Waste</Button>
+            <Button onClick={() => setWasteDialog(true)} disabled={!canWriteWaste} title={!canWriteWaste ? noWritePermissionMsg(wasteDept) : undefined} className="gap-2"><PackageX className="w-4 h-4" /> Log Waste</Button>
           </div>
 
           {wasteReport.length > 0 && (
@@ -602,7 +663,7 @@ export default function Inventory() {
                     <CardContent className="p-3">
                       <p className="text-xs font-semibold text-muted-foreground uppercase truncate">{monthLabel}</p>
                       <p className="text-lg font-bold mt-1 text-red-600">Rs. {m.totalValue.toFixed(0)}</p>
-                      <p className="text-xs text-muted-foreground">{m.count} incidents</p>
+                      <p className="text-xs text-muted-foreground">{m.count} incidents (all departments)</p>
                       {topReason && <p className="text-xs text-muted-foreground mt-1 truncate">Top: {topReason[0]}</p>}
                     </CardContent>
                   </Card>
@@ -625,9 +686,9 @@ export default function Inventory() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {wasteLogs.length === 0 ? (
-                    <tr><td colSpan={6} className="px-5 py-8 text-center text-muted-foreground">No waste recorded.</td></tr>
-                  ) : wasteLogs.map((w: any) => (
+                  {filteredWasteLogs.length === 0 ? (
+                    <tr><td colSpan={6} className="px-5 py-8 text-center text-muted-foreground">No {wasteDept === "kitchen" ? "kitchen" : "drink/coffee"} waste recorded.</td></tr>
+                  ) : filteredWasteLogs.map((w: any) => (
                     <tr key={w.id} className="hover:bg-muted/20">
                       <td className="px-5 py-3 text-xs text-muted-foreground">{format(new Date(w.createdAt), 'MMM d, h:mm a')}</td>
                       <td className="px-5 py-3 font-medium">{w.itemName}</td>
@@ -646,6 +707,7 @@ export default function Inventory() {
 
         {/* ── Stock Log Tab ────────────────────────────────────────────────── */}
         <TabsContent value="inv-log" className="space-y-4 mt-4">
+          <DeptToggle value={logDept} onChange={setLogDept} />
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex gap-2 flex-wrap">
               <Input type="date" value={invLogDateFilter} onChange={e => setInvLogDateFilter(e.target.value)} className="h-9 w-40" />
@@ -653,7 +715,7 @@ export default function Inventory() {
                 <SelectTrigger className="h-9 w-48"><SelectValue placeholder="All ingredients" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Ingredients</SelectItem>
-                  {(inventory as any[]).map(i => <SelectItem key={i.id} value={i.name}>{i.name}</SelectItem>)}
+                  {deptIngredientsForLogFilter.map(i => <SelectItem key={i.id} value={i.name}>{i.name}</SelectItem>)}
                 </SelectContent>
               </Select>
               {(invLogDateFilter || invLogIngredientFilter) && (
@@ -676,14 +738,9 @@ export default function Inventory() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {(() => {
-                    const filteredLogs = invLogs.filter((log: any) => {
-                      if (invLogDateFilter && !log.createdAt.startsWith(invLogDateFilter)) return false;
-                      if (invLogIngredientFilter && log.ingredientName !== invLogIngredientFilter) return false;
-                      return true;
-                    });
-                    if (filteredLogs.length === 0) return <tr><td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">No log entries match the filter.</td></tr>;
-                    return filteredLogs.map((log: any) => {
+                  {filteredInvLogs.length === 0 ? (
+                    <tr><td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">No log entries match the filter.</td></tr>
+                  ) : filteredInvLogs.map((log: any) => {
                     const change = parseFloat(String(log.changeAmount));
                     return (
                       <tr key={log.id} className="hover:bg-muted/20">
@@ -700,8 +757,7 @@ export default function Inventory() {
                         <td className="px-5 py-3 text-muted-foreground">{log.reason}</td>
                       </tr>
                     );
-                  });
-                  })()}
+                  })}
                 </tbody>
               </table>
               </div>
@@ -733,9 +789,9 @@ export default function Inventory() {
       </Dialog>
 
       {/* Dialogs */}
-      <IngredientDialog item={ingDialog.item} open={ingDialog.open} onClose={() => setIngDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); }} />
-      <EquipmentDialog eq={eqDialog.eq} open={eqDialog.open} onClose={() => setEqDialog({ open: false })} onSaved={() => loadTab("equipment", true)} />
-      <WasteDialog inventory={inventory as any[]} menuItems={menuItems as any[]} equipment={equipment} open={wasteDialog} onClose={() => setWasteDialog(false)} onSaved={() => { loadTab("waste", true); loadTab("equipment", true); }} />
+      <IngredientDialog item={ingDialog.item} department={ingredientDept} open={ingDialog.open} onClose={() => setIngDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); }} />
+      <EquipmentDialog eq={eqDialog.eq} department={equipmentDept} open={eqDialog.open} onClose={() => setEqDialog({ open: false })} onSaved={() => loadTab("equipment", true)} />
+      <WasteDialog inventory={inventory as any[]} menuItems={menuItems as any[]} equipment={equipment} department={wasteDept} open={wasteDialog} onClose={() => setWasteDialog(false)} onSaved={() => { loadTab("waste", true); loadTab("equipment", true); }} />
     </div>
   );
 }

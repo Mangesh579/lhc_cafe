@@ -55,6 +55,8 @@ function UserDialog({ user, open, onClose, onSaved }: { user?: any; open: boolea
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="staff">Staff</SelectItem>
+                <SelectItem value="head_chef">Head Chef</SelectItem>
+                <SelectItem value="head_barista">Head Barista</SelectItem>
                 <SelectItem value="supervisor">Supervisor</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
               </SelectContent>
