@@ -492,7 +492,7 @@ export default function POS() {
                 <img src="/LHC_logo.png" alt="LHC Cafe" style={{ height: 48, margin: "0 auto 8px", display: "block" }} />
                 <h2 className="text-lg font-bold">Legendary House Cafe & Barista School</h2>
                 <p className="text-xs">Sulimha Durbar, Pimbahal, Nepal</p>
-                <p className="text-xs">PAN/VAT No: YOUR_PAN_NUMBER_HERE</p>
+                <p className="text-xs">PAN/VAT No: 194139113</p>
                 {lastOrderDetails.isNc && (
                   <p className="text-xs font-bold mt-1 inline-block border-2 border-gray-800 px-2 py-0.5">NOT CHARGEABLE</p>
                 )}
