@@ -195,10 +195,10 @@ export default function Orders() {
     const receiptHtml = `
       <div style="font-family:monospace;font-size:12px;padding:20px;color:black;background:white;">
         <div style="text-align:center;margin-bottom:12px;border-bottom:2px solid #1a1a1a;padding-bottom:12px;">
-          <img src="YOUR_LOGO_URL_HERE" alt="LHC Cafe" style="height:48px;margin:0 auto 8px;display:block;" />
+          <img src="/LHC_logo.png" alt="LHC Cafe" style="height:48px;margin:0 auto 8px;display:block;" />
           <h2 style="font-size:16px;font-weight:bold;margin:0;">Legendary House Cafe & Barista School</h2>
           <p style="font-size:11px;">Sulimha Durbar, Pimbahal, Nepal</p>
-          <p style="font-size:11px;">PAN/VAT No: YOUR_PAN_NUMBER_HERE</p>
+          <p style="font-size:11px;">PAN/VAT No: 194139113</p>
           <p style="font-size:11px;font-weight:bold;margin-top:4px;display:inline-block;border:2px solid #1a1a1a;padding:2px 8px;">NOT CHARGEABLE</p>
         </div>
         <p>Order #${order.id}</p>
