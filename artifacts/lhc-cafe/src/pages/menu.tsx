@@ -247,8 +247,8 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
               <div key={r.inventoryItemId} className="flex items-center justify-between bg-muted/30 px-3 py-2 rounded-md">
                 <div>
                   <span className="font-medium text-sm">{r.ingredientName}</span>
-                  <span className="text-muted-foreground text-sm ml-2">{r.quantityRequired} {r.unit}</span>
-                  {parseFloat(String(r.wasteQuantity ?? 0)) > 0 && <span className="text-xs text-amber-600 ml-2">+ {r.wasteQuantity} {r.unit} waste</span>}
+                  <span className="text-muted-foreground text-sm ml-2">{parseFloat((parseFloat(String(r.quantityRequired)) + parseFloat(String(r.wasteQuantity ?? 0))).toFixed(2))} {r.unit} total</span>
+                  {parseFloat(String(r.wasteQuantity ?? 0)) > 0 && <span className="text-xs text-amber-600 ml-2">({r.quantityRequired} + {r.wasteQuantity} waste)</span>}
                   {r.caloriesPerUnit && <span className="text-xs text-muted-foreground ml-2">({(parseFloat(String(r.caloriesPerUnit)) * parseFloat(String(r.quantityRequired))).toFixed(1)} kcal)</span>}
                 </div>
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(r.inventoryItemId)}><Trash2 className="w-3.5 h-3.5" /></Button>
