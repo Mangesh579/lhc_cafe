@@ -4,6 +4,7 @@ import { AlertCircle, Coffee, DollarSign, Package, ShoppingBag, Users, ExternalL
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 import { format } from "date-fns";
 import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/auth";
 
 type SystemHealth = {
   cloudinary: { storageUsedGB: number; storageLimitGB: number; bandwidthUsedGB: number; bandwidthLimitGB: number; creditsUsed: number; creditsLimit: number; creditsPercent: number } | null;
@@ -39,7 +40,9 @@ export default function Dashboard() {
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
 
+  const { user } = useAuth();
   useEffect(() => {
+    if (user?.role !== "admin") { setHealthLoading(false); return; }
     const API_BASE = import.meta.env.VITE_API_BASE ?? "";
     fetch(`${API_BASE}/api/system/health`, {
       headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }
@@ -48,7 +51,7 @@ export default function Dashboard() {
       .then(d => { if (d) setHealth(d); })
       .catch(() => {})
       .finally(() => setHealthLoading(false));
-  }, []);
+  }, [user]);
 
   const formatCurrency = (val: number) => `Rs. ${val.toLocaleString()}`;
 
@@ -86,6 +89,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
+
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
@@ -95,6 +99,7 @@ export default function Dashboard() {
             <div className="text-3xl font-bold">{stats?.pendingOrders ?? 0}</div>
           </CardContent>
         </Card>
+
 
         <Card className={stats?.lowStockCount ? "border-destructive/50" : ""}>
           <CardContent className="p-6">
@@ -175,108 +180,110 @@ export default function Dashboard() {
       </div>
       
       {/* System Health */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2"><Activity className="w-5 h-5" /> System Health</CardTitle>
-            <CardDescription>Platform usage across all services</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {healthLoading ? (
-            <p className="text-sm text-muted-foreground">Loading usage data…</p>
-          ) : !health ? (
-            <p className="text-sm text-muted-foreground">Could not load usage data.</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-
-              {/* Cloudinary */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold">Cloudinary Media</h4>
-                  <a href={health.links.cloudinary} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
-                    Dashboard <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-                {health.cloudinary ? (
-                  <div className="space-y-3">
-                    <UsageBar used={health.cloudinary.creditsUsed} total={health.cloudinary.creditsLimit} label={`Credits: ${health.cloudinary.creditsUsed.toFixed(1)} / ${health.cloudinary.creditsLimit}`} />
-                    <UsageBar used={health.cloudinary.storageUsedGB} total={health.cloudinary.storageLimitGB} label={`Storage: ${health.cloudinary.storageUsedGB.toFixed(2)} GB / ${health.cloudinary.storageLimitGB} GB`} />
-                    <UsageBar used={health.cloudinary.bandwidthUsedGB} total={health.cloudinary.bandwidthLimitGB} label={`Bandwidth: ${health.cloudinary.bandwidthUsedGB.toFixed(2)} GB / ${health.cloudinary.bandwidthLimitGB} GB`} />
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">Configure CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET in Railway to see usage.</p>
-                )}
-              </div>
-
-              {/* Email + Database */}
-              <div className="space-y-6">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-semibold">Resend Email</h4>
-                    <a href={health.links.resend} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
-                      Dashboard <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                  <UsageBar used={health.email.sentThisMonth} total={health.email.limitPerMonth} label={`OTPs sent: ${health.email.sentThisMonth} / ${health.email.limitPerMonth} this month`} />
-                  <p className="text-xs text-muted-foreground">Free tier: 3,000 emails/month</p>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-semibold">Neon PostgreSQL</h4>
-                    <a href={(health as any).links?.neon ?? "https://console.neon.tech"} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
-                      Dashboard <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                  <UsageBar
-                    used={(health.database as any).bytes}
-                    total={(health.database as any).limitBytes ?? 512 * 1024 * 1024}
-                    label={`Size: ${health.database.pretty} / 0.5 GB`}
-                  />
-                  <p className="text-xs text-muted-foreground">Free tier: 0.5 GiB storage, no expiry</p>
-                </div>
-              </div>
-
-              {/* Railway + Vercel links */}
-              <div className="space-y-4">
-                <h4 className="text-sm font-semibold">Platform Links</h4>
-                <p className="text-xs text-muted-foreground">These platforms don't expose public usage APIs — check their dashboards directly.</p>
-                <div className="space-y-2">
-                  <a href={(health as any).render?.dashboardUrl ?? "https://dashboard.render.com"} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-between p-3 rounded-md border hover:bg-muted/50 transition-colors">
-                    <div>
-                      <p className="text-sm font-medium flex items-center gap-2">
-                        Render
-                        <span className="text-xs font-normal px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">● Awake</span>
-                      </p>
-                      <p className="text-xs text-muted-foreground">{(health as any).render?.region} · {(health as any).render?.plan}</p>
-                    </div>
-                    <ExternalLink className="w-4 h-4 text-muted-foreground" />
-                  </a>
-                  <a href={health.links.vercel} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-between p-3 rounded-md border hover:bg-muted/50 transition-colors">
-                    <div>
-                      <p className="text-sm font-medium">Vercel</p>
-                      <p className="text-xs text-muted-foreground">Frontend hosting · Bandwidth · Free tier</p>
-                    </div>
-                    <ExternalLink className="w-4 h-4 text-muted-foreground" />
-                  </a>
-                  <a href={health.links.railway} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-between p-3 rounded-md border hover:bg-muted/50 transition-colors opacity-60">
-                    <div>
-                      <p className="text-sm font-medium">Railway</p>
-                      <p className="text-xs text-muted-foreground">Previous hosting — kept for reference</p>
-                    </div>
-                    <ExternalLink className="w-4 h-4 text-muted-foreground" />
-                  </a>
-                </div>
-              </div>
-
+      {user?.role === "admin" && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2"><Activity className="w-5 h-5" /> System Health</CardTitle>
+              <CardDescription>Platform usage across all services</CardDescription>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            {healthLoading ? (
+              <p className="text-sm text-muted-foreground">Loading usage data…</p>
+            ) : !health ? (
+              <p className="text-sm text-muted-foreground">Could not load usage data.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+                {/* Cloudinary */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold">Cloudinary Media</h4>
+                    <a href={health.links.cloudinary} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+                      Dashboard <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  {health.cloudinary ? (
+                    <div className="space-y-3">
+                      <UsageBar used={health.cloudinary.creditsUsed} total={health.cloudinary.creditsLimit} label={`Credits: ${health.cloudinary.creditsUsed.toFixed(1)} / ${health.cloudinary.creditsLimit}`} />
+                      <UsageBar used={health.cloudinary.storageUsedGB} total={health.cloudinary.storageLimitGB} label={`Storage: ${health.cloudinary.storageUsedGB.toFixed(2)} GB / ${health.cloudinary.storageLimitGB} GB`} />
+                      <UsageBar used={health.cloudinary.bandwidthUsedGB} total={health.cloudinary.bandwidthLimitGB} label={`Bandwidth: ${health.cloudinary.bandwidthUsedGB.toFixed(2)} GB / ${health.cloudinary.bandwidthLimitGB} GB`} />
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Configure CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET in Railway to see usage.</p>
+                  )}
+                </div>
+
+                {/* Email + Database */}
+                <div className="space-y-6">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold">Resend Email</h4>
+                      <a href={health.links.resend} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+                        Dashboard <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                    <UsageBar used={health.email.sentThisMonth} total={health.email.limitPerMonth} label={`OTPs sent: ${health.email.sentThisMonth} / ${health.email.limitPerMonth} this month`} />
+                    <p className="text-xs text-muted-foreground">Free tier: 3,000 emails/month</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold">Neon PostgreSQL</h4>
+                      <a href={(health as any).links?.neon ?? "https://console.neon.tech"} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+                        Dashboard <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                    <UsageBar
+                      used={(health.database as any).bytes}
+                      total={(health.database as any).limitBytes ?? 512 * 1024 * 1024}
+                      label={`Size: ${health.database.pretty} / 0.5 GB`}
+                    />
+                    <p className="text-xs text-muted-foreground">Free tier: 0.5 GiB storage, no expiry</p>
+                  </div>
+                </div>
+
+                {/* Railway + Vercel links */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-semibold">Platform Links</h4>
+                  <p className="text-xs text-muted-foreground">These platforms don't expose public usage APIs — check their dashboards directly.</p>
+                  <div className="space-y-2">
+                    <a href={(health as any).render?.dashboardUrl ?? "https://dashboard.render.com"} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center justify-between p-3 rounded-md border hover:bg-muted/50 transition-colors">
+                      <div>
+                        <p className="text-sm font-medium flex items-center gap-2">
+                          Render
+                          <span className="text-xs font-normal px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">● Awake</span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">{(health as any).render?.region} · {(health as any).render?.plan}</p>
+                      </div>
+                      <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                    </a>
+                    <a href={health.links.vercel} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center justify-between p-3 rounded-md border hover:bg-muted/50 transition-colors">
+                      <div>
+                        <p className="text-sm font-medium">Vercel</p>
+                        <p className="text-xs text-muted-foreground">Frontend hosting · Bandwidth · Free tier</p>
+                      </div>
+                      <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                    </a>
+                    <a href={health.links.railway} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center justify-between p-3 rounded-md border hover:bg-muted/50 transition-colors opacity-60">
+                      <div>
+                        <p className="text-sm font-medium">Railway</p>
+                        <p className="text-xs text-muted-foreground">Previous hosting — kept for reference</p>
+                      </div>
+                      <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                    </a>
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Recent Activity */}
       <Card>

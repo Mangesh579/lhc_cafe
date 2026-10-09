@@ -13,4 +13,5 @@ export const wasteLogsTable = pgTable("waste_logs", {
   changedBy: text("changed_by").default("staff"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   department: text("department").notNull().default("kitchen"),
+  orderId: integer("order_id"),
 });

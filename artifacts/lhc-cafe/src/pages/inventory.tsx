@@ -20,6 +20,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Edit2, Trash2, AlertCircle, RefreshCw, PackageX, Wrench, ClipboardList, Search, X } from "lucide-react";
 import { format } from "date-fns";
 import { useAuth } from "@/contexts/auth";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const APIJSON = (path: string, method = "GET", body?: object) =>
@@ -82,6 +85,37 @@ function IngredientDialog({ item, department, open, onClose, onSaved }: { item?:
       toast({ title: item ? "Item updated" : "Item added" }); onSaved(); onClose();
     } catch (err: any) { toast({ title: "Error", description: err?.error ?? "Failed to save", variant: "destructive" }); }
     finally { setLoading(false); }
+  };
+
+    const exportLogRange = (rows: any[], from: string, to: string, headers: string[], mapRow: (r: any) => any[], filenamePrefix: string, format: "csv" | "excel" | "pdf") => {
+    const fromD = from ? new Date(from) : null;
+    const toD = to ? new Date(to) : null;
+    if (toD) toD.setHours(23, 59, 59, 999);
+    const filtered = rows.filter(r => {
+      const d = new Date(r.createdAt);
+      if (fromD && d < fromD) return false;
+      if (toD && d > toD) return false;
+      return true;
+    });
+    const rangeLabel = from || to ? `${from || "start"}_to_${to || "now"}` : "all";
+    if (format === "csv") {
+      const csv = [headers, ...filtered.map(mapRow)].map(r => r.map((c: any) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `${filenamePrefix}-${rangeLabel}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    } else if (format === "excel") {
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...filtered.map(mapRow)]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Log");
+      XLSX.writeFile(wb, `${filenamePrefix}-${rangeLabel}.xlsx`);
+    } else {
+      const doc = new jsPDF();
+      doc.setFontSize(14);
+      doc.text(`LHC Cafe — ${filenamePrefix}`, 14, 15);
+      autoTable(doc, { startY: 22, head: [headers], body: filtered.map(mapRow), styles: { fontSize: 8 } });
+      doc.save(`${filenamePrefix}-${rangeLabel}.pdf`);
+    }
   };
 
   const UNITS = ["grams", "kg", "ml", "liters", "pieces", "cups", "tbsp", "tsp", "boxes", "bags"];
@@ -374,6 +408,44 @@ export default function Inventory() {
   const [invLogIngredientFilter, setInvLogIngredientFilter] = useState("");
   const [logsLoaded, setLogsLoaded] = useState<string | null>(null);
 
+  const [stockExportDialog, setStockExportDialog] = useState(false);
+  const [stockExportFrom, setStockExportFrom] = useState("");
+  const [stockExportTo, setStockExportTo] = useState("");
+  const [wasteExportDialog, setWasteExportDialog] = useState(false);
+  const [wasteExportFrom, setWasteExportFrom] = useState("");
+  const [wasteExportTo, setWasteExportTo] = useState("");
+
+  const exportLogRange = (rows: any[], from: string, to: string, headers: string[], mapRow: (r: any) => any[], filenamePrefix: string, fmt: "csv" | "excel" | "pdf") => {
+    const fromD = from ? new Date(from) : null;
+    const toD = to ? new Date(to) : null;
+    if (toD) toD.setHours(23, 59, 59, 999);
+    const filtered = rows.filter(r => {
+      const d = new Date(r.createdAt);
+      if (fromD && d < fromD) return false;
+      if (toD && d > toD) return false;
+      return true;
+    });
+    const rangeLabel = from || to ? `${from || "start"}_to_${to || "now"}` : "all";
+    if (fmt === "csv") {
+      const csv = [headers, ...filtered.map(mapRow)].map(r => r.map((c: any) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `${filenamePrefix}-${rangeLabel}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    } else if (fmt === "excel") {
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...filtered.map(mapRow)]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Log");
+      XLSX.writeFile(wb, `${filenamePrefix}-${rangeLabel}.xlsx`);
+    } else {
+      const doc = new jsPDF();
+      doc.setFontSize(14);
+      doc.text(`LHC Cafe — ${filenamePrefix}`, 14, 15);
+      autoTable(doc, { startY: 22, head: [headers], body: filtered.map(mapRow), styles: { fontSize: 8 } });
+      doc.save(`${filenamePrefix}-${rangeLabel}.pdf`);
+    }
+  };
+
   const loadTab = async (tab: string, force = false) => {
     if (!force && logsLoaded === tab) return;
     try {
@@ -650,6 +722,7 @@ export default function Inventory() {
           <DeptToggle value={wasteDept} onChange={setWasteDept} />
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => loadTab("waste", true)} className="gap-2"><RefreshCw className="w-4 h-4" /> Refresh</Button>
+            <Button variant="outline" size="sm" onClick={() => setWasteExportDialog(true)}>Export</Button>
             <Button onClick={() => setWasteDialog(true)} disabled={!canWriteWaste} title={!canWriteWaste ? noWritePermissionMsg(wasteDept) : undefined} className="gap-2"><PackageX className="w-4 h-4" /> Log Waste</Button>
           </div>
 
@@ -723,6 +796,7 @@ export default function Inventory() {
               )}
             </div>
             <Button variant="outline" size="sm" onClick={() => loadTab("inv-log", true)} className="gap-2"><RefreshCw className="w-4 h-4" /> Refresh</Button>
+            <Button variant="outline" size="sm" onClick={() => setStockExportDialog(true)}>Export</Button>
           </div>
           <Card>
             <CardContent className="p-0">
@@ -792,6 +866,40 @@ export default function Inventory() {
       <IngredientDialog item={ingDialog.item} department={ingredientDept} open={ingDialog.open} onClose={() => setIngDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); }} />
       <EquipmentDialog eq={eqDialog.eq} department={equipmentDept} open={eqDialog.open} onClose={() => setEqDialog({ open: false })} onSaved={() => loadTab("equipment", true)} />
       <WasteDialog inventory={inventory as any[]} menuItems={menuItems as any[]} equipment={equipment} department={wasteDept} open={wasteDialog} onClose={() => setWasteDialog(false)} onSaved={() => { loadTab("waste", true); loadTab("equipment", true); }} />
+    
+      <Dialog open={stockExportDialog} onOpenChange={setStockExportDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Export Stock Log ({logDept === "kitchen" ? "Kitchen" : "Drink/Coffee"})</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-1"><Label className="text-xs">From</Label><Input type="date" value={stockExportFrom} onChange={e => setStockExportFrom(e.target.value)} /></div>
+            <div className="space-y-1"><Label className="text-xs">To</Label><Input type="date" value={stockExportTo} onChange={e => setStockExportTo(e.target.value)} /></div>
+            <p className="text-xs text-muted-foreground">Leave blank for all records. Quick tip: for "this week", pick Monday as From and today as To.</p>
+          </div>
+          <DialogFooter className="flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setStockExportDialog(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => exportLogRange(invLogs.filter(l => l.department === logDept), stockExportFrom, stockExportTo, ["Date", "Ingredient", "Change", "Before", "After", "Reason"], (l: any) => [format(new Date(l.createdAt), "yyyy-MM-dd HH:mm"), l.ingredientName, l.changeAmount, l.stockBefore, l.stockAfter, l.reason], "stock-log", "csv")}>CSV</Button>
+            <Button variant="outline" onClick={() => exportLogRange(invLogs.filter(l => l.department === logDept), stockExportFrom, stockExportTo, ["Date", "Ingredient", "Change", "Before", "After", "Reason"], (l: any) => [format(new Date(l.createdAt), "yyyy-MM-dd HH:mm"), l.ingredientName, l.changeAmount, l.stockBefore, l.stockAfter, l.reason], "stock-log", "excel")}>Excel</Button>
+            <Button onClick={() => exportLogRange(invLogs.filter(l => l.department === logDept), stockExportFrom, stockExportTo, ["Date", "Ingredient", "Change", "Before", "After", "Reason"], (l: any) => [format(new Date(l.createdAt), "yyyy-MM-dd HH:mm"), l.ingredientName, l.changeAmount, l.stockBefore, l.stockAfter, l.reason], "stock-log", "pdf")}>PDF</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={wasteExportDialog} onOpenChange={setWasteExportDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Export Waste Log ({wasteDept === "kitchen" ? "Kitchen" : "Drink/Coffee"})</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-1"><Label className="text-xs">From</Label><Input type="date" value={wasteExportFrom} onChange={e => setWasteExportFrom(e.target.value)} /></div>
+            <div className="space-y-1"><Label className="text-xs">To</Label><Input type="date" value={wasteExportTo} onChange={e => setWasteExportTo(e.target.value)} /></div>
+          </div>
+          <DialogFooter className="flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setWasteExportDialog(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => exportLogRange(filteredWasteLogs, wasteExportFrom, wasteExportTo, ["Date", "Item", "Quantity", "Unit", "Reason", "Value"], (w: any) => [format(new Date(w.createdAt), "yyyy-MM-dd HH:mm"), w.itemName, w.quantity, w.unit, w.reason, w.wasteValue], "waste-log", "csv")}>CSV</Button>
+            <Button variant="outline" onClick={() => exportLogRange(filteredWasteLogs, wasteExportFrom, wasteExportTo, ["Date", "Item", "Quantity", "Unit", "Reason", "Value"], (w: any) => [format(new Date(w.createdAt), "yyyy-MM-dd HH:mm"), w.itemName, w.quantity, w.unit, w.reason, w.wasteValue], "waste-log", "excel")}>Excel</Button>
+            <Button onClick={() => exportLogRange(filteredWasteLogs, wasteExportFrom, wasteExportTo, ["Date", "Item", "Quantity", "Unit", "Reason", "Value"], (w: any) => [format(new Date(w.createdAt), "yyyy-MM-dd HH:mm"), w.itemName, w.quantity, w.unit, w.reason, w.wasteValue], "waste-log", "pdf")}>PDF</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

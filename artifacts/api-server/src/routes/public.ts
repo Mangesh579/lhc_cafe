@@ -3,6 +3,7 @@ import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, 
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 import { randomBytes, randomInt } from "crypto";
 import { publicOrderRateLimiter } from "../middlewares/rateLimit";
+import { applyPrepWaste } from "../lib/prepWaste";
 import { Resend } from "resend";
 import type { Request, Response, NextFunction } from "express";
 
@@ -360,6 +361,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
       }
     }
 
+    await applyPrepWaste(order.id, resolvedItems, `QR Order #${order.id} (${table.name || `Table ${table.tableNumber}`})`, "QR order");
     res.json({ success: true, orderId: order.id, totalAmount });
   } catch (err) {
     console.error(err);

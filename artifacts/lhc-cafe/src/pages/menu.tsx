@@ -176,6 +176,7 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
   const [recipes, setRecipes] = useState<any[]>([]);
   const [newIngId, setNewIngId] = useState("");
   const [newQty, setNewQty] = useState("");
+  const [newWaste, setNewWaste] = useState("");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -201,9 +202,9 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
     if (!newIngId || !newQty) { toast({ title: "Select ingredient and quantity", variant: "destructive" }); return; }
     setLoading(true);
     try {
-      await APIJSON(`/menu-items/${item.id}/recipes`, "POST", { inventoryItemId: parseInt(newIngId), quantityRequired: parseFloat(newQty) });
+      await APIJSON(`/menu-items/${item.id}/recipes`, "POST", { inventoryItemId: parseInt(newIngId), quantityRequired: parseFloat(newQty), wasteQuantity: parseFloat(newWaste) || 0 });
       toast({ title: "Ingredient added" });
-      setNewIngId(""); setNewQty("");
+      setNewIngId(""); setNewQty(""); setNewWaste("");
       const updated = await APIJSON(`/menu-items/${item.id}/recipes`);
       const list = Array.isArray(updated) ? updated : [];
       setRecipes(list);
@@ -247,6 +248,7 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
                 <div>
                   <span className="font-medium text-sm">{r.ingredientName}</span>
                   <span className="text-muted-foreground text-sm ml-2">{r.quantityRequired} {r.unit}</span>
+                  {parseFloat(String(r.wasteQuantity ?? 0)) > 0 && <span className="text-xs text-amber-600 ml-2">+ {r.wasteQuantity} {r.unit} waste</span>}
                   {r.caloriesPerUnit && <span className="text-xs text-muted-foreground ml-2">({(parseFloat(String(r.caloriesPerUnit)) * parseFloat(String(r.quantityRequired))).toFixed(1)} kcal)</span>}
                 </div>
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(r.inventoryItemId)}><Trash2 className="w-3.5 h-3.5" /></Button>
@@ -272,7 +274,10 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
                   ))}
                 </SelectContent>
               </Select>
-              <Input type="number" placeholder="Quantity" value={newQty} onChange={e => setNewQty(e.target.value)} />
+              <div className="flex gap-2">
+                <Input type="number" placeholder="Qty" value={newQty} onChange={e => setNewQty(e.target.value)} />
+                <Input type="number" placeholder="Waste" value={newWaste} onChange={e => setNewWaste(e.target.value)} />
+              </div>
             </div>
             <Button onClick={handleAdd} disabled={loading} className="w-full gap-2"><Plus className="w-4 h-4" /> Add Ingredient</Button>
           </div>

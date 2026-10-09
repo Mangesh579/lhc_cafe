@@ -109,6 +109,7 @@ router.get("/menu-items/:id", authenticate, async (req, res): Promise<void> => {
       ingredientName: inventoryItemsTable.name,
       unit: inventoryItemsTable.unit,
       quantityRequired: recipesTable.quantityRequired,
+      wasteQuantity: recipesTable.wasteQuantity,
       caloriesPerUnit: inventoryItemsTable.caloriesPerUnit,
     })
     .from(recipesTable)
@@ -177,6 +178,7 @@ router.get("/menu-items/:id/recipes", authenticate, async (req, res): Promise<vo
       ingredientName: inventoryItemsTable.name,
       unit: inventoryItemsTable.unit,
       quantityRequired: recipesTable.quantityRequired,
+      wasteQuantity: recipesTable.wasteQuantity,
       caloriesPerUnit: inventoryItemsTable.caloriesPerUnit,
     })
     .from(recipesTable)
@@ -187,11 +189,11 @@ router.get("/menu-items/:id/recipes", authenticate, async (req, res): Promise<vo
 
 router.post("/menu-items/:id/recipes", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const menuItemId = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const { inventoryItemId, quantityRequired } = req.body;
+  const { inventoryItemId, quantityRequired, wasteQuantity } = req.body;
   if (!inventoryItemId || quantityRequired == null) { res.status(400).json({ error: "inventoryItemId and quantityRequired required" }); return; }
   const [recipe] = await db.insert(recipesTable).values({
-    menuItemId, inventoryItemId, quantityRequired: String(quantityRequired),
-  }).onConflictDoUpdate({ target: [recipesTable.menuItemId, recipesTable.inventoryItemId], set: { quantityRequired: String(quantityRequired) } }).returning();
+    menuItemId, inventoryItemId, quantityRequired: String(quantityRequired), wasteQuantity: String(wasteQuantity ?? 0),
+  }).onConflictDoUpdate({ target: [recipesTable.menuItemId, recipesTable.inventoryItemId], set: { quantityRequired: String(quantityRequired), wasteQuantity: String(wasteQuantity ?? 0) } }).returning();
   const [inv] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, inventoryItemId));
   res.status(201).json({ ...recipe, ingredientName: inv?.name ?? "", unit: inv?.unit ?? "", caloriesPerUnit: inv?.caloriesPerUnit ?? null });
 });

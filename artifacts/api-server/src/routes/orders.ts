@@ -1,7 +1,8 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable, wasteLogsTable } from "@workspace/db";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth";
+import { applyPrepWaste } from "../lib/prepWaste";
 const NepaliDateLib = require("nepali-date-converter");
 const NepaliDate: any = NepaliDateLib.default ?? NepaliDateLib;
 
@@ -228,6 +229,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
     }
   }
 
+  await applyPrepWaste(order.id, resolvedItems, `Order #${order.id}`, (req as any).user?.username ?? "system");
   const result = await getOrderWithItems(order.id);
   res.status(201).json(result);
 });
@@ -365,7 +367,7 @@ router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req: any, 
   for (const item of items) {
     const recipes = await db.select().from(recipesTable).where(eq(recipesTable.menuItemId, item.menuItemId));
     for (const recipe of recipes) {
-      const restore = parseFloat(String(recipe.quantityRequired)) * item.quantity;
+      const restore = (parseFloat(String(recipe.quantityRequired)) + parseFloat(String((recipe as any).wasteQuantity ?? 0))) * item.quantity;
       const [inv] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, recipe.inventoryItemId));
       if (inv) {
         const stockBefore = parseFloat(String(inv.currentStock));
@@ -382,6 +384,10 @@ router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req: any, 
       }
     }
   }
+
+  // Prep-waste entries for a cancelled order never actually happened — remove them.
+  // The Stock Log keeps the full trail of the deduction and the restoration.
+  await db.delete(wasteLogsTable).where(eq(wasteLogsTable.orderId, id));
 
   // If this order had loyalty redemptions, delete them so levels can be redeemed again
   // Also reverse Level 5 point deduction if it was applied on this order
