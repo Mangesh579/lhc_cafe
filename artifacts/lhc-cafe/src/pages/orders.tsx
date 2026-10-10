@@ -196,7 +196,7 @@ export default function Orders() {
       <div style="font-family:monospace;font-size:12px;padding:20px;color:black;background:white;">
         <div style="text-align:center;margin-bottom:12px;border-bottom:2px solid #1a1a1a;padding-bottom:12px;">
           <img src="/LHC_logo.png" alt="LHC Cafe" style="height:48px;margin:0 auto 8px;display:block;" />
-          <h2 style="font-size:16px;font-weight:bold;margin:0;">Legendary House Cafe & Barista School</h2>
+          <h2 style="font-size:16px;font-weight:bold;margin:0;">Legendary House Cafe & Barista Coffee School</h2>
           <p style="font-size:11px;">Sulimha Durbar, Pimbahal, Nepal</p>
           <p style="font-size:11px;">PAN/VAT No: 194139113</p>
           <p style="font-size:11px;font-weight:bold;margin-top:4px;display:inline-block;border:2px solid #1a1a1a;padding:2px 8px;">NOT CHARGEABLE</p>
@@ -280,7 +280,7 @@ export default function Orders() {
       <div style="font-family:monospace;font-size:12px;padding:20px;color:black;background:white;">
         <div style="text-align:center;margin-bottom:12px;border-bottom:2px solid #1a1a1a;padding-bottom:12px;">
           <img src="/LHC_logo.png" alt="LHC Cafe" style="height:48px;margin:0 auto 8px;display:block;" />
-          <h2 style="font-size:16px;font-weight:bold;margin:0;">Legendary House Cafe & Barista School</h2>
+          <h2 style="font-size:16px;font-weight:bold;margin:0;">Legendary House Cafe & Barista Coffee School</h2>
           <p style="font-size:11px;margin:2px 0;">Sulimha Durbar, Pimbahal, Nepal</p>
           <p style="font-size:11px;margin:2px 0;">PAN/VAT No: 194139113</p>
           <p style="font-size:11px;font-weight:bold;margin-top:4px;display:inline-block;border:2px solid #1a1a1a;padding:2px 8px;">${isVat ? "TAX INVOICE (VAT)" : "BILL"}</p>
@@ -691,7 +691,7 @@ export default function Orders() {
           <div className="bg-white text-black p-5 font-mono text-sm">
             <div className="text-center mb-3 border-b-2 border-gray-800 pb-3">
               <img src="/LHC_logo.png" alt="LHC Cafe" style={{ height: 48, margin: "0 auto 8px", display: "block" }} />
-              <h2 className="text-lg font-bold">Legendary House Cafe & Barista School</h2>
+              <h2 className="text-lg font-bold">Legendary House Cafe & Barista Coffee School</h2>
               <p className="text-xs">Sulimha Durbar, Pimbahal, Nepal</p>
               <p className="text-xs">PAN/VAT No: 194139113</p>
               {billType === "vat" && <p className="text-xs font-bold mt-1">TAX INVOICE (VAT)</p>}

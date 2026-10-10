@@ -490,7 +490,7 @@ export default function POS() {
             <div className="bg-white text-black p-5 font-mono text-sm border rounded my-2" id="receipt-preview">
               <div className="text-center mb-3 border-b-2 border-gray-800 pb-3">
                 <img src="/LHC_logo.png" alt="LHC Cafe" style={{ height: 48, margin: "0 auto 8px", display: "block" }} />
-                <h2 className="text-lg font-bold">Legendary House Cafe & Barista School</h2>
+                <h2 className="text-lg font-bold">Legendary House Cafe & Barista Coffee School</h2>
                 <p className="text-xs">Sulimha Durbar, Pimbahal, Nepal</p>
                 <p className="text-xs">PAN/VAT No: 194139113</p>
                 {lastOrderDetails.isNc && (
