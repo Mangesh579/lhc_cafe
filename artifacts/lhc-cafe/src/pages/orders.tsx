@@ -228,6 +228,79 @@ export default function Orders() {
     }
   };
 
+    const buildBillHtml = (): string => {
+    const o = paymentModalOrder;
+    if (!o) return "";
+    const esc = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+    const alreadyDiscounted = parseFloat(String(o.totalAmount ?? 0));
+    const existingDiscount = parseFloat(String(o.discountAmount ?? 0));
+    const originalSubtotal = alreadyDiscounted + existingDiscount;
+    const pct = parseFloat(discount) || 0;
+    const additionalDiscAmt = alreadyDiscounted * (pct / 100);
+    const final = alreadyDiscounted - additionalDiscAmt;
+    const isVat = billType === "vat";
+    const payLabel = paymentMethod === "cash" ? "Cash" : paymentMethod === "card" ? "Card" : "Nabil QR";
+
+    const row = (l: string, r: string, extra = "") =>
+      `<div style="display:flex;justify-content:space-between;${extra}"><span>${l}</span><span>${r}</span></div>`;
+
+    let totals = "";
+    if (existingDiscount > 0) {
+      totals += row("Subtotal", `Rs. ${originalSubtotal.toFixed(0)}`);
+      totals += row("Loyalty discount", `−Rs. ${existingDiscount.toFixed(0)}`, "color:#555;");
+    }
+    if (additionalDiscAmt > 0) {
+      totals += row(`Staff discount (${pct}%)`, `−Rs. ${additionalDiscAmt.toFixed(0)}`, "color:#555;");
+      if (discountComment.trim()) {
+        totals += `<p style="margin:2px 0 4px 8px;font-size:11px;font-style:italic;color:#555;">Reason: ${esc(discountComment.trim())}</p>`;
+      }
+    }
+
+    if (isVat) {
+      const nonTaxable = Math.min(parseFloat(nonTaxableAmount) || 0, final);
+      const taxable = final - nonTaxable;
+      const vat = taxable * 0.13;
+      const grand = final + vat;
+      totals += `<div style="border-top:1px dashed #999;margin-top:6px;padding-top:6px;">`;
+      if (nonTaxable > 0) totals += row("Non-Taxable Sales", `Rs. ${nonTaxable.toFixed(2)}`);
+      totals += row("Taxable Sales", `Rs. ${taxable.toFixed(2)}`);
+      totals += row("VAT @ 13%", `Rs. ${vat.toFixed(2)}`);
+      totals += `</div>`;
+      totals += row("GRAND TOTAL", `Rs. ${grand.toFixed(2)}`, "font-weight:bold;font-size:14px;border-top:2px solid #1a1a1a;margin-top:6px;padding-top:6px;");
+    } else {
+      totals += row("TOTAL", `Rs. ${final.toFixed(0)}`, "font-weight:bold;font-size:14px;border-top:2px solid #1a1a1a;margin-top:6px;padding-top:6px;");
+    }
+
+    const itemsHtml = (o.items ?? []).map((i: any) =>
+      `<div style="margin-bottom:3px;">${row(`${i.quantity}× ${esc(i.menuItemName ?? "")}`, `Rs. ${parseFloat(String(i.subtotal)).toFixed(0)}`)}${i.notes ? `<p style="margin:0 0 0 14px;font-size:11px;font-style:italic;color:#555;">↳ ${esc(i.notes)}</p>` : ""}</div>`
+    ).join("");
+
+    return `
+      <div style="font-family:monospace;font-size:12px;padding:20px;color:black;background:white;">
+        <div style="text-align:center;margin-bottom:12px;border-bottom:2px solid #1a1a1a;padding-bottom:12px;">
+          <img src="/LHC_logo.png" alt="LHC Cafe" style="height:48px;margin:0 auto 8px;display:block;" />
+          <h2 style="font-size:16px;font-weight:bold;margin:0;">Legendary House Cafe & Barista School</h2>
+          <p style="font-size:11px;margin:2px 0;">Sulimha Durbar, Pimbahal, Nepal</p>
+          <p style="font-size:11px;margin:2px 0;">PAN/VAT No: 194139113</p>
+          <p style="font-size:11px;font-weight:bold;margin-top:4px;display:inline-block;border:2px solid #1a1a1a;padding:2px 8px;">${isVat ? "TAX INVOICE (VAT)" : "BILL"}</p>
+        </div>
+        <p style="margin:2px 0;">Order #${o.id}</p>
+        ${o.invoiceNumber ? `<p style="margin:2px 0;font-weight:bold;">Invoice No: ${o.invoiceNumber}</p>` : ""}
+        <p style="margin:2px 0;">${new Date().toLocaleString()}</p>
+        ${o.createdBy ? `<p style="margin:2px 0;">Staff: ${esc(o.createdBy)}</p>` : ""}
+        <p style="margin:2px 0;">Payment: ${payLabel}</p>
+        ${o.loyaltyCustomerName ? `<p style="margin:2px 0;">Customer: ${esc(o.loyaltyCustomerName)}</p>` : ""}
+        ${otherPartyName ? `<p style="margin:2px 0;font-weight:bold;">Billed To: ${esc(otherPartyName)}</p>` : ""}
+        ${otherPartyPan ? `<p style="margin:2px 0;">PAN: ${esc(otherPartyPan)}</p>` : ""}
+        <div style="border-top:1px dashed #999;border-bottom:1px dashed #999;padding:8px 0;margin:8px 0;">${itemsHtml}</div>
+        ${totals}
+        ${o.notes ? `<p style="margin-top:8px;font-size:11px;color:#555;">Note: ${esc(o.notes)}</p>` : ""}
+        <p style="text-align:center;margin-top:16px;font-size:11px;">Thank you for visiting LHC!</p>
+      </div>
+    `;
+  };
+
   const handleCancelOrder = async (id: number) => {
     if (!confirm("Cancel this order?")) return;
     try {
@@ -601,7 +674,7 @@ export default function Orders() {
               const doc = iframe.contentWindow?.document;
               if (!doc) return;
               doc.open();
-              doc.write(`<!DOCTYPE html><html><head><style>body{font-family:monospace;font-size:12px;padding:20px;color:black;background:white;}p{margin:2px 0;}.row{display:flex;justify-content:space-between;}</style></head><body>${receipt.innerHTML}</body></html>`);
+              doc.write(`<!DOCTYPE html><html><head><style>body{font-family:monospace;font-size:12px;padding:20px;color:black;background:white;}p{margin:2px 0;}.row{display:flex;justify-content:space-between;}</style></head><body>${buildBillHtml()}</body></html>`);
               doc.close();
               setTimeout(() => { iframe.contentWindow?.print(); setTimeout(() => document.body.removeChild(iframe), 1000); }, 500);
             }} className="gap-2" disabled={!paymentModalOrder}>
