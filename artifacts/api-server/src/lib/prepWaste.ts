@@ -1,5 +1,6 @@
 import { db, recipesTable, inventoryItemsTable, inventoryLogsTable, wasteLogsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { expandRecipeLines } from "./ingredientUsage";
 
 // Deducts each recipe line's per-serving waste quantity from inventory and
 // records it in both the Stock Log and the Waste Log, linked to the order.
@@ -10,7 +11,7 @@ export async function applyPrepWaste(
   changedBy: string,
 ): Promise<void> {
   for (const item of items) {
-    const recipes = await db.select().from(recipesTable).where(eq(recipesTable.menuItemId, item.menuItemId));
+    const recipes = await expandRecipeLines(item.menuItemId);
     for (const recipe of recipes) {
       const wasteQty = parseFloat(String((recipe as any).wasteQuantity ?? 0)) * item.quantity;
       if (!(wasteQty > 0)) continue;

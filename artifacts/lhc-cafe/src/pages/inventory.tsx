@@ -17,9 +17,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Edit2, Trash2, AlertCircle, RefreshCw, PackageX, Wrench, ClipboardList, Search, X } from "lucide-react";
+import { Plus, Edit2, Trash2, AlertCircle, RefreshCw, PackageX, Wrench, ClipboardList, Search, X, Layers } from "lucide-react";
 import { format } from "date-fns";
 import { useAuth } from "@/contexts/auth";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -356,6 +357,102 @@ function WasteDialog({ inventory, menuItems, equipment, department, open, onClos
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Components Dialog (ingredient made of other ingredients) ──────────────────
+function ComponentsDialog({ item, inventory, open, onClose, onSaved, canEdit }: { item?: any; inventory: any[]; open: boolean; onClose: () => void; onSaved: () => void; canEdit: boolean }) {
+  const [rows, setRows] = useState<{ childItemId: number; quantity: string }[]>([]);
+  const [batchYield, setBatchYield] = useState("1");
+  const [newChild, setNewChild] = useState("");
+  const [newQty, setNewQty] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (!open || !item) return;
+    setBatchYield(item.batchYield ? String(parseFloat(String(item.batchYield))) : "1");
+    setNewChild(""); setNewQty("");
+    APIJSON("/inventory/components")
+      .then((all: any[]) => setRows((Array.isArray(all) ? all : []).filter(c => c.parentItemId === item.id).map(c => ({ childItemId: c.childItemId, quantity: String(parseFloat(String(c.quantity))) }))))
+      .catch(() => setRows([]));
+  }, [open, item]);
+
+  const findItem = (id: number) => inventory.find(i => i.id === id);
+  const yieldNum = parseFloat(batchYield) || 1;
+  const totalCal = rows.reduce((s, r) => s + (parseFloat(String(findItem(r.childItemId)?.caloriesPerUnit ?? 0)) || 0) * (parseFloat(r.quantity) || 0), 0);
+
+  const addRow = () => {
+    if (!newChild || !(parseFloat(newQty) > 0)) { toast({ title: "Pick an ingredient and enter a quantity above 0", variant: "destructive" }); return; }
+    setRows(prev => [...prev, { childItemId: parseInt(newChild), quantity: newQty }]);
+    setNewChild(""); setNewQty("");
+  };
+
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      await APIJSON(`/inventory/${item.id}/components`, "PUT", {
+        batchYield: parseFloat(batchYield) || 1,
+        components: rows.map(r => ({ childItemId: r.childItemId, quantity: parseFloat(r.quantity) })),
+      });
+      toast({ title: rows.length ? "Components saved" : "Components cleared" });
+      onSaved(); onClose();
+    } catch (err: any) {
+      const d = await err?.json?.().catch(() => null);
+      toast({ title: "Error", description: d?.error ?? "Failed to save", variant: "destructive" });
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader><DialogTitle>Components — {item?.name}</DialogTitle></DialogHeader>
+        <div className="space-y-4 py-2">
+          <p className="text-xs text-muted-foreground">List what goes into making this ingredient (for example a sauce). When a menu item uses it, these components are deducted from stock instead, and each one appears in the Stock Log under that order.</p>
+          <div className="flex items-center gap-2">
+            <Label className="text-sm shrink-0">This recipe makes</Label>
+            <Input type="number" value={batchYield} onChange={e => setBatchYield(e.target.value)} className="w-24 h-8" disabled={!canEdit} />
+            <span className="text-sm text-muted-foreground">{item?.unit}</span>
+          </div>
+          <div className="space-y-2 max-h-56 overflow-y-auto">
+            {rows.length === 0 && <p className="text-sm text-muted-foreground text-center py-3">No components — this is a basic ingredient.</p>}
+            {rows.map((r, idx) => {
+              const child = findItem(r.childItemId);
+              return (
+                <div key={r.childItemId} className="flex items-center gap-2 bg-muted/30 px-3 py-2 rounded-md">
+                  <span className="flex-1 text-sm font-medium truncate">{child?.name ?? `#${r.childItemId}`}</span>
+                  <Input type="number" value={r.quantity} disabled={!canEdit} onChange={e => setRows(prev => prev.map((x, i) => i === idx ? { ...x, quantity: e.target.value } : x))} className="w-24 h-8" />
+                  <span className="text-xs text-muted-foreground w-12">{child?.unit}</span>
+                  {canEdit && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setRows(prev => prev.filter((_, i) => i !== idx))}><Trash2 className="w-3.5 h-3.5" /></Button>}
+                </div>
+              );
+            })}
+          </div>
+          {rows.length > 0 && totalCal > 0 && (
+            <div className="text-sm text-muted-foreground bg-muted/20 rounded px-3 py-2">Calories per {item?.unit}: ~{(totalCal / yieldNum).toFixed(2)} kcal (calculated from components)</div>
+          )}
+          {canEdit && (
+            <div className="border-t pt-4 space-y-2">
+              <p className="text-sm font-semibold">Add Component</p>
+              <SearchableSelect
+                value={newChild}
+                onChange={setNewChild}
+                placeholder="Type to search ingredients…"
+                options={inventory.filter(i => i.id !== item?.id && !rows.find(r => r.childItemId === i.id)).map(i => ({ value: String(i.id), label: `${i.name} (${i.unit})` }))}
+              />
+              <div className="flex gap-2">
+                <Input type="number" placeholder="Quantity" value={newQty} onChange={e => setNewQty(e.target.value)} />
+                <Button onClick={addRow} className="gap-1"><Plus className="w-4 h-4" /> Add</Button>
+              </div>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>{canEdit ? "Cancel" : "Close"}</Button>
+          {canEdit && <Button onClick={handleSave} disabled={loading}>Save</Button>}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Inventory() {
   const { user } = useAuth();
   const role = user?.role as string | undefined;
@@ -382,7 +479,19 @@ export default function Inventory() {
     } catch { /* non-critical */ }
   };
 
-  useEffect(() => { loadUsageMap(); }, []);
+  const loadComponents = async () => {
+    try {
+      const data = await APIJSON("/inventory/components");
+      const map: Record<number, any[]> = {};
+      for (const c of (Array.isArray(data) ? data : [])) {
+        if (!map[c.parentItemId]) map[c.parentItemId] = [];
+        map[c.parentItemId].push(c);
+      }
+      setCompMap(map);
+    } catch { /* non-critical */ }
+  };
+
+  useEffect(() => { loadUsageMap(); loadComponents(); }, []);
 
   const toggleMenuItemAvailability = async (menuItemId: number, current: boolean) => {
     try {
@@ -394,6 +503,8 @@ export default function Inventory() {
   };
 
   const [ingDialog, setIngDialog] = useState<{ open: boolean; item?: any }>({ open: false });
+  const [compDialog, setCompDialog] = useState<{ open: boolean; item?: any }>({ open: false });
+  const [compMap, setCompMap] = useState<Record<number, any[]>>({});
   const [ingredientSearch, setIngredientSearch] = useState("");
   const [adjustItem, setAdjustItem] = useState<any>(null);
   const [adjustQty, setAdjustQty] = useState("");
@@ -598,6 +709,9 @@ export default function Inventory() {
                       <tr key={item.id} className={`hover:bg-muted/20 ${isLow ? "bg-red-50/50" : ""}`}>
                         <td className="px-5 py-3">
                           <div className="font-medium">{item.name}</div>
+                          {(compMap[item.id] ?? []).length > 0 && (
+                            <div className="text-xs text-blue-700">Made of: {compMap[item.id].map((c: any) => `${parseFloat(String(c.quantity))} ${c.childUnit} ${c.childName}`).join(", ")}</div>
+                          )}
                           {item.caloriesPerUnit && <div className="text-xs text-muted-foreground">{parseFloat(String(item.caloriesPerUnit)).toFixed(1)} kcal/{item.unit}</div>}
                         </td>
                         <td className="px-5 py-3">
@@ -641,6 +755,7 @@ export default function Inventory() {
                             <Button variant="outline" size="sm" onClick={() => { setAdjustItem(item); setAdjustQty(""); setAdjustReason(""); }} disabled={!canWriteIngredient} title={!canWriteIngredient ? noWritePermissionMsg(ingredientDept) : undefined} className="gap-1.5">
                               <RefreshCw className="w-3 h-3" /> Adjust
                             </Button>
+                            <Button variant="ghost" size="icon" onClick={() => setCompDialog({ open: true, item })} title="Components (what this ingredient is made of)"><Layers className="w-4 h-4 text-muted-foreground" /></Button>
                             <Button variant="ghost" size="icon" onClick={() => setIngDialog({ open: true, item })} disabled={!canWriteIngredient} title={!canWriteIngredient ? noWritePermissionMsg(ingredientDept) : undefined}><Edit2 className="w-4 h-4 text-muted-foreground" /></Button>
                             <Button variant="ghost" size="icon" onClick={() => handleDeleteIngredient(item.id, item.name)} disabled={!canWriteIngredient} title={!canWriteIngredient ? noWritePermissionMsg(ingredientDept) : undefined}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                           </div>
@@ -863,6 +978,7 @@ export default function Inventory() {
       </Dialog>
 
       {/* Dialogs */}
+      <ComponentsDialog item={compDialog.item} inventory={inventory as any[]} open={compDialog.open} canEdit={canWriteIngredient} onClose={() => setCompDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); loadComponents(); }} />
       <IngredientDialog item={ingDialog.item} department={ingredientDept} open={ingDialog.open} onClose={() => setIngDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); }} />
       <EquipmentDialog eq={eqDialog.eq} department={equipmentDept} open={eqDialog.open} onClose={() => setEqDialog({ open: false })} onSaved={() => loadTab("equipment", true)} />
       <WasteDialog inventory={inventory as any[]} menuItems={menuItems as any[]} equipment={equipment} department={wasteDept} open={wasteDialog} onClose={() => setWasteDialog(false)} onSaved={() => { loadTab("waste", true); loadTab("equipment", true); }} />

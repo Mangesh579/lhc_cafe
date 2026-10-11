@@ -151,7 +151,26 @@ router.patch("/menu-items/:id", authenticate, async (req: AuthRequest, res: Resp
     await db.insert(menuChangelogsTable).values({ menuItemId: id, action: "availability_changed", fieldChanged: "isAvailable", oldValue: String(before?.isAvailable), newValue: String(isAvailable), changedBy: req.user?.username ?? "admin" });
   } else {
     const changedFields = Object.keys(updateData).join(", ");
-    await db.insert(menuChangelogsTable).values({ menuItemId: id, action: "item_updated", fieldChanged: changedFields, newValue: name ?? price?.toString(), changedBy: req.user?.username ?? "admin" });
+    const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "(empty)" : String(v));
+    const catName = async (cid: unknown) => {
+      if (cid === null || cid === undefined) return "(none)";
+      const [c] = await db.select().from(menuCategoriesTable).where(eq(menuCategoriesTable.id, Number(cid)));
+      return c?.name ?? String(cid);
+    };
+    const labels: Record<string, string> = { categoryId: "category", imageUrl: "image URL", videoUrl: "video URL" };
+    for (const [field, newVal] of Object.entries(updateData)) {
+      const oldVal = (before as any)?.[field];
+      const same = field === "price" ? parseFloat(String(oldVal)) === parseFloat(String(newVal)) : fmt(oldVal) === fmt(newVal);
+      if (same) continue;
+      let oldDisp = fmt(oldVal);
+      let newDisp = fmt(newVal);
+      if (field === "categoryId") { oldDisp = await catName(oldVal); newDisp = await catName(newVal); }
+      await db.insert(menuChangelogsTable).values({
+        menuItemId: id, action: "item_updated", fieldChanged: labels[field] ?? field,
+        oldValue: oldDisp.slice(0, 300), newValue: newDisp.slice(0, 300),
+        changedBy: req.user?.username ?? "admin",
+      });
+    }
   }
 
   const [cat] = item.categoryId ? await db.select().from(menuCategoriesTable).where(eq(menuCategoriesTable.id, item.categoryId)) : [null];
@@ -170,7 +189,13 @@ router.delete("/menu-items/:id", authenticate, async (req: AuthRequest, res: Res
 // ─── Menu Changelog ────────────────────────────────────────────────────────────
 
 router.get("/menu-changelog", authenticate, async (_req, res): Promise<void> => {
-  const logs = await db.select().from(menuChangelogsTable).orderBy(desc(menuChangelogsTable.createdAt)).limit(200);
+  const joined = await db
+    .select({ log: menuChangelogsTable, itemName: menuItemsTable.name })
+    .from(menuChangelogsTable)
+    .leftJoin(menuItemsTable, eq(menuChangelogsTable.menuItemId, menuItemsTable.id))
+    .orderBy(desc(menuChangelogsTable.createdAt))
+    .limit(200);
+  const logs = joined.map(r => ({ ...r.log, itemName: r.itemName }));
   res.json(logs);
 });
 

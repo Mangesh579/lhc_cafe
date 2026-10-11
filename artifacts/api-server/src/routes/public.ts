@@ -4,6 +4,7 @@ import { eq, and, gte, desc, sql } from "drizzle-orm";
 import { randomBytes, randomInt } from "crypto";
 import { publicOrderRateLimiter } from "../middlewares/rateLimit";
 import { applyPrepWaste } from "../lib/prepWaste";
+import { expandRecipeLines } from "../lib/ingredientUsage";
 import { Resend } from "resend";
 import type { Request, Response, NextFunction } from "express";
 
@@ -341,7 +342,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
     }
 
     for (const item of resolvedItems) {
-      const recipes = await db.select().from(recipesTable).where(eq(recipesTable.menuItemId, item.menuItemId));
+      const recipes = await expandRecipeLines(item.menuItemId);
       for (const recipe of recipes) {
         const needed = parseFloat(String(recipe.quantityRequired)) * item.quantity;
         const [inv] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, recipe.inventoryItemId));

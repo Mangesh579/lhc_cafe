@@ -119,6 +119,7 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
         imageUrl: imageUrl || undefined,
         videoUrl: videoUrl || undefined,
         copyRecipesFromId: item && !item.id ? item.cloneFromId : undefined,
+        isAvailable,
       };
       const API_BASE = import.meta.env.VITE_API_BASE ?? "";
       if (item?.id) {
@@ -604,9 +605,10 @@ export default function Menu() {
                       </td>
                       <td className="px-5 py-3 font-medium">{log.changedBy}</td>
                       <td className="px-5 py-3 text-muted-foreground text-xs">
-                        {log.fieldChanged && <span>Field: {log.fieldChanged} </span>}
-                        {log.oldValue && <span>From: "{log.oldValue}" </span>}
-                        {log.newValue && <span>To: "{log.newValue}"</span>}
+                        {log.itemName && log.action !== "item_created" && <span className="font-semibold text-foreground">{log.itemName} — </span>}
+                        {log.fieldChanged && <span>{log.fieldChanged}: </span>}
+                        {log.oldValue && <span className="line-through">{log.oldValue}</span>}
+                        {log.newValue && <span>{log.oldValue ? " → " : ""}<strong>{log.newValue}</strong></span>}
                       </td>
                     </tr>
                   ))}

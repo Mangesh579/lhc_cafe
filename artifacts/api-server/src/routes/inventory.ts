@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, inventoryItemsTable, inventoryLogsTable, recipesTable, menuItemsTable } from "@workspace/db";
+import { db, inventoryItemsTable, inventoryLogsTable, recipesTable, menuItemsTable, ingredientComponentsTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import { authenticate, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
 import type { Response } from "express";
@@ -142,6 +142,79 @@ router.get("/inventory/usage-map", authenticate, async (_req, res): Promise<void
     map[row.inventoryItemId].push({ id: row.menuItemId, name: row.menuItemName, isAvailable: row.isAvailable });
   }
   res.json(map);
+});
+
+router.get("/inventory/components", authenticate, async (_req, res): Promise<void> => {
+  const rows = await db
+    .select({
+      parentItemId: ingredientComponentsTable.parentItemId,
+      childItemId: ingredientComponentsTable.childItemId,
+      quantity: ingredientComponentsTable.quantity,
+      childName: inventoryItemsTable.name,
+      childUnit: inventoryItemsTable.unit,
+    })
+    .from(ingredientComponentsTable)
+    .innerJoin(inventoryItemsTable, eq(ingredientComponentsTable.childItemId, inventoryItemsTable.id));
+  res.json(rows);
+});
+
+router.put("/inventory/:id/components", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  const [parent] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, id));
+  if (!parent) { res.status(404).json({ error: "Item not found" }); return; }
+  if (!canWriteDepartment(req.user?.role, parent.department)) {
+    res.status(403).json({ error: `Only ${parent.department === "kitchen" ? "the head chef" : "the head barista"} or an admin can edit this item.` });
+    return;
+  }
+
+  const batchYield = parseFloat(String(req.body.batchYield ?? 1));
+  const components: { childItemId: number; quantity: number }[] = Array.isArray(req.body.components) ? req.body.components : [];
+  if (!(batchYield > 0)) { res.status(400).json({ error: "The amount this recipe makes must be above 0." }); return; }
+  for (const c of components) {
+    if (!Number.isInteger(c.childItemId) || !(Number(c.quantity) > 0)) { res.status(400).json({ error: "Each component needs an ingredient and a quantity above 0." }); return; }
+    if (c.childItemId === id) { res.status(400).json({ error: "An ingredient cannot contain itself." }); return; }
+  }
+  if (new Set(components.map(c => c.childItemId)).size !== components.length) { res.status(400).json({ error: "The same ingredient is listed twice." }); return; }
+
+  // Block loops: a child may not lead back to this ingredient through its own components.
+  const allLinks = await db.select().from(ingredientComponentsTable);
+  const graph = new Map<number, number[]>();
+  for (const l of allLinks) {
+    if (l.parentItemId === id) continue;
+    graph.set(l.parentItemId, [...(graph.get(l.parentItemId) ?? []), l.childItemId]);
+  }
+  const reaches = (from: number, target: number, seen = new Set<number>()): boolean => {
+    if (from === target) return true;
+    if (seen.has(from)) return false;
+    seen.add(from);
+    return (graph.get(from) ?? []).some(n => reaches(n, target, seen));
+  };
+  if (components.some(c => reaches(c.childItemId, id))) {
+    res.status(400).json({ error: "That would create a loop: an ingredient cannot contain itself, even indirectly." });
+    return;
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.delete(ingredientComponentsTable).where(eq(ingredientComponentsTable.parentItemId, id));
+    for (const c of components) {
+      await tx.insert(ingredientComponentsTable).values({ parentItemId: id, childItemId: c.childItemId, quantity: String(c.quantity) });
+    }
+  });
+
+  // Calories per unit = sum of component calories / amount the recipe makes
+  let caloriesPerUnit: string | null = parent.caloriesPerUnit;
+  if (components.length > 0) {
+    const everyItem = await db.select().from(inventoryItemsTable);
+    const byId = new Map(everyItem.map(i => [i.id, i]));
+    const total = components.reduce((s, c) => s + parseFloat(String(byId.get(c.childItemId)?.caloriesPerUnit ?? 0)) * Number(c.quantity), 0);
+    if (total > 0) caloriesPerUnit = String(total / batchYield);
+  }
+
+  const [updated] = await db.update(inventoryItemsTable)
+    .set({ batchYield: String(batchYield), caloriesPerUnit })
+    .where(eq(inventoryItemsTable.id, id))
+    .returning();
+  res.json(updated);
 });
 
 export default router;

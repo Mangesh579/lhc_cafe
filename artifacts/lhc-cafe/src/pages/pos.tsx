@@ -225,10 +225,10 @@ export default function POS() {
           )}
         </div>
         {/* Category chips */}
-        <div className="flex gap-2 p-1 overflow-x-auto" style={{ scrollbarWidth: "thin" }}>
-          <Button variant={activeCategory === "all" ? "default" : "outline"} onClick={() => setActiveCategory("all")} className="rounded-full flex-shrink-0">All Items</Button>
+        <div className="flex flex-wrap gap-2 p-1 max-h-32 overflow-y-auto">
+          <Button variant={activeCategory === "all" ? "default" : "outline"} onClick={() => setActiveCategory("all")} className="rounded-full flex-shrink-0 h-8 px-3 text-xs">All Items</Button>
           {categories?.map(cat => (
-            <Button key={cat.id} variant={activeCategory === cat.id.toString() ? "default" : "outline"} onClick={() => setActiveCategory(cat.id.toString())} className="rounded-full flex-shrink-0">{cat.name}</Button>
+            <Button key={cat.id} variant={activeCategory === cat.id.toString() ? "default" : "outline"} onClick={() => setActiveCategory(cat.id.toString())} className="rounded-full flex-shrink-0 h-8 px-3 text-xs">{cat.name}</Button>
           ))}
         </div>
       </div>

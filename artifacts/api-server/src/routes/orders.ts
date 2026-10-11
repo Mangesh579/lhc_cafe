@@ -3,6 +3,7 @@ import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, 
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth";
 import { applyPrepWaste } from "../lib/prepWaste";
+import { expandRecipeLines } from "../lib/ingredientUsage";
 const NepaliDateLib = require("nepali-date-converter");
 const NepaliDate: any = NepaliDateLib.default ?? NepaliDateLib;
 
@@ -216,7 +217,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
   }
 
   for (const item of resolvedItems) {
-    const recipes = await db.select().from(recipesTable).where(eq(recipesTable.menuItemId, item.menuItemId));
+    const recipes = await expandRecipeLines(item.menuItemId);
     for (const recipe of recipes) {
       const needed = parseFloat(String(recipe.quantityRequired)) * item.quantity;
       const [inv] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, recipe.inventoryItemId));
@@ -365,7 +366,7 @@ router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req: any, 
   // Restore inventory before cancelling
   const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
   for (const item of items) {
-    const recipes = await db.select().from(recipesTable).where(eq(recipesTable.menuItemId, item.menuItemId));
+    const recipes = await expandRecipeLines(item.menuItemId);
     for (const recipe of recipes) {
       const restore = (parseFloat(String(recipe.quantityRequired)) + parseFloat(String((recipe as any).wasteQuantity ?? 0))) * item.quantity;
       const [inv] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, recipe.inventoryItemId));
