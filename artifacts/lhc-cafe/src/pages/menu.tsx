@@ -30,6 +30,44 @@ const APIJSON = (path: string, method = "GET", body?: object) =>
     method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }, body: body ? JSON.stringify(body) : undefined }).then(r => r.json());
 
 // ─── Item Form Dialog ─────────────────────────────────────────────────────────
+function SearchableSelect({ options, value, onChange, placeholder, noneLabel }: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  noneLabel?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const selected = options.find(o => o.value === value);
+  const filtered = options.filter(o => o.label.toLowerCase().includes(query.trim().toLowerCase()));
+  const pick = (v: string) => { onChange(v); setQuery(""); setOpen(false); };
+
+  return (
+    <div className="space-y-1">
+      <Input
+        value={open ? query : (selected?.label ?? "")}
+        placeholder={selected ? selected.label : placeholder}
+        onFocus={() => { setQuery(""); setOpen(true); }}
+        onChange={e => { setQuery(e.target.value); setOpen(true); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); if (query.trim() && filtered[0]) pick(filtered[0].value); } }}
+      />
+      {open && (
+        <div className="border rounded-md bg-popover max-h-44 overflow-y-auto">
+          {noneLabel && (
+            <button type="button" className="w-full text-left px-3 py-2 text-sm text-muted-foreground hover:bg-muted" onMouseDown={() => pick("")}>{noneLabel}</button>
+          )}
+          {filtered.map(o => (
+            <button key={o.value} type="button" className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${o.value === value ? "bg-muted font-medium" : ""}`} onMouseDown={() => pick(o.value)}>{o.label}</button>
+          ))}
+          {filtered.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">No matches</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; categories: any[]; open: boolean; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(item?.name ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
@@ -54,6 +92,7 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
       setCalories(item.calories ? String(item.calories) : "");
       setIsAvailable(item.isAvailable ?? true);
       setImageUrl(item.imageUrl ?? "");
+      if (!item.id) { setVideoUrl(item.videoUrl ?? ""); return; } // clone: no server record yet
       // Fetch fresh from server to get fields not in the generated client type
       const API_BASE = import.meta.env.VITE_API_BASE ?? "";
       fetch(`${API_BASE}/api/menu-items/${item.id}`, {
@@ -79,9 +118,10 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
         calories: calories ? parseInt(calories) : undefined,
         imageUrl: imageUrl || undefined,
         videoUrl: videoUrl || undefined,
+        copyRecipesFromId: item && !item.id ? item.cloneFromId : undefined,
       };
       const API_BASE = import.meta.env.VITE_API_BASE ?? "";
-      if (item) {
+      if (item?.id) {
         const r = await fetch(`${API_BASE}/api/menu-items/${item.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
@@ -96,7 +136,7 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
         });
         if (!r.ok) { const e = await r.json(); throw new Error(e.error ?? "Failed"); }
       }
-      toast({ title: item ? "Item updated" : "Item created" });
+      toast({ title: item?.id ? "Item updated" : "Item created" });
       onSaved();
       await qc.invalidateQueries({ queryKey: getListMenuItemsQueryKey() });
       onClose();
@@ -109,7 +149,7 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
         <DialogHeader className="shrink-0">
-          <DialogTitle>{item ? "Edit Menu Item" : "Add Menu Item"}</DialogTitle>
+          <DialogTitle>{item?.id ? "Edit Menu Item" : item ? "Clone Menu Item" : "Add Menu Item"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4 overflow-y-auto flex-1 pr-1">
           <div className="col-span-2 space-y-1">
@@ -126,13 +166,13 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
           </div>
           <div className="space-y-1">
             <Label>Category</Label>
-            <Select value={categoryId || "none"} onValueChange={v => setCategoryId(v === "none" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No Category</SelectItem>
-                {categories.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={categoryId}
+              onChange={setCategoryId}
+              placeholder="Type to search categories…"
+              noneLabel="No Category"
+              options={categories.map((c: any) => ({ value: String(c.id), label: c.name }))}
+            />
           </div>
           <div className="space-y-1">
             <Label>Availability</Label>
@@ -163,7 +203,7 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
         <DialogFooter className="shrink-0 pt-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending}>
-            {item ? "Update" : "Create"}
+            {item?.id ? "Update" : "Create"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -237,7 +277,7 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader><DialogTitle>Ingredients — {item?.name}</DialogTitle></DialogHeader>
         <div className="space-y-4 py-2">
           {/* Current ingredients */}
@@ -265,18 +305,16 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
           {/* Add ingredient */}
           <div className="border-t pt-4 space-y-3">
             <p className="text-sm font-semibold">Add Ingredient</p>
-            <div className="grid grid-cols-2 gap-2">
-              <Select value={newIngId} onValueChange={setNewIngId}>
-                <SelectTrigger><SelectValue placeholder="Select ingredient" /></SelectTrigger>
-                <SelectContent className="max-h-[300px] overflow-y-auto">
-                  {inventory.filter(inv => !recipes.find(r => r.inventoryItemId === inv.id)).map(inv => (
-                    <SelectItem key={inv.id} value={String(inv.id)}>{inv.name} ({inv.unit})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="flex gap-2">
+            <div className="space-y-2">
+              <SearchableSelect
+                value={newIngId}
+                onChange={setNewIngId}
+                placeholder="Type to search ingredients…"
+                options={inventory.filter(inv => !recipes.find(r => r.inventoryItemId === inv.id)).map(inv => ({ value: String(inv.id), label: `${inv.name} (${inv.unit})` }))}
+              />
+              <div className="grid grid-cols-2 gap-2">
                 <Input type="number" placeholder="Qty" value={newQty} onChange={e => setNewQty(e.target.value)} />
-                <Input type="number" placeholder="Waste" value={newWaste} onChange={e => setNewWaste(e.target.value)} />
+                <Input type="number" placeholder="Waste (optional)" value={newWaste} onChange={e => setNewWaste(e.target.value)} />
               </div>
             </div>
             <Button onClick={handleAdd} disabled={loading} className="w-full gap-2"><Plus className="w-4 h-4" /> Add Ingredient</Button>
@@ -372,7 +410,7 @@ export default function Menu() {
 
   const handleDuplicate = (item: any) => {
     const { id, createdAt, categoryName, ...rest } = item;
-    setItemDialog({ open: true, item: { ...rest, name: `${item.name} (Copy)` } as any });
+    setItemDialog({ open: true, item: { ...rest, cloneFromId: id, name: `${item.name} (Copy)` } as any });
   };
 
   const handleDelete = async (id: number, name: string) => {

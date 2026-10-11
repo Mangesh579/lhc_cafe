@@ -77,6 +77,13 @@ router.post("/menu-items", authenticate, async (req: AuthRequest, res: Response)
     imageUrl: imageUrl ?? null, videoUrl: videoUrl ?? null, calories: calories ?? null,
   }).returning();
   await db.insert(menuChangelogsTable).values({ menuItemId: item.id, action: "item_created", newValue: `${name} @ Rs.${price}`, changedBy: req.user?.username ?? "admin" });
+  const copyFrom = parseInt(String(req.body.copyRecipesFromId ?? ""), 10);
+  if (!Number.isNaN(copyFrom)) {
+    const sourceRecipes = await db.select().from(recipesTable).where(eq(recipesTable.menuItemId, copyFrom));
+    for (const src of sourceRecipes) {
+      await db.insert(recipesTable).values({ menuItemId: item.id, inventoryItemId: src.inventoryItemId, quantityRequired: src.quantityRequired, wasteQuantity: src.wasteQuantity });
+    }
+  }
   const [cat] = item.categoryId ? await db.select().from(menuCategoriesTable).where(eq(menuCategoriesTable.id, item.categoryId)) : [null];
   res.status(201).json({ ...item, categoryName: cat?.name ?? null });
 });
