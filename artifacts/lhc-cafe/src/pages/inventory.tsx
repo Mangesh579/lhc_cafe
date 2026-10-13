@@ -504,6 +504,65 @@ export default function Inventory() {
 
   const [ingDialog, setIngDialog] = useState<{ open: boolean; item?: any }>({ open: false });
   const [compDialog, setCompDialog] = useState<{ open: boolean; item?: any }>({ open: false });
+
+  const [usageDialog, setUsageDialog] = useState(false);
+  const [usageDate, setUsageDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [usageFrom, setUsageFrom] = useState("06:00");
+  const [usageTo, setUsageTo] = useState("21:00");
+  const [usageDept, setUsageDept] = useState(role === "head_chef" ? "kitchen" : role === "head_barista" ? "drink" : "all");
+  const [usageLoading, setUsageLoading] = useState(false);
+
+  const runUsageExport = async (fmt: "excel" | "csv" | "pdf") => {
+    const fromD = new Date(`${usageDate}T${usageFrom}:00`);
+    const toD = new Date(`${usageDate}T${usageTo}:00`);
+    if (isNaN(fromD.getTime()) || isNaN(toD.getTime()) || fromD >= toD) {
+      toast({ title: "Check the date and times", description: "The end time must be after the start time.", variant: "destructive" });
+      return;
+    }
+    setUsageLoading(true);
+    try {
+      const qs = new URLSearchParams({ from: fromD.toISOString(), to: toD.toISOString() });
+      if (usageDept !== "all") qs.set("department", usageDept);
+      const data = await APIJSON(`/inventory/usage-report?${qs.toString()}`);
+      const summary: any[] = data.summary ?? [];
+      const details: any[] = data.details ?? [];
+      if (summary.length === 0) { toast({ title: "No ingredients were used in that window" }); return; }
+
+      const n = (v: any) => Math.round((Number(v) || 0) * 100) / 100;
+      const label = `${usageDate} ${usageFrom}-${usageTo}`;
+      const sumHead = ["Ingredient", "Dept", "Unit", "Stock at start", "Used (orders)", "Of which prep waste", "Restored (cancelled)", "Other adjustments", "Stock at end"];
+      const sumRows = summary.map(s => [s.name, s.department === "kitchen" ? "Kitchen" : "Drink", s.unit, n(s.opening), n(s.used), n(s.prepWaste), n(s.restored), n(s.otherAdjustments), n(s.closing)]);
+      const detHead = ["Time", "Order #", "Menu item", "Ingredient", "Dept", "Change", "Before", "After", "Note"];
+      const detRows = details.map(d => [format(new Date(d.createdAt), "h:mm a"), d.orderId, d.menuItemName ?? "—", d.ingredientName, d.department === "kitchen" ? "Kitchen" : "Drink", n(d.change), n(d.stockBefore), n(d.stockAfter), d.reason ?? ""]);
+      const fileBase = `ingredient-usage-${usageDate}`;
+
+      if (fmt === "excel") {
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sumHead, ...sumRows]), "Summary");
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([detHead, ...detRows]), "Order Detail");
+        XLSX.writeFile(wb, `${fileBase}.xlsx`);
+      } else if (fmt === "csv") {
+        const q = (c: any) => `"${String(c ?? "").replace(/"/g, '""')}"`;
+        const csv = [[`Ingredient usage ${label}`], sumHead, ...sumRows, [], ["Order detail"], detHead, ...detRows].map(r => r.map(q).join(",")).join("\n");
+        const blob = new Blob([csv], { type: "text/csv" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = `${fileBase}.csv`; a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const doc = new jsPDF({ orientation: "landscape" });
+        doc.setFontSize(14);
+        doc.text(`LHC Cafe — Ingredient Usage (${label})`, 14, 15);
+        autoTable(doc, { startY: 22, head: [sumHead], body: sumRows as any[][], styles: { fontSize: 8 } });
+        const nextY = ((doc as any).lastAutoTable?.finalY ?? 22) + 10;
+        doc.setFontSize(12);
+        doc.text("Order detail", 14, nextY);
+        autoTable(doc, { startY: nextY + 4, head: [detHead], body: detRows as any[][], styles: { fontSize: 8 } });
+        doc.save(`${fileBase}.pdf`);
+      }
+      setUsageDialog(false);
+    } catch { toast({ title: "Failed to build the report", variant: "destructive" }); }
+    finally { setUsageLoading(false); }
+  };
   const [compMap, setCompMap] = useState<Record<number, any[]>>({});
   const [ingredientSearch, setIngredientSearch] = useState("");
   const [adjustItem, setAdjustItem] = useState<any>(null);
@@ -632,6 +691,7 @@ export default function Inventory() {
     <div className="p-6 max-w-6xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-serif font-bold">Inventory</h1>
+        <Button variant="outline" onClick={() => setUsageDialog(true)}>Daily Usage Report</Button>
       </div>
 
       {lowStockItems.length > 0 && (
@@ -978,6 +1038,37 @@ export default function Inventory() {
       </Dialog>
 
       {/* Dialogs */}
+      <Dialog open={usageDialog} onOpenChange={setUsageDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Ingredient Usage Report</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-1"><Label className="text-xs">Date</Label><Input type="date" value={usageDate} onChange={e => setUsageDate(e.target.value)} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1"><Label className="text-xs">From</Label><Input type="time" value={usageFrom} onChange={e => setUsageFrom(e.target.value)} /></div>
+              <div className="space-y-1"><Label className="text-xs">To</Label><Input type="time" value={usageTo} onChange={e => setUsageTo(e.target.value)} /></div>
+            </div>
+            <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setUsageTo(format(new Date(), "HH:mm"))}>Set "To" to right now</Button>
+            <div className="space-y-1">
+              <Label className="text-xs">Department</Label>
+              <Select value={usageDept} onValueChange={setUsageDept}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Kitchen + Drink</SelectItem>
+                  <SelectItem value="kitchen">Kitchen only</SelectItem>
+                  <SelectItem value="drink">Drink / Coffee only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground">Lists only ingredients used by orders in this window, with the stock at the start and end, plus the order number and menu item behind every deduction.</p>
+          </div>
+          <DialogFooter className="flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setUsageDialog(false)}>Cancel</Button>
+            <Button variant="outline" disabled={usageLoading} onClick={() => runUsageExport("csv")}>CSV</Button>
+            <Button variant="outline" disabled={usageLoading} onClick={() => runUsageExport("excel")}>Excel</Button>
+            <Button disabled={usageLoading} onClick={() => runUsageExport("pdf")}>{usageLoading ? "Building…" : "PDF"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <ComponentsDialog item={compDialog.item} inventory={inventory as any[]} open={compDialog.open} canEdit={canWriteIngredient} onClose={() => setCompDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); loadComponents(); }} />
       <IngredientDialog item={ingDialog.item} department={ingredientDept} open={ingDialog.open} onClose={() => setIngDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); }} />
       <EquipmentDialog eq={eqDialog.eq} department={equipmentDept} open={eqDialog.open} onClose={() => setEqDialog({ open: false })} onSaved={() => loadTab("equipment", true)} />

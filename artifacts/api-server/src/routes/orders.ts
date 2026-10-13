@@ -225,7 +225,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
         const stockBefore = parseFloat(String(inv.currentStock));
         const stockAfter = Math.max(0, stockBefore - needed);
         await db.update(inventoryItemsTable).set({ currentStock: String(stockAfter) }).where(eq(inventoryItemsTable.id, inv.id));
-        await db.insert(inventoryLogsTable).values({ inventoryItemId: inv.id, changeAmount: String(-needed), stockBefore: String(stockBefore), stockAfter: String(stockAfter), reason: `Order #${order.id}`, orderId: order.id });
+        await db.insert(inventoryLogsTable).values({ inventoryItemId: inv.id, changeAmount: String(-needed), stockBefore: String(stockBefore), stockAfter: String(stockAfter), reason: `Order #${order.id}`, orderId: order.id, menuItemId: item.menuItemId });
       }
     }
   }
@@ -380,6 +380,7 @@ router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req: any, 
           stockBefore: String(stockBefore),
           stockAfter: String(stockAfter),
           reason: `Order #${id} cancelled — stock restored`,
+          menuItemId: item.menuItemId,
           orderId: id,
         });
       }

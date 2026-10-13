@@ -28,6 +28,7 @@ export async function applyPrepWaste(
         stockBefore: String(stockBefore),
         stockAfter: String(stockAfter),
         reason: `${orderLabel} — prep waste`,
+        menuItemId: item.menuItemId,
         orderId,
       });
 
