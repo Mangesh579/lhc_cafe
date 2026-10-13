@@ -1049,7 +1049,7 @@ export default function Inventory() {
             </div>
             <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setUsageTo(format(new Date(), "HH:mm"))}>Set "To" to right now</Button>
             <div className="space-y-1">
-              <Label className="text-xs">Departments</Label>
+              <Label className="text-xs">Department</Label>
               <Select value={usageDept} onValueChange={setUsageDept}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
