@@ -23,6 +23,7 @@ export const inventoryLogsTable = pgTable("inventory_logs", {
   stockAfter: numeric("stock_after", { precision: 10, scale: 2 }).notNull(),
   reason: text("reason").notNull(),
   orderId: integer("order_id"),
+  menuItemId: integer("menu_item_id"),
   changedBy: text("changed_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

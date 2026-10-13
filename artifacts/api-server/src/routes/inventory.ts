@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, inventoryItemsTable, inventoryLogsTable, recipesTable, menuItemsTable, ingredientComponentsTable } from "@workspace/db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, gte, lte } from "drizzle-orm";
 import { authenticate, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
 import type { Response } from "express";
 
@@ -142,6 +142,87 @@ router.get("/inventory/usage-map", authenticate, async (_req, res): Promise<void
     map[row.inventoryItemId].push({ id: row.menuItemId, name: row.menuItemName, isAvailable: row.isAvailable });
   }
   res.json(map);
+});
+
+router.get("/inventory/usage-report", authenticate, async (req, res): Promise<void> => {
+  const from = new Date(String(req.query.from ?? ""));
+  const to = new Date(String(req.query.to ?? ""));
+  if (isNaN(from.getTime()) || isNaN(to.getTime()) || from >= to) {
+    res.status(400).json({ error: "Valid from and to times are required (from must be before to)." });
+    return;
+  }
+  const department = req.query.department ? String(req.query.department) : undefined;
+
+  const conditions = [gte(inventoryLogsTable.createdAt, from), lte(inventoryLogsTable.createdAt, to)];
+  if (department) conditions.push(eq(inventoryItemsTable.department, department));
+
+  const logs = await db
+    .select({
+      id: inventoryLogsTable.id,
+      inventoryItemId: inventoryLogsTable.inventoryItemId,
+      ingredientName: inventoryItemsTable.name,
+      unit: inventoryItemsTable.unit,
+      department: inventoryItemsTable.department,
+      changeAmount: inventoryLogsTable.changeAmount,
+      stockBefore: inventoryLogsTable.stockBefore,
+      stockAfter: inventoryLogsTable.stockAfter,
+      reason: inventoryLogsTable.reason,
+      orderId: inventoryLogsTable.orderId,
+      menuItemName: menuItemsTable.name,
+      createdAt: inventoryLogsTable.createdAt,
+    })
+    .from(inventoryLogsTable)
+    .leftJoin(inventoryItemsTable, eq(inventoryLogsTable.inventoryItemId, inventoryItemsTable.id))
+    .leftJoin(menuItemsTable, eq(inventoryLogsTable.menuItemId, menuItemsTable.id))
+    .where(and(...conditions))
+    .orderBy(inventoryLogsTable.createdAt, inventoryLogsTable.id);
+
+  const byItem = new Map<number, typeof logs>();
+  for (const l of logs) {
+    if (l.inventoryItemId == null) continue;
+    byItem.set(l.inventoryItemId, [...(byItem.get(l.inventoryItemId) ?? []), l]);
+  }
+
+  const summary: any[] = [];
+  const included = new Set<number>();
+  for (const [itemId, rows] of byItem) {
+    if (!rows.some(r => r.orderId != null)) continue; // only ingredients used by orders
+    included.add(itemId);
+    let used = 0, prepWaste = 0, restored = 0, other = 0;
+    for (const r of rows) {
+      const ch = parseFloat(String(r.changeAmount));
+      if (r.orderId != null) {
+        if (ch < 0) { used += -ch; if (String(r.reason ?? "").includes("prep waste")) prepWaste += -ch; }
+        else restored += ch;
+      } else other += ch;
+    }
+    summary.push({
+      name: rows[0].ingredientName ?? "",
+      department: rows[0].department ?? "",
+      unit: rows[0].unit ?? "",
+      opening: parseFloat(String(rows[0].stockBefore)),
+      used, prepWaste, restored, otherAdjustments: other,
+      closing: parseFloat(String(rows[rows.length - 1].stockAfter)),
+    });
+  }
+  summary.sort((a, b) => a.name.localeCompare(b.name));
+
+  const details = logs
+    .filter(l => l.orderId != null && l.inventoryItemId != null && included.has(l.inventoryItemId))
+    .map(l => ({
+      createdAt: l.createdAt,
+      orderId: l.orderId,
+      menuItemName: l.menuItemName,
+      ingredientName: l.ingredientName,
+      unit: l.unit,
+      department: l.department,
+      change: parseFloat(String(l.changeAmount)),
+      stockBefore: parseFloat(String(l.stockBefore)),
+      stockAfter: parseFloat(String(l.stockAfter)),
+      reason: l.reason,
+    }));
+
+  res.json({ summary, details });
 });
 
 router.get("/inventory/components", authenticate, async (_req, res): Promise<void> => {

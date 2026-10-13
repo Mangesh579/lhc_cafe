@@ -356,6 +356,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
             stockBefore: String(stockBefore),
             stockAfter: String(stockAfter),
             reason: `QR Order #${order.id} (${table.name || `Table ${table.tableNumber}`})`,
+            menuItemId: item.menuItemId,
             orderId: order.id,
           });
         }
