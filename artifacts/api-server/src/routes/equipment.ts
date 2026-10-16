@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, equipmentItemsTable, equipmentLogsTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
-import { authenticate, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
+import { authenticate, requireAdmin, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
 import type { Response } from "express";
 
 const router = Router();
@@ -87,7 +87,7 @@ router.patch("/equipment/:id", authenticate, async (req: AuthRequest, res: Respo
   res.json(item);
 });
 
-router.delete("/equipment/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete("/equipment/:id", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
   const [item] = await db.select().from(equipmentItemsTable).where(eq(equipmentItemsTable.id, id));
   if (!item) { res.status(404).json({ error: "Equipment not found" }); return; }

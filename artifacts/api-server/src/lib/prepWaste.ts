@@ -19,7 +19,7 @@ export async function applyPrepWaste(
       if (!inv) continue;
 
       const stockBefore = parseFloat(String(inv.currentStock));
-      const stockAfter = Math.max(0, stockBefore - wasteQty);
+      const stockAfter = stockBefore - wasteQty;
       await db.update(inventoryItemsTable).set({ currentStock: String(stockAfter) }).where(eq(inventoryItemsTable.id, inv.id));
 
       await db.insert(inventoryLogsTable).values({

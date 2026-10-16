@@ -348,7 +348,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
         const [inv] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, recipe.inventoryItemId));
         if (inv) {
           const stockBefore = parseFloat(String(inv.currentStock));
-          const stockAfter = Math.max(0, stockBefore - needed);
+          const stockAfter = stockBefore - needed;
           await db.update(inventoryItemsTable).set({ currentStock: String(stockAfter) }).where(eq(inventoryItemsTable.id, inv.id));
           await db.insert(inventoryLogsTable).values({
             inventoryItemId: inv.id,

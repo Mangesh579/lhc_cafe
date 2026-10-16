@@ -152,7 +152,7 @@ function EquipmentDialog({ eq, department, open, onClose, onSaved }: { eq?: any;
   const [name, setName] = useState(eq?.name ?? "");
   const [description, setDescription] = useState(eq?.description ?? "");
   const [purchaseDate, setPurchaseDate] = useState(eq?.purchaseDate ?? "");
-  const [quantity, setQuantity] = useState(eq?.quantity ? String(eq.quantity) : "1");
+  const [quantity, setQuantity] = useState(eq?.quantity != null ? String(eq.quantity) : "1");
   const [unitPrice, setUnitPrice] = useState(eq?.unitPrice ? String(eq.unitPrice) : "");
   const [condition, setCondition] = useState(eq?.condition ?? "good");
   const [notes, setNotes] = useState(eq?.notes ?? "");
@@ -163,7 +163,7 @@ function EquipmentDialog({ eq, department, open, onClose, onSaved }: { eq?: any;
     if (open) {
       setName(eq?.name ?? ""); setDescription(eq?.description ?? "");
       setPurchaseDate(eq?.purchaseDate ?? "");
-      setQuantity(eq?.quantity ? String(eq.quantity) : "1");
+      setQuantity(eq?.quantity != null ? String(eq.quantity) : "1");
       setUnitPrice(eq?.unitPrice ? String(eq.unitPrice) : "");
       setCondition(eq?.condition ?? "good"); setNotes(eq?.notes ?? "");
     }
@@ -209,7 +209,7 @@ function EquipmentDialog({ eq, department, open, onClose, onSaved }: { eq?: any;
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1"><Label>Quantity</Label><Input type="number" min="1" value={quantity} onChange={e => setQuantity(e.target.value)} /></div>
+          <div className="space-y-1"><Label>Quantity</Label><Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} /></div>
           <div className="space-y-1"><Label>Unit Price (Rs.)</Label><Input type="number" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} placeholder="Per item" /></div>
           <div className="col-span-2 p-2 bg-muted/40 rounded-md text-sm">
             Total: <span className="font-bold text-primary">Rs. {totalPrice.toFixed(0)}</span>
@@ -629,7 +629,7 @@ export default function Inventory() {
       }
       if (tab === "inv-log") {
         const d = await APIJSON("/inventory/logs"); setInvLogs(Array.isArray(d) ? d : []);
-        const rq = await APIJSON("/inventory/requests?status=pending,rejected"); setStockRequests(Array.isArray(rq) ? rq : []);
+        const rq = await APIJSON("/inventory/requests?status=pending,rejected,cancelled"); setStockRequests(Array.isArray(rq) ? rq : []);
       }
       setLogsLoaded(tab);
     } catch { toast({ title: "Failed to load data", variant: "destructive" }); }
@@ -656,6 +656,18 @@ export default function Inventory() {
       const d = await err?.json?.().catch(() => null);
       toast({ title: "Failed to adjust", description: d?.error, variant: "destructive" });
     } finally { setAdjustSaving(false); }
+  };
+
+  const cancelMyRequest = async (id: number) => {
+    if (!confirm("Cancel this request?")) return;
+    try {
+      await APIJSON(`/inventory/requests/${id}/cancel`, "POST", {});
+      toast({ title: "Request cancelled" });
+      loadTab("inv-log", true);
+    } catch (err: any) {
+      const d = await err?.json?.().catch(() => null);
+      toast({ title: "Couldn't cancel", description: d?.error, variant: "destructive" });
+    }
   };
 
   const handleDeleteEquipment = async (id: number) => {
@@ -829,7 +841,7 @@ export default function Inventory() {
                             </Button>
                             <Button variant="ghost" size="icon" onClick={() => setCompDialog({ open: true, item })} title="Components (what this ingredient is made of)"><Layers className="w-4 h-4 text-muted-foreground" /></Button>
                             <Button variant="ghost" size="icon" onClick={() => setIngDialog({ open: true, item })} disabled={!canWriteIngredient} title={!canWriteIngredient ? noWritePermissionMsg(ingredientDept) : undefined}><Edit2 className="w-4 h-4 text-muted-foreground" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDeleteIngredient(item.id, item.name)} disabled={!canWriteIngredient} title={!canWriteIngredient ? noWritePermissionMsg(ingredientDept) : undefined}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                            <Button variant="ghost" size="icon" onClick={() => handleDeleteIngredient(item.id, item.name)} disabled={role !== "admin"} title={role !== "admin" ? "Only an admin can delete items" : undefined}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                           </div>
                         </td>
                       </tr>
@@ -892,7 +904,7 @@ export default function Inventory() {
                       <td className="px-5 py-3 text-right">
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon" onClick={() => setEqDialog({ open: true, eq })} disabled={!canWriteEquipment} title={!canWriteEquipment ? noWritePermissionMsg(equipmentDept) : undefined}><Edit2 className="w-4 h-4 text-muted-foreground" /></Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDeleteEquipment(eq.id)} disabled={!canWriteEquipment} title={!canWriteEquipment ? noWritePermissionMsg(equipmentDept) : undefined}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDeleteEquipment(eq.id)} disabled={role !== "admin"} title={role !== "admin" ? "Only an admin can delete equipment" : undefined}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                         </div>
                       </td>
                     </tr>
@@ -1011,10 +1023,13 @@ export default function Inventory() {
                           <td className="px-5 py-3"><span className="font-semibold text-muted-foreground">{q >= 0 ? "+" : ""}{q.toFixed(2)}</span></td>
                           <td className="px-5 py-3 text-xs text-muted-foreground">not applied</td>
                           <td className="px-5 py-3 text-muted-foreground">
-                            <Badge variant="secondary" className={log.status === "pending" ? "bg-amber-100 text-amber-800 mr-2" : "bg-red-100 text-red-700 mr-2"}>{log.status === "pending" ? "Requested" : "Rejected"}</Badge>
+                            <Badge variant="secondary" className={log.status === "pending" ? "bg-amber-100 text-amber-800 mr-2" : log.status === "cancelled" ? "bg-gray-100 text-gray-700 mr-2" : "bg-red-100 text-red-700 mr-2"}>{log.status === "pending" ? "Requested" : log.status === "cancelled" ? "Cancelled" : "Rejected"}</Badge>
                             {log.status === "pending"
                               ? `${log.requestedBy} requested a change, awaiting admin approval. ${log.reason}`
-                              : `Requested by ${log.requestedBy}, rejected by ${log.resolvedBy}${log.resolutionNote ? ` (${log.resolutionNote})` : ""}. ${log.reason}`}
+                              : log.status === "cancelled" ? `${log.requestedBy} cancelled their own request. ${log.reason}` : `Requested by ${log.requestedBy}, rejected by ${log.resolvedBy}${log.resolutionNote ? ` (${log.resolutionNote})` : ""}. ${log.reason}`}
+                            {log.status === "pending" && log.requestedBy === user?.username && (
+                              <Button size="sm" variant="outline" className="ml-2 h-6 px-2 text-xs" onClick={() => cancelMyRequest(log.id)}>Cancel request</Button>
+                            )}
                           </td>
                         </tr>
                       );

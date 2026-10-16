@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { db, inventoryItemsTable, inventoryLogsTable, recipesTable, menuItemsTable, ingredientComponentsTable, inventoryAdjustmentRequestsTable } from "@workspace/db";
-import { eq, desc, and, gte, lte, inArray } from "drizzle-orm";
+import { eq, desc, and, gte, lte, inArray, sql } from "drizzle-orm";
+import * as os from "os";
+import * as fs from "fs";
 import { authenticate, requireAdmin, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
 import type { Response } from "express";
 
@@ -75,7 +77,7 @@ router.patch("/inventory/:id", authenticate, async (req: AuthRequest, res: Respo
   res.json(item);
 });
 
-router.delete("/inventory/:id", authenticate, async (req: AuthRequest, res): Promise<void> => {
+router.delete("/inventory/:id", authenticate, requireAdmin, async (req: AuthRequest, res): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
   const [existing] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, id));
   if (!existing) { res.status(404).json({ error: "Item not found" }); return; }
@@ -248,6 +250,48 @@ router.get("/inventory/usage-report", authenticate, async (req, res): Promise<vo
   res.json({ summary, details });
 });
 
+router.get("/system/server-stats", authenticate, requireAdmin, async (_req, res): Promise<void> => {
+  let database: { bytes: number; pretty: string } | null = null;
+  try {
+    const r: any = await db.execute(sql`SELECT pg_database_size(current_database()) AS bytes, pg_size_pretty(pg_database_size(current_database())) AS pretty`);
+    const row = (r.rows ?? r)[0];
+    database = { bytes: Number(row.bytes), pretty: String(row.pretty) };
+  } catch { /* leave null */ }
+
+  // Memory: prefer MemAvailable from /proc/meminfo (counts reclaimable cache as available)
+  let totalMem = os.totalmem();
+  let availableMem = os.freemem();
+  try {
+    const info = fs.readFileSync("/proc/meminfo", "utf8");
+    const t = info.match(/MemTotal:\s+(\d+) kB/);
+    const a = info.match(/MemAvailable:\s+(\d+) kB/);
+    if (t) totalMem = Number(t[1]) * 1024;
+    if (a) availableMem = Number(a[1]) * 1024;
+  } catch { /* fall back to os values */ }
+
+  const candidates = [
+    { path: "/", label: "Server disk (WSL Linux)" },
+    { path: "/mnt/c", label: "Windows C: drive" },
+    { path: "/mnt/e", label: "Windows E: drive" },
+  ];
+  const disks: { label: string; path: string; totalBytes: number; freeBytes: number }[] = [];
+  for (const c of candidates) {
+    try {
+      const s = fs.statfsSync(c.path);
+      const totalBytes = Number(s.blocks) * Number(s.bsize);
+      const freeBytes = Number(s.bavail) * Number(s.bsize);
+      if (totalBytes > 0) disks.push({ label: c.label, path: c.path, totalBytes, freeBytes });
+    } catch { /* path not available */ }
+  }
+
+  res.json({
+    database,
+    memory: { totalBytes: totalMem, usedBytes: totalMem - availableMem },
+    disks,
+    system: { uptimeSeconds: os.uptime(), cpuCount: os.cpus().length, load1: os.loadavg()[0] },
+  });
+});
+
 router.get("/inventory/requests", authenticate, async (req, res): Promise<void> => {
   const statuses = String(req.query.status ?? "pending").split(",").map(s => s.trim()).filter(Boolean);
   const rows = await db
@@ -287,10 +331,6 @@ router.post("/inventory/requests/:id/approve", authenticate, requireAdmin, async
   const change = parseFloat(String(request.quantity));
   const stockBefore = parseFloat(String(current.currentStock));
   const stockAfter = stockBefore + change;
-  if (stockAfter < 0) {
-    res.status(400).json({ error: `Approving this would take ${current.name} below zero (stock is now ${stockBefore.toFixed(1)}). Reject it and ask for a smaller amount.` });
-    return;
-  }
 
   const admin = req.user?.username ?? "admin";
   let applied = false as boolean;
@@ -313,6 +353,22 @@ router.post("/inventory/requests/:id/approve", authenticate, requireAdmin, async
   });
   if (!applied) { res.status(400).json({ error: "This request was already handled." }); return; }
   res.json({ success: true, stockBefore, stockAfter });
+});
+
+router.post("/inventory/requests/:id/cancel", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  const [request] = await db.select().from(inventoryAdjustmentRequestsTable).where(eq(inventoryAdjustmentRequestsTable.id, id));
+  if (!request) { res.status(404).json({ error: "Request not found" }); return; }
+  if (request.requestedBy !== req.user?.username) {
+    res.status(403).json({ error: "Only the person who made this request can cancel it." });
+    return;
+  }
+  const updated = await db.update(inventoryAdjustmentRequestsTable)
+    .set({ status: "cancelled", resolvedBy: request.requestedBy, resolvedAt: new Date() })
+    .where(and(eq(inventoryAdjustmentRequestsTable.id, id), eq(inventoryAdjustmentRequestsTable.status, "pending")))
+    .returning();
+  if (updated.length === 0) { res.status(400).json({ error: "This request was already handled." }); return; }
+  res.json({ success: true });
 });
 
 router.post("/inventory/requests/:id/reject", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {

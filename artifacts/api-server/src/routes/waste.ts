@@ -38,7 +38,7 @@ router.post("/waste", authenticate, async (req: AuthRequest, res: Response): Pro
       }
 
       const currentQty = eqItem.quantity ?? 1;
-      const newQty = Math.max(0, currentQty - qtyWasted);
+      const newQty = currentQty - qtyWasted;
       const newTotalPrice = unitPrice * newQty;
 
       await db.update(equipmentItemsTable)
@@ -72,7 +72,7 @@ router.post("/waste", authenticate, async (req: AuthRequest, res: Response): Pro
     const [inv] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, inventoryItemId));
     if (inv) {
       const stockBefore = parseFloat(String(inv.currentStock));
-      const stockAfter = Math.max(0, stockBefore - parseFloat(String(quantity)));
+      const stockAfter = stockBefore - parseFloat(String(quantity));
       await db.update(inventoryItemsTable).set({ currentStock: String(stockAfter) }).where(eq(inventoryItemsTable.id, inventoryItemId));
       await db.insert(inventoryLogsTable).values({
         inventoryItemId: inventoryItemId, changeAmount: String(-parseFloat(String(quantity))),

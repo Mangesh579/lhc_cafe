@@ -70,6 +70,7 @@ export default function StockRequestsCard() {
                   <p className="text-xs text-muted-foreground">
                     <span className={q >= 0 ? "text-green-700 font-semibold" : "text-red-600 font-semibold"}>{q >= 0 ? "+" : ""}{q} {r.unit}</span>
                     {" · "}stock {now.toFixed(1)} → {(now + q).toFixed(1)} {r.unit}
+                    {now + q < 0 && <span className="text-red-600 font-semibold"> · goes below zero</span>}
                   </p>
                   <p className="text-xs text-muted-foreground">{r.requestedBy} · {format(new Date(r.requestedAt), "MMM d, h:mm a")}</p>
                   <p className="text-xs mt-1">{r.reason}</p>

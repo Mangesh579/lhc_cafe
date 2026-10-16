@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/auth";
 import StockRequestsCard from "@/components/StockRequestsCard";
+import ServerStatsCard from "@/components/ServerStatsCard";
 
 type SystemHealth = {
   cloudinary: { storageUsedGB: number; storageLimitGB: number; bandwidthUsedGB: number; bandwidthLimitGB: number; creditsUsed: number; creditsLimit: number; creditsPercent: number } | null;
@@ -182,6 +183,8 @@ export default function Dashboard() {
         </Card>
       </div>
       
+      <ServerStatsCard />
+
       {/* System Health */}
       {user?.role === "admin" && (
         <Card>
