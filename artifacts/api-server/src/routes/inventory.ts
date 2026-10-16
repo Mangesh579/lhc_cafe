@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { db, inventoryItemsTable, inventoryLogsTable, recipesTable, menuItemsTable, ingredientComponentsTable } from "@workspace/db";
-import { eq, desc, and, gte, lte } from "drizzle-orm";
-import { authenticate, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
+import { db, inventoryItemsTable, inventoryLogsTable, recipesTable, menuItemsTable, ingredientComponentsTable, inventoryAdjustmentRequestsTable } from "@workspace/db";
+import { eq, desc, and, gte, lte, inArray } from "drizzle-orm";
+import { authenticate, requireAdmin, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
 import type { Response } from "express";
 
 const router = Router();
@@ -53,11 +53,25 @@ router.patch("/inventory/:id", authenticate, async (req: AuthRequest, res: Respo
   const { name, currentStock, unit, minStockLevel, caloriesPerUnit } = req.body;
   const updateData: Record<string, unknown> = {};
   if (name !== undefined) updateData.name = withDeptPrefix(name, existing.department);
-  if (currentStock !== undefined) updateData.currentStock = String(currentStock);
+    if (currentStock !== undefined && parseFloat(String(currentStock)) !== parseFloat(String(existing.currentStock))) {
+    if (req.user?.role !== "admin") {
+      res.status(400).json({ error: "Stock can't be edited directly. Use \"Request change\" so the admin can approve it." });
+      return;
+    }
+    updateData.currentStock = String(currentStock);
+  }
   if (unit !== undefined) updateData.unit = unit;
   if (minStockLevel !== undefined) updateData.minStockLevel = minStockLevel != null ? String(minStockLevel) : null;
   if (caloriesPerUnit !== undefined) updateData.caloriesPerUnit = caloriesPerUnit != null ? String(caloriesPerUnit) : null;
   const [item] = await db.update(inventoryItemsTable).set(updateData).where(eq(inventoryItemsTable.id, id)).returning();
+  if (updateData.currentStock !== undefined) {
+    const before = parseFloat(String(existing.currentStock));
+    const after = parseFloat(String(updateData.currentStock));
+    await db.insert(inventoryLogsTable).values({
+      inventoryItemId: id, changeAmount: String(after - before), stockBefore: String(before), stockAfter: String(after),
+      reason: "Stock edited directly by admin", changedBy: req.user?.username ?? "admin",
+    });
+  }
   res.json(item);
 });
 
@@ -110,6 +124,15 @@ router.post("/inventory/:id/adjust", authenticate, async (req: AuthRequest, res:
   if (quantity === undefined || !reason) { res.status(400).json({ error: "quantity and reason required" }); return; }
   const [current] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, id));
   if (!current) { res.status(404).json({ error: "Item not found" }); return; }
+    if (req.user?.role !== "admin") {
+    const qty = parseFloat(String(quantity));
+    if (!Number.isFinite(qty) || qty === 0) { res.status(400).json({ error: "Enter a quantity change other than 0." }); return; }
+    const [request] = await db.insert(inventoryAdjustmentRequestsTable).values({
+      inventoryItemId: id, quantity: String(qty), reason, requestedBy: req.user?.username ?? "staff",
+    }).returning();
+    res.status(202).json({ pending: true, request });
+    return;
+  }
   if (!canWriteDepartment(req.user?.role, current.department)) {
     res.status(403).json({ error: `Only ${current.department === "kitchen" ? "the head chef" : "the head barista"} or an admin can adjust this item.` });
     return;
@@ -223,6 +246,84 @@ router.get("/inventory/usage-report", authenticate, async (req, res): Promise<vo
     }));
 
   res.json({ summary, details });
+});
+
+router.get("/inventory/requests", authenticate, async (req, res): Promise<void> => {
+  const statuses = String(req.query.status ?? "pending").split(",").map(s => s.trim()).filter(Boolean);
+  const rows = await db
+    .select({
+      id: inventoryAdjustmentRequestsTable.id,
+      inventoryItemId: inventoryAdjustmentRequestsTable.inventoryItemId,
+      ingredientName: inventoryItemsTable.name,
+      unit: inventoryItemsTable.unit,
+      department: inventoryItemsTable.department,
+      currentStock: inventoryItemsTable.currentStock,
+      quantity: inventoryAdjustmentRequestsTable.quantity,
+      reason: inventoryAdjustmentRequestsTable.reason,
+      status: inventoryAdjustmentRequestsTable.status,
+      requestedBy: inventoryAdjustmentRequestsTable.requestedBy,
+      requestedAt: inventoryAdjustmentRequestsTable.requestedAt,
+      resolvedBy: inventoryAdjustmentRequestsTable.resolvedBy,
+      resolvedAt: inventoryAdjustmentRequestsTable.resolvedAt,
+      resolutionNote: inventoryAdjustmentRequestsTable.resolutionNote,
+    })
+    .from(inventoryAdjustmentRequestsTable)
+    .leftJoin(inventoryItemsTable, eq(inventoryAdjustmentRequestsTable.inventoryItemId, inventoryItemsTable.id))
+    .where(inArray(inventoryAdjustmentRequestsTable.status, statuses))
+    .orderBy(desc(inventoryAdjustmentRequestsTable.requestedAt))
+    .limit(200);
+  res.json(rows);
+});
+
+router.post("/inventory/requests/:id/approve", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  const [request] = await db.select().from(inventoryAdjustmentRequestsTable).where(eq(inventoryAdjustmentRequestsTable.id, id));
+  if (!request) { res.status(404).json({ error: "Request not found" }); return; }
+  if (request.status !== "pending") { res.status(400).json({ error: `This request was already ${request.status}.` }); return; }
+
+  const [current] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, request.inventoryItemId));
+  if (!current) { res.status(404).json({ error: "That ingredient no longer exists." }); return; }
+
+  const change = parseFloat(String(request.quantity));
+  const stockBefore = parseFloat(String(current.currentStock));
+  const stockAfter = stockBefore + change;
+  if (stockAfter < 0) {
+    res.status(400).json({ error: `Approving this would take ${current.name} below zero (stock is now ${stockBefore.toFixed(1)}). Reject it and ask for a smaller amount.` });
+    return;
+  }
+
+  const admin = req.user?.username ?? "admin";
+  let applied = false as boolean;
+  await db.transaction(async (tx) => {
+    const claimed = await tx.update(inventoryAdjustmentRequestsTable)
+      .set({ status: "approved", resolvedBy: admin, resolvedAt: new Date() })
+      .where(and(eq(inventoryAdjustmentRequestsTable.id, id), eq(inventoryAdjustmentRequestsTable.status, "pending")))
+      .returning();
+    if (claimed.length === 0) return;
+    await tx.update(inventoryItemsTable).set({ currentStock: String(stockAfter) }).where(eq(inventoryItemsTable.id, request.inventoryItemId));
+    await tx.insert(inventoryLogsTable).values({
+      inventoryItemId: request.inventoryItemId,
+      changeAmount: String(change),
+      stockBefore: String(stockBefore),
+      stockAfter: String(stockAfter),
+      reason: `${request.reason} — requested by ${request.requestedBy}, approved by ${admin}`,
+      changedBy: admin,
+    });
+    applied = true;
+  });
+  if (!applied) { res.status(400).json({ error: "This request was already handled." }); return; }
+  res.json({ success: true, stockBefore, stockAfter });
+});
+
+router.post("/inventory/requests/:id/reject", authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  const note = typeof req.body?.note === "string" ? req.body.note.trim() : "";
+  const updated = await db.update(inventoryAdjustmentRequestsTable)
+    .set({ status: "rejected", resolvedBy: req.user?.username ?? "admin", resolvedAt: new Date(), resolutionNote: note || null })
+    .where(and(eq(inventoryAdjustmentRequestsTable.id, id), eq(inventoryAdjustmentRequestsTable.status, "pending")))
+    .returning();
+  if (updated.length === 0) { res.status(400).json({ error: "This request was already handled." }); return; }
+  res.json({ success: true });
 });
 
 router.get("/inventory/components", authenticate, async (_req, res): Promise<void> => {

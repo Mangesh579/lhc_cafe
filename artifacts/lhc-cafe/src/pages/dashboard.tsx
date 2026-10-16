@@ -5,6 +5,7 @@ import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recha
 import { format } from "date-fns";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/auth";
+import StockRequestsCard from "@/components/StockRequestsCard";
 
 type SystemHealth = {
   cloudinary: { storageUsedGB: number; storageLimitGB: number; bandwidthUsedGB: number; bandwidthLimitGB: number; creditsUsed: number; creditsLimit: number; creditsPercent: number } | null;
@@ -66,6 +67,8 @@ export default function Dashboard() {
           {format(new Date(), 'EEEE, MMMM do, yyyy')}
         </div>
       </div>
+
+      <StockRequestsCard />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

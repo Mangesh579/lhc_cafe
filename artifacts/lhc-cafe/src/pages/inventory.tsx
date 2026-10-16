@@ -59,6 +59,7 @@ function IngredientDialog({ item, department, open, onClose, onSaved }: { item?:
   const [currentStock, setCurrentStock] = useState(item?.currentStock ? String(item.currentStock) : "0");
   const [minStock, setMinStock] = useState(item?.minStockLevel ? String(item.minStockLevel) : "");
   const [calories, setCalories] = useState(item?.caloriesPerUnit ? String(item.caloriesPerUnit) : "");
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
@@ -133,7 +134,7 @@ function IngredientDialog({ item, department, open, onClose, onSaved }: { item?:
               <SelectContent>{UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div className="space-y-1"><Label>Current Stock</Label><Input type="number" value={currentStock} onChange={e => setCurrentStock(e.target.value)} /></div>
+          <div className="space-y-1"><Label>Current Stock</Label><Input type="number" value={currentStock} onChange={e => setCurrentStock(e.target.value)} disabled={!!item && user?.role !== "admin"} />{!!item && user?.role !== "admin" && <p className="text-xs text-muted-foreground">Use "Request change" to adjust stock.</p>}</div>
           <div className="space-y-1"><Label>Min Stock Level</Label><Input type="number" value={minStock} onChange={e => setMinStock(e.target.value)} placeholder="Alert threshold" /></div>
           <div className="space-y-1"><Label>Calories / unit</Label><Input type="number" value={calories} onChange={e => setCalories(e.target.value)} placeholder="kcal per unit" /></div>
         </div>
@@ -574,6 +575,8 @@ export default function Inventory() {
   const [wasteLogs, setWasteLogs] = useState<any[]>([]);
   const [wasteReport, setWasteReport] = useState<any[]>([]);
   const [invLogs, setInvLogs] = useState<any[]>([]);
+  const [stockRequests, setStockRequests] = useState<any[]>([]);
+  const [adjustSaving, setAdjustSaving] = useState(false);
   const [invLogDateFilter, setInvLogDateFilter] = useState("");
   const [invLogIngredientFilter, setInvLogIngredientFilter] = useState("");
   const [logsLoaded, setLogsLoaded] = useState<string | null>(null);
@@ -624,7 +627,10 @@ export default function Inventory() {
         const d = await APIJSON("/waste"); setWasteLogs(Array.isArray(d) ? d : []);
         const r = await APIJSON("/waste/monthly-report"); setWasteReport(Array.isArray(r) ? r : []);
       }
-      if (tab === "inv-log") { const d = await APIJSON("/inventory/logs"); setInvLogs(Array.isArray(d) ? d : []); }
+      if (tab === "inv-log") {
+        const d = await APIJSON("/inventory/logs"); setInvLogs(Array.isArray(d) ? d : []);
+        const rq = await APIJSON("/inventory/requests?status=pending,rejected"); setStockRequests(Array.isArray(rq) ? rq : []);
+      }
       setLogsLoaded(tab);
     } catch { toast({ title: "Failed to load data", variant: "destructive" }); }
   };
@@ -641,10 +647,15 @@ export default function Inventory() {
   const handleAdjust = async () => {
     if (!adjustItem || !adjustQty || !adjustReason) return;
     try {
-      await adjustMut.mutateAsync({ id: adjustItem.id, data: { quantity: parseFloat(adjustQty), reason: adjustReason } });
+      setAdjustSaving(true);
+      const res: any = await APIJSON(`/inventory/${adjustItem.id}/adjust`, "POST", { quantity: parseFloat(adjustQty), reason: adjustReason });
       qc.invalidateQueries({ queryKey: getListInventoryQueryKey() });
-      toast({ title: "Stock adjusted" }); setAdjustItem(null); setAdjustQty(""); setAdjustReason("");
-    } catch (err: any) { toast({ title: "Failed to adjust", description: err?.data?.error, variant: "destructive" }); }
+      toast(res?.pending ? { title: "Request sent to admin", description: "Stock changes once the admin approves it." } : { title: "Stock adjusted" });
+      setLogsLoaded(null); setAdjustItem(null); setAdjustQty(""); setAdjustReason("");
+    } catch (err: any) {
+      const d = await err?.json?.().catch(() => null);
+      toast({ title: "Failed to adjust", description: d?.error, variant: "destructive" });
+    } finally { setAdjustSaving(false); }
   };
 
   const handleDeleteEquipment = async (id: number) => {
@@ -677,7 +688,8 @@ export default function Inventory() {
   const canWriteWaste = wasteDept === "kitchen" ? canWriteKitchen : canWriteDrink;
 
   const deptIngredientsForLogFilter = (inventory as any[]).filter(i => i.department === logDept);
-  const filteredInvLogs = invLogs.filter((log: any) => {
+  const requestRowsForLog = stockRequests.filter((r: any) => r.department === logDept).map((r: any) => ({ ...r, _isRequest: true, createdAt: r.requestedAt }));
+  const filteredInvLogs = [...invLogs, ...requestRowsForLog].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).filter((log: any) => {
     if (log.department !== logDept) return false;
     if (invLogDateFilter && !log.createdAt.startsWith(invLogDateFilter)) return false;
     if (invLogIngredientFilter && log.ingredientName !== invLogIngredientFilter) return false;
@@ -812,8 +824,8 @@ export default function Inventory() {
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="outline" size="sm" onClick={() => { setAdjustItem(item); setAdjustQty(""); setAdjustReason(""); }} disabled={!canWriteIngredient} title={!canWriteIngredient ? noWritePermissionMsg(ingredientDept) : undefined} className="gap-1.5">
-                              <RefreshCw className="w-3 h-3" /> Adjust
+                            <Button variant="outline" size="sm" onClick={() => { setAdjustItem(item); setAdjustQty(""); setAdjustReason(""); }} className="gap-1.5">
+                              <RefreshCw className="w-3 h-3" /> {role === "admin" ? "Adjust" : "Request change"}
                             </Button>
                             <Button variant="ghost" size="icon" onClick={() => setCompDialog({ open: true, item })} title="Components (what this ingredient is made of)"><Layers className="w-4 h-4 text-muted-foreground" /></Button>
                             <Button variant="ghost" size="icon" onClick={() => setIngDialog({ open: true, item })} disabled={!canWriteIngredient} title={!canWriteIngredient ? noWritePermissionMsg(ingredientDept) : undefined}><Edit2 className="w-4 h-4 text-muted-foreground" /></Button>
@@ -990,6 +1002,23 @@ export default function Inventory() {
                   {filteredInvLogs.length === 0 ? (
                     <tr><td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">No log entries match the filter.</td></tr>
                   ) : filteredInvLogs.map((log: any) => {
+                      if (log._isRequest) {
+                      const q = parseFloat(String(log.quantity));
+                      return (
+                        <tr key={`req-${log.id}`} className={log.status === "pending" ? "bg-amber-50/60" : "bg-muted/30"}>
+                          <td className="px-5 py-3 text-xs text-muted-foreground">{format(new Date(log.createdAt), 'MMM d, h:mm a')}</td>
+                          <td className="px-5 py-3 font-medium">{log.ingredientName}</td>
+                          <td className="px-5 py-3"><span className="font-semibold text-muted-foreground">{q >= 0 ? "+" : ""}{q.toFixed(2)}</span></td>
+                          <td className="px-5 py-3 text-xs text-muted-foreground">not applied</td>
+                          <td className="px-5 py-3 text-muted-foreground">
+                            <Badge variant="secondary" className={log.status === "pending" ? "bg-amber-100 text-amber-800 mr-2" : "bg-red-100 text-red-700 mr-2"}>{log.status === "pending" ? "Requested" : "Rejected"}</Badge>
+                            {log.status === "pending"
+                              ? `${log.requestedBy} requested a change, awaiting admin approval. ${log.reason}`
+                              : `Requested by ${log.requestedBy}, rejected by ${log.resolvedBy}${log.resolutionNote ? ` (${log.resolutionNote})` : ""}. ${log.reason}`}
+                          </td>
+                        </tr>
+                      );
+                    }
                     const change = parseFloat(String(log.changeAmount));
                     return (
                       <tr key={log.id} className="hover:bg-muted/20">
@@ -1024,6 +1053,7 @@ export default function Inventory() {
               <p className="text-sm text-muted-foreground">Current Stock</p>
               <p className="text-2xl font-bold">{parseFloat(String(adjustItem?.currentStock ?? 0)).toFixed(1)} <span className="text-sm font-normal text-muted-foreground">{adjustItem?.unit}</span></p>
             </div>
+            {role !== "admin" && <p className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-md px-3 py-2">This sends a request to the admin. Stock only changes after the admin approves it.</p>}
             <div className="space-y-1"><Label>Quantity Change (+ to add, - to deduct)</Label><Input type="number" value={adjustQty} onChange={e => setAdjustQty(e.target.value)} placeholder="e.g. 500 or -100" /></div>
             <div className="space-y-1"><Label>Reason *</Label><Input value={adjustReason} onChange={e => setAdjustReason(e.target.value)} placeholder="Restock, Spoilage, Correction..." /></div>
             {adjustQty && adjustItem && (
@@ -1032,7 +1062,7 @@ export default function Inventory() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAdjustItem(null)}>Cancel</Button>
-            <Button onClick={handleAdjust} disabled={adjustMut.isPending || !adjustQty || !adjustReason}>Confirm</Button>
+            <Button onClick={handleAdjust} disabled={adjustSaving || !adjustQty || !adjustReason}>{role === "admin" ? "Confirm" : "Send request"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
