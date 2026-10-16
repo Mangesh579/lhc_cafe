@@ -27,7 +27,7 @@ export default function StockRequestsCard() {
   useEffect(() => {
     if (!isAdmin) return;
     load();
-    const t = setInterval(load, 30000);
+    const t = setInterval(load, 5000);
     return () => clearInterval(t);
   }, [isAdmin, load]);
 
