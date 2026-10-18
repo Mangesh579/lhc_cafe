@@ -54,10 +54,10 @@ export function requireAdminOrSupervisor(req: AuthRequest, res: Response, next: 
 // department is only known after reading the request body or an existing
 // row — these are simple boolean helpers, called manually inside handlers.
 export function canWriteKitchen(role?: string): boolean {
-  return role === "admin" || role === "head_chef";
+  return role === "admin" || role === "supervisor" || role === "head_chef";
 }
 export function canWriteDrink(role?: string): boolean {
-  return role === "admin" || role === "head_barista";
+  return role === "admin" || role === "supervisor" || role === "head_barista";
 }
 export function canWriteDepartment(role: string | undefined, department: string): boolean {
   return department === "kitchen" ? canWriteKitchen(role) : canWriteDrink(role);

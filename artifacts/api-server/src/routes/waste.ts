@@ -48,6 +48,7 @@ router.post("/waste", authenticate, async (req: AuthRequest, res: Response): Pro
       await db.insert(equipmentLogsTable).values({
         equipmentItemId,
         action: "damaged",
+        equipmentName: eqItem.name, department: eqItem.department, quantityBefore: currentQty, quantityAfter: newQty,
         notes: `${qtyWasted} unit(s) lost to waste: ${reason}`,
         cost: String(computedWasteValue),
         changedBy: req.user?.username ?? "staff",

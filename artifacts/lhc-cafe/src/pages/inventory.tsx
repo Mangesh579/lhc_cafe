@@ -457,8 +457,8 @@ function ComponentsDialog({ item, inventory, open, onClose, onSaved, canEdit }: 
 export default function Inventory() {
   const { user } = useAuth();
   const role = user?.role as string | undefined;
-  const canWriteKitchen = role === "admin" || role === "head_chef";
-  const canWriteDrink = role === "admin" || role === "head_barista";
+  const canWriteKitchen = role === "admin" || role === "supervisor" || role === "head_chef";
+  const canWriteDrink = role === "admin" || role === "supervisor" || role === "head_barista";
 
   const { data: inventory = [], isLoading, refetch } = useListInventory();
   const { data: menuItems = [] } = useListMenuItems();
@@ -576,6 +576,10 @@ export default function Inventory() {
   const [wasteReport, setWasteReport] = useState<any[]>([]);
   const [invLogs, setInvLogs] = useState<any[]>([]);
   const [stockRequests, setStockRequests] = useState<any[]>([]);
+  const [eqLogs, setEqLogs] = useState<any[]>([]);
+  const [eqLogDept, setEqLogDept] = useState<Dept>(role === "head_barista" ? "drink" : "kitchen");
+  const [eqLogDateFilter, setEqLogDateFilter] = useState("");
+  const [eqLogActionFilter, setEqLogActionFilter] = useState("all");
   const [adjustSaving, setAdjustSaving] = useState(false);
   const [invLogDateFilter, setInvLogDateFilter] = useState("");
   const [invLogIngredientFilter, setInvLogIngredientFilter] = useState("");
@@ -623,6 +627,7 @@ export default function Inventory() {
     if (!force && logsLoaded === tab) return;
     try {
       if (tab === "equipment") { const d = await APIJSON("/equipment"); setEquipment(Array.isArray(d) ? d : []); }
+      if (tab === "eq-log") { const d = await APIJSON("/equipment/logs"); setEqLogs(Array.isArray(d) ? d : []); }
       if (tab === "waste") {
         const d = await APIJSON("/waste"); setWasteLogs(Array.isArray(d) ? d : []);
         const r = await APIJSON("/waste/monthly-report"); setWasteReport(Array.isArray(r) ? r : []);
@@ -708,8 +713,16 @@ export default function Inventory() {
     return true;
   });
 
+  const eqActionColor: Record<string, string> = { added: "bg-green-100 text-green-800", restocked: "bg-green-100 text-green-800", restored: "bg-green-100 text-green-800", reduced: "bg-orange-100 text-orange-800", updated: "bg-blue-100 text-blue-800", damaged: "bg-red-100 text-red-700", removed: "bg-red-100 text-red-700" };
+  const filteredEqLogs = eqLogs.filter((l: any) => {
+    if ((l.department ?? eqLogDept) !== eqLogDept) return false;
+    if (eqLogDateFilter && !String(l.createdAt).startsWith(eqLogDateFilter)) return false;
+    if (eqLogActionFilter !== "all" && l.action !== eqLogActionFilter) return false;
+    return true;
+  });
+
   const noWritePermissionMsg = (dept: Dept) =>
-    dept === "kitchen" ? "Only the head chef or an admin can make changes here" : "Only the head barista or an admin can make changes here";
+    dept === "kitchen" ? "Only the head chef, a supervisor or an admin can make changes here" : "Only the head barista, a supervisor or an admin can make changes here";
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-5">
@@ -740,12 +753,13 @@ export default function Inventory() {
         </div>
       )}
 
-      <Tabs defaultValue="ingredients" onValueChange={(t) => ["equipment", "waste", "inv-log"].includes(t) && loadTab(t)}>
+      <Tabs defaultValue="ingredients" onValueChange={(t) => ["equipment", "waste", "inv-log", "eq-log"].includes(t) && loadTab(t)}>
         <TabsList>
           <TabsTrigger value="ingredients">Ingredients</TabsTrigger>
           <TabsTrigger value="equipment">Equipment</TabsTrigger>
           <TabsTrigger value="waste">Waste Log</TabsTrigger>
           <TabsTrigger value="inv-log">Stock Log</TabsTrigger>
+          <TabsTrigger value="eq-log">Equipment Log</TabsTrigger>
         </TabsList>
 
         {/* ── Ingredients Tab ─────────────────────────────────────────────── */}
@@ -1051,6 +1065,66 @@ export default function Inventory() {
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        {/* ── Equipment Log Tab ───────────────────────────────────────────── */}
+        <TabsContent value="eq-log" className="space-y-4 mt-4">
+          <DeptToggle value={eqLogDept} onChange={setEqLogDept} />
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex gap-2 flex-wrap">
+              <Input type="date" value={eqLogDateFilter} onChange={e => setEqLogDateFilter(e.target.value)} className="h-9 w-40" />
+              <Select value={eqLogActionFilter} onValueChange={setEqLogActionFilter}>
+                <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All actions</SelectItem>
+                  <SelectItem value="added">Added</SelectItem>
+                  <SelectItem value="restocked">Restocked</SelectItem>
+                  <SelectItem value="reduced">Reduced</SelectItem>
+                  <SelectItem value="updated">Updated</SelectItem>
+                  <SelectItem value="damaged">Damaged</SelectItem>
+                  <SelectItem value="restored">Restored</SelectItem>
+                  <SelectItem value="removed">Removed</SelectItem>
+                </SelectContent>
+              </Select>
+              {(eqLogDateFilter || eqLogActionFilter !== "all") && (
+                <Button variant="ghost" size="sm" onClick={() => { setEqLogDateFilter(""); setEqLogActionFilter("all"); }}>Clear</Button>
+              )}
+            </div>
+            <Button variant="outline" size="sm" onClick={() => loadTab("eq-log", true)} className="gap-2"><RefreshCw className="w-4 h-4" /> Refresh</Button>
+          </div>
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-muted/50 text-muted-foreground uppercase tracking-wider text-xs">
+                  <tr>
+                    <th className="px-5 py-3">Time</th>
+                    <th className="px-5 py-3">Equipment</th>
+                    <th className="px-5 py-3">Action</th>
+                    <th className="px-5 py-3">Quantity</th>
+                    <th className="px-5 py-3">Details</th>
+                    <th className="px-5 py-3">By</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredEqLogs.length === 0 ? (
+                    <tr><td colSpan={6} className="px-5 py-8 text-center text-muted-foreground">No equipment activity recorded.</td></tr>
+                  ) : filteredEqLogs.map((l: any) => (
+                    <tr key={l.id} className="hover:bg-muted/20">
+                      <td className="px-5 py-3 text-xs text-muted-foreground whitespace-nowrap">{format(new Date(l.createdAt), 'MMM d, h:mm a')}</td>
+                      <td className="px-5 py-3 font-medium">{l.equipmentName ?? "(deleted equipment)"}</td>
+                      <td className="px-5 py-3"><Badge variant="secondary" className={`capitalize ${eqActionColor[l.action] ?? ""}`}>{l.action}</Badge></td>
+                      <td className="px-5 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                        {l.quantityBefore != null && l.quantityAfter != null ? `${l.quantityBefore} → ${l.quantityAfter}` : l.quantityAfter != null ? `→ ${l.quantityAfter}` : l.quantityBefore != null ? `was ${l.quantityBefore}` : "—"}
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">{l.notes ?? "—"}{l.cost ? ` (Rs. ${parseFloat(String(l.cost)).toFixed(0)})` : ""}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{l.changedBy}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
               </div>

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, equipmentItemsTable, equipmentLogsTable } from "@workspace/db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 import { authenticate, requireAdmin, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
 import type { Response } from "express";
 
@@ -46,6 +46,7 @@ router.post("/equipment", authenticate, async (req: AuthRequest, res: Response):
   await db.insert(equipmentLogsTable).values({
     equipmentItemId: item.id, action: "added",
     notes: `Equipment added to inventory (qty: ${qty})`,
+    equipmentName: item.name, department: item.department, quantityBefore: 0, quantityAfter: qty,
     changedBy: req.user?.username ?? "admin",
   });
   res.status(201).json(item);
@@ -79,9 +80,22 @@ router.patch("/equipment/:id", authenticate, async (req: AuthRequest, res: Respo
 
   const [item] = await db.update(equipmentItemsTable).set(updateData).where(eq(equipmentItemsTable.id, id)).returning();
 
+  const beforeQty = existing.quantity ?? 1;
+  const afterQty = item.quantity ?? 1;
+  const changes: string[] = [];
+  if (afterQty !== beforeQty) changes.push(`quantity ${beforeQty} → ${afterQty}`);
+  if (item.name !== existing.name) changes.push(`name "${existing.name}" → "${item.name}"`);
+  if (item.condition !== existing.condition) changes.push(`condition ${existing.condition} → ${item.condition}`);
+  if (parseFloat(String(item.unitPrice ?? 0)) !== parseFloat(String(existing.unitPrice ?? 0))) changes.push(`unit price Rs. ${parseFloat(String(existing.unitPrice ?? 0))} → Rs. ${parseFloat(String(item.unitPrice ?? 0))}`);
+  if ((item.purchaseDate ?? "") !== (existing.purchaseDate ?? "")) changes.push("purchase date changed");
+  if ((item.notes ?? "") !== (existing.notes ?? "") || (item.description ?? "") !== (existing.description ?? "")) changes.push("notes changed");
+  const changeAction = afterQty > beforeQty ? "restocked" : afterQty < beforeQty ? "reduced" : "updated";
+  const changeNotes = changes.length ? changes.join("; ") : "Saved with no changes";
+
   await db.insert(equipmentLogsTable).values({
-    equipmentItemId: id, action: "updated",
-    notes: `Equipment details updated`,
+    equipmentItemId: id, action: changeAction,
+    equipmentName: item.name, department: item.department, quantityBefore: beforeQty, quantityAfter: afterQty,
+    notes: changeNotes,
     changedBy: req.user?.username ?? "admin",
   });
   res.json(item);
@@ -98,6 +112,7 @@ router.delete("/equipment/:id", authenticate, requireAdmin, async (req: AuthRequ
   await db.insert(equipmentLogsTable).values({
     equipmentItemId: id, action: "removed",
     notes: `${item.name} removed from inventory`,
+    equipmentName: item.name, department: item.department, quantityBefore: item.quantity ?? 1, quantityAfter: null,
     changedBy: req.user?.username ?? "admin",
   });
   await db.delete(equipmentItemsTable).where(eq(equipmentItemsTable.id, id));
@@ -108,14 +123,16 @@ router.get("/equipment/logs", authenticate, async (req, res): Promise<void> => {
   const { equipmentItemId, department } = req.query;
   const conditions = [];
   if (equipmentItemId) conditions.push(eq(equipmentLogsTable.equipmentItemId, parseInt(equipmentItemId as string, 10)));
-  if (department) conditions.push(eq(equipmentItemsTable.department, department as string));
+  if (department) conditions.push(sql`COALESCE(${equipmentLogsTable.department}, ${equipmentItemsTable.department}) = ${department as string}`);
 
   const logs = await db
     .select({
       id: equipmentLogsTable.id,
       equipmentItemId: equipmentLogsTable.equipmentItemId,
-      equipmentName: equipmentItemsTable.name,
-      department: equipmentItemsTable.department,
+      equipmentName: sql<string>`COALESCE(${equipmentLogsTable.equipmentName}, ${equipmentItemsTable.name})`,
+      department: sql<string>`COALESCE(${equipmentLogsTable.department}, ${equipmentItemsTable.department})`,
+      quantityBefore: equipmentLogsTable.quantityBefore,
+      quantityAfter: equipmentLogsTable.quantityAfter,
       action: equipmentLogsTable.action,
       notes: equipmentLogsTable.notes,
       cost: equipmentLogsTable.cost,
@@ -126,7 +143,7 @@ router.get("/equipment/logs", authenticate, async (req, res): Promise<void> => {
     .leftJoin(equipmentItemsTable, eq(equipmentLogsTable.equipmentItemId, equipmentItemsTable.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(equipmentLogsTable.createdAt))
-    .limit(200);
+    .limit(500);
   res.json(logs);
 });
 
@@ -142,6 +159,7 @@ router.post("/equipment/:id/log", authenticate, async (req: AuthRequest, res: Re
   if (!action) { res.status(400).json({ error: "action required" }); return; }
   const [log] = await db.insert(equipmentLogsTable).values({
     equipmentItemId: id, action, notes: notes ?? null,
+    equipmentName: existing.name, department: existing.department,
     cost: cost != null ? String(cost) : null,
     changedBy: req.user?.username ?? "staff",
   }).returning();
