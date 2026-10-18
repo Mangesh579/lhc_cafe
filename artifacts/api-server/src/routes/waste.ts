@@ -47,6 +47,17 @@ router.post("/waste", authenticate, async (req: AuthRequest, res: Response): Pro
 
       await db.insert(equipmentLogsTable).values({
         equipmentItemId,
+        action: "restored",
+        equipmentName: eqItem.name,
+        department: eqItem.department,
+        quantityBefore: eqItem.quantity ?? 0,
+        quantityAfter: newQty,
+        notes: "Equipment restored",
+        changedBy: req.user?.username ?? "staff",
+      });
+
+      await db.insert(equipmentLogsTable).values({
+        equipmentItemId,
         action: "damaged",
         equipmentName: eqItem.name, department: eqItem.department, quantityBefore: currentQty, quantityAfter: newQty,
         notes: `${qtyWasted} unit(s) lost to waste: ${reason}`,
