@@ -562,8 +562,8 @@ export default function POS() {
               const doc = iframe.contentWindow?.document;
               if (!doc) return;
               doc.open();
-              doc.write(`<!DOCTYPE html><html><head><style>
-                body { font-family: monospace; font-size: 12px; padding: 20px; color: black; background: white; }
+              doc.write(`<!DOCTYPE html><html><head>${Array.from(document.querySelectorAll('link[rel="stylesheet"], style')).map(n => n.outerHTML).join("")}<style>
+                @page { margin: 0; } html, body { margin: 0; } body { font-family: monospace; font-size: 12px; width: 72mm; margin: 0 auto; padding: 8px 6px; box-sizing: border-box; color: black; background: white; }
                 .flex { display: flex; justify-content: space-between; }
                 h2 { text-align: center; font-size: 16px; font-weight: bold; margin: 0; }
                 p { margin: 2px 0; }

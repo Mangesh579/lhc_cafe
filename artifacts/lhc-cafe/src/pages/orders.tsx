@@ -222,7 +222,7 @@ export default function Orders() {
     const doc = iframe.contentWindow?.document;
     if (doc) {
       doc.open();
-      doc.write(`<!DOCTYPE html><html><body>${receiptHtml}</body></html>`);
+      doc.write(`<!DOCTYPE html><html><head><style>@page{margin:0}html,body{margin:0;padding:0}body{width:72mm;margin:0 auto;background:white}body>div{padding:8px 6px !important}</style></head><body>${receiptHtml}</body></html>`);
       doc.close();
       setTimeout(() => { iframe.contentWindow?.print(); setTimeout(() => document.body.removeChild(iframe), 1000); }, 300);
     }
@@ -674,7 +674,7 @@ export default function Orders() {
               const doc = iframe.contentWindow?.document;
               if (!doc) return;
               doc.open();
-              doc.write(`<!DOCTYPE html><html><head><style>body{font-family:monospace;font-size:12px;padding:20px;color:black;background:white;}p{margin:2px 0;}.row{display:flex;justify-content:space-between;}</style></head><body>${buildBillHtml()}</body></html>`);
+              doc.write(`<!DOCTYPE html><html><head><style>@page{margin:0}html,body{margin:0}body{font-family:monospace;font-size:12px;width:72mm;margin:0 auto;padding:0;color:black;background:white;}body>div{padding:8px 6px !important;}p{margin:2px 0;}.row{display:flex;justify-content:space-between;}</style></head><body>${buildBillHtml()}</body></html>`);
               doc.close();
               setTimeout(() => { iframe.contentWindow?.print(); setTimeout(() => document.body.removeChild(iframe), 1000); }, 500);
             }} className="gap-2" disabled={!paymentModalOrder}>
