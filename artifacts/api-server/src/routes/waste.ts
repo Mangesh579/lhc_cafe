@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, wasteLogsTable, inventoryItemsTable, menuItemsTable, inventoryLogsTable, equipmentItemsTable, equipmentLogsTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
-import { authenticate, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
+import { authenticate, requireAdmin, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
 import type { Response } from "express";
 
 const router = Router();
@@ -47,17 +47,6 @@ router.post("/waste", authenticate, async (req: AuthRequest, res: Response): Pro
 
       await db.insert(equipmentLogsTable).values({
         equipmentItemId,
-        action: "restored",
-        equipmentName: eqItem.name,
-        department: eqItem.department,
-        quantityBefore: eqItem.quantity ?? 0,
-        quantityAfter: newQty,
-        notes: "Equipment restored",
-        changedBy: req.user?.username ?? "staff",
-      });
-
-      await db.insert(equipmentLogsTable).values({
-        equipmentItemId,
         action: "damaged",
         equipmentName: eqItem.name, department: eqItem.department, quantityBefore: currentQty, quantityAfter: newQty,
         notes: `${qtyWasted} unit(s) lost to waste: ${reason}`,
@@ -90,6 +79,7 @@ router.post("/waste", authenticate, async (req: AuthRequest, res: Response): Pro
         inventoryItemId: inventoryItemId, changeAmount: String(-parseFloat(String(quantity))),
         stockBefore: String(stockBefore), stockAfter: String(stockAfter),
         reason: `Waste: ${reason}`,
+        changedBy: req.user?.username ?? "staff",
       });
     }
   }
@@ -97,7 +87,7 @@ router.post("/waste", authenticate, async (req: AuthRequest, res: Response): Pro
   res.status(201).json(log);
 });
 
-router.delete("/waste/:id", authenticate, async (req: AuthRequest, res): Promise<void> => {
+router.delete("/waste/:id", authenticate, requireAdmin, async (req: AuthRequest, res): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
   const [existing] = await db.select().from(wasteLogsTable).where(eq(wasteLogsTable.id, id));
   if (!existing) { res.status(404).json({ error: "Waste log not found" }); return; }
@@ -105,7 +95,54 @@ router.delete("/waste/:id", authenticate, async (req: AuthRequest, res): Promise
     res.status(403).json({ error: `Only ${existing.department === "kitchen" ? "the head chef" : "the head barista"} or an admin can delete this entry.` });
     return;
   }
-  await db.delete(wasteLogsTable).where(eq(wasteLogsTable.id, id));
+  if (existing.orderId != null) {
+    res.status(400).json({ error: `This entry was created automatically by order #${existing.orderId}. Cancel that order to reverse it.` });
+    return;
+  }
+
+  const admin = req.user?.username ?? "admin";
+  let done = false as boolean;
+  await db.transaction(async (tx) => {
+    const removed = await tx.delete(wasteLogsTable).where(eq(wasteLogsTable.id, id)).returning();
+    if (removed.length === 0) return;
+
+    if (existing.inventoryItemId) {
+      const [inv] = await tx.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, existing.inventoryItemId));
+      if (inv) {
+        const qty = parseFloat(String(existing.quantity));
+        const stockBefore = parseFloat(String(inv.currentStock));
+        const stockAfter = stockBefore + qty;
+        await tx.update(inventoryItemsTable).set({ currentStock: String(stockAfter) }).where(eq(inventoryItemsTable.id, inv.id));
+        await tx.insert(inventoryLogsTable).values({
+          inventoryItemId: inv.id,
+          changeAmount: String(qty),
+          stockBefore: String(stockBefore),
+          stockAfter: String(stockAfter),
+          reason: `Waste entry deleted — stock restored (${existing.itemName}: ${existing.reason})`,
+          changedBy: admin,
+        });
+      }
+    }
+
+    if (existing.equipmentItemId) {
+      const [eqItem] = await tx.select().from(equipmentItemsTable).where(eq(equipmentItemsTable.id, existing.equipmentItemId));
+      if (eqItem) {
+        const qty = parseFloat(String(existing.quantity));
+        const unitPrice = eqItem.unitPrice != null ? parseFloat(String(eqItem.unitPrice)) : 0;
+        const newQty = (eqItem.quantity ?? 0) + qty;
+        await tx.update(equipmentItemsTable).set({ quantity: newQty, purchasePrice: String(unitPrice * newQty) }).where(eq(equipmentItemsTable.id, eqItem.id));
+        await tx.insert(equipmentLogsTable).values({
+          equipmentItemId: eqItem.id,
+          action: "restored",
+          equipmentName: eqItem.name, department: eqItem.department, quantityBefore: eqItem.quantity ?? 0, quantityAfter: newQty,
+          notes: `${qty} unit(s) restored — waste entry deleted (${existing.reason})`,
+          changedBy: admin,
+        });
+      }
+    }
+    done = true;
+  });
+  if (!done) { res.status(404).json({ error: "This entry was already deleted." }); return; }
   res.sendStatus(204);
 });
 

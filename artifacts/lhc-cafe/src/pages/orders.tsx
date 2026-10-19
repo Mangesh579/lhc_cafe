@@ -201,6 +201,7 @@ export default function Orders() {
           <p style="font-size:11px;">PAN/VAT No: 194139113</p>
           <p style="font-size:11px;font-weight:bold;margin-top:4px;display:inline-block;border:2px solid #1a1a1a;padding:2px 8px;">NOT CHARGEABLE</p>
         </div>
+        <p style="text-align:center;margin:6px 0;"><span style="display:inline-block;border:2px solid #000;padding:2px 12px;font-weight:bold;font-size:15px;">${order.tableNumber ? (order.tableName || `Table ${order.tableNumber}`) : "TAKEAWAY"}</span></p>
         <p>Order #${order.id}</p>
         ${order.invoiceNumber ? `<p style="font-weight:bold;">Invoice No: ${order.invoiceNumber}</p>` : ""}
         <p>${new Date().toLocaleString()}</p>
@@ -285,6 +286,7 @@ export default function Orders() {
           <p style="font-size:11px;margin:2px 0;">PAN/VAT No: 194139113</p>
           <p style="font-size:11px;font-weight:bold;margin-top:4px;display:inline-block;border:2px solid #1a1a1a;padding:2px 8px;">${isVat ? "TAX INVOICE (VAT)" : "BILL"}</p>
         </div>
+        <p style="text-align:center;margin:6px 0;"><span style="display:inline-block;border:2px solid #000;padding:2px 12px;font-weight:bold;font-size:15px;">${o.tableNumber ? esc(o.tableName || `Table ${o.tableNumber}`) : "TAKEAWAY"}</span></p>
         <p style="margin:2px 0;">Order #${o.id}</p>
         ${o.invoiceNumber ? `<p style="margin:2px 0;font-weight:bold;">Invoice No: ${o.invoiceNumber}</p>` : ""}
         <p style="margin:2px 0;">${new Date().toLocaleString()}</p>

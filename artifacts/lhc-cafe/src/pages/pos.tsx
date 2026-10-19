@@ -498,6 +498,7 @@ export default function POS() {
                 )}
               </div>
               <div className="mb-3 text-xs space-y-0.5">
+                <p className="text-center my-1"><span style={{ display: "inline-block", border: "2px solid #000", padding: "2px 12px", fontWeight: "bold", fontSize: "15px" }}>{lastOrderDetails.tableNumber ? (lastOrderDetails.tableName || `Table ${lastOrderDetails.tableNumber}`) : "TAKEAWAY"}</span></p>
                 <p>Order #{lastOrderDetails.id}</p>
                 {lastOrderDetails.invoiceNumber && <p className="font-bold">Invoice No: {lastOrderDetails.invoiceNumber}</p>}
                 <p>{new Date().toLocaleString()}</p>

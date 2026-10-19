@@ -257,6 +257,7 @@ export default function OrderLog() {
             <p style="font-size:11px;">PAN/VAT No: 194139113</p>
             <p style="font-size:11px;font-weight:bold;margin-top:4px;display:inline-block;border:2px solid #1a1a1a;padding:2px 8px;">NOT CHARGEABLE — REPRINT</p>
           </div>
+          <p style="text-align:center;margin:6px 0;"><span style="display:inline-block;border:2px solid #000;padding:2px 12px;font-weight:bold;font-size:15px;">${order.tableNumber ? (order.tableName || `Table ${order.tableNumber}`) : "TAKEAWAY"}</span></p>
           <p>Order #${order.id}</p>
           ${(order as any).invoiceNumber ? `<p style="font-weight:bold;">Invoice No: ${(order as any).invoiceNumber}</p>` : ""}
           <p>${new Date().toLocaleString()} (reprinted)</p>
@@ -280,6 +281,7 @@ export default function OrderLog() {
             <p style="font-size:11px;">PAN/VAT No: 194139113</p>
             ${billTypeToUse === "vat" ? '<p style="font-size:11px;font-weight:bold;">TAX INVOICE (VAT) — REPRINT</p>' : '<p style="font-size:11px;">REPRINT</p>'}
           </div>
+          <p style="text-align:center;margin:6px 0;"><span style="display:inline-block;border:2px solid #000;padding:2px 12px;font-weight:bold;font-size:15px;">${order.tableNumber ? (order.tableName || `Table ${order.tableNumber}`) : "TAKEAWAY"}</span></p>
           <p>Order #${order.id}</p>
           ${(order as any).invoiceNumber ? `<p style="font-weight:bold;">Invoice No: ${(order as any).invoiceNumber}</p>` : ""}
           <p>${new Date().toLocaleString()} (reprinted)</p>
