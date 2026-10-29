@@ -23,6 +23,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import NepaliDate from "nepali-date-converter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FloatingSelect } from "@/components/FloatingSelect";
 
 
 interface CartItem extends MenuItem {
@@ -324,15 +325,15 @@ export default function POS() {
         <div className="grid grid-cols-2 gap-2">
           <div>
             <Label className="text-xs font-semibold text-muted-foreground uppercase">Table (opt.)</Label>
-            <Select value={tableNumber || "none"} onValueChange={v => setTableNumber(v === "none" ? "" : v)}>
-              <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select table" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Takeaway</SelectItem>
-                {openTables.map((t: any) => (
-                  <SelectItem key={t.id} value={String(t.tableNumber)}>{t.name || `Table ${t.tableNumber}`}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="mt-1">
+              <FloatingSelect
+                value={tableNumber}
+                onChange={setTableNumber}
+                placeholder="Type or pick a table…"
+                noneLabel="Takeaway (no table)"
+                options={openTables.map((t: any) => ({ value: String(t.tableNumber), label: t.name ? `${t.name} (Table ${t.tableNumber})` : `Table ${t.tableNumber}` }))}
+              />
+            </div>
           </div>
           <div>
             <Label className="text-xs font-semibold text-muted-foreground uppercase">Customer Phone / Name</Label>
