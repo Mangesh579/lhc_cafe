@@ -26,10 +26,10 @@ export const ordersTable = pgTable("orders", {
   ncReason: text("nc_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-  kotNumber: integer("kot_number").notNull().default(1),
-  kotAt: timestamp("kot_at"),
-  kotNote: text("kot_note"),
-  kotBy: text("kot_by"),
+  // kotNumber: integer("kot_number").notNull().default(1),
+  // kotAt: timestamp("kot_at"),
+  // kotNote: text("kot_note"),
+  // kotBy: text("kot_by"),
 });
 
 export const orderItemsTable = pgTable("order_items", {
@@ -40,6 +40,10 @@ export const orderItemsTable = pgTable("order_items", {
   unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
   subtotal: numeric("subtotal", { precision: 10, scale: 2 }).notNull(),
   notes: text("notes"),
+  kotNumber: integer("kot_number").notNull().default(1),
+  kotAt: timestamp("kot_at"),
+  kotNote: text("kot_note"),
+  kotBy: text("kot_by"),
 });
 
 export const insertOrderSchema = createInsertSchema(ordersTable).omit({ id: true, createdAt: true, updatedAt: true });
