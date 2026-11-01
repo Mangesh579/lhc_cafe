@@ -321,7 +321,21 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
       resolvedItems.push({ menuItemId: item.menuItemId, quantity: item.quantity, unitPrice, subtotal, notes: item.notes });
     }
 
-    const [order] = await db.insert(ordersTable).values({
+    // ── One bill per table: join the table's open unpaid bill as a new KOT ──
+    const [openBill] = await db.select().from(ordersTable)
+      .where(and(eq(ordersTable.tableId, table.id), eq(ordersTable.paymentStatus, "pending"), eq(ordersTable.isNc, false), sql`${ordersTable.orderStatus} <> 'cancelled'`))
+      .orderBy(desc(ordersTable.createdAt)).limit(1);
+    let kotNo = 1;
+    if (openBill) {
+      const [m] = await db.select({ maxKot: sql<number>`COALESCE(MAX(${orderItemsTable.kotNumber}), 0)` }).from(orderItemsTable).where(eq(orderItemsTable.orderId, openBill.id));
+      kotNo = Number(m?.maxKot ?? 0) + 1;
+    }
+
+    const [order] = openBill ? await db.update(ordersTable).set({
+      totalAmount: String(parseFloat(String(openBill.totalAmount)) + totalAmount),
+      notes: [openBill.notes, customerNote].filter(Boolean).join(" | ") || null,
+      orderStatus: "pending",
+    }).where(eq(ordersTable.id, openBill.id)).returning() : await db.insert(ordersTable).values({
       tableId: table.id,
       totalAmount: String(totalAmount),
       paymentMethod: paymentMethod ?? "cash",
@@ -338,6 +352,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
         unitPrice: String(item.unitPrice),
         subtotal: String(item.subtotal),
         notes: item.notes ?? null,
+        kotNumber: kotNo, kotAt: new Date(), kotNote: customerNote ?? null, kotBy: null,
       });
     }
 
@@ -355,7 +370,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
             changeAmount: String(-needed),
             stockBefore: String(stockBefore),
             stockAfter: String(stockAfter),
-            reason: `QR Order #${order.id} (${table.name || `Table ${table.tableNumber}`})`,
+            reason: `QR Order #${order.id}${kotNo > 1 ? ` · KOT ${kotNo}` : ""} (${table.name || `Table ${table.tableNumber}`})`,
             menuItemId: item.menuItemId,
             orderId: order.id,
           });

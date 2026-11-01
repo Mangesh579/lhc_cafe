@@ -24,6 +24,7 @@ import NepaliDate from "nepali-date-converter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FloatingSelect } from "@/components/FloatingSelect";
+import { buildKotHtml } from "@/lib/kot";
 
 
 interface CartItem extends MenuItem {
@@ -193,7 +194,9 @@ export default function POS() {
       }
       const result = await createOrder.mutateAsync({ data: orderData });
       setLastOrderDetails({ ...result, cartItems: [...cart], subtotal, customer: currentCustomer });
-      toast({ title: "Order Placed", description: `Order #${result.id} created successfully.` });
+      toast((result as any).merged
+        ? { title: `Added to bill #${result.id}`, description: `KOT ${(result as any).kotNumber} added to this table's open bill.` }
+        : { title: "Order Placed", description: `Order #${result.id} created successfully.` });
       setCart([]); setPhone(""); setSelectedCustomerId(null); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
       setIsNc(false); setNcPersonName(""); setNcReason("");
       setIsReceiptOpen(true);
@@ -488,7 +491,7 @@ export default function POS() {
             <DialogDescription>Order has been created successfully.</DialogDescription>
           </DialogHeader>
           {lastOrderDetails && (
-            <div className="bg-white text-black p-5 font-mono text-sm border rounded my-2" id="receipt-preview">
+            <div className="bg-white text-black p-5 font-mono text-sm border rounded my-2" id="receipt-preview-legacy" style={{ display: "none" }}>
               <div className="text-center mb-3 border-b-2 border-gray-800 pb-3">
                 <img src="/LHC_logo.png" alt="LHC Cafe" style={{ height: 48, margin: "0 auto 8px", display: "block" }} />
                 <h2 className="text-lg font-bold">Legendary House Cafe & Barista Coffee School</h2>
@@ -547,6 +550,10 @@ export default function POS() {
               )}
               <div className="text-center text-xs mt-4"><p>Thank you for visiting LHC!</p></div>
             </div>
+          )}
+          {lastOrderDetails && (
+            <div className="my-2 border rounded bg-white text-black p-3 max-h-[60vh] overflow-y-auto" id="receipt-preview"
+              dangerouslySetInnerHTML={{ __html: buildKotHtml(lastOrderDetails, { kotNumber: lastOrderDetails.kotNumber }) }} />
           )}
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setIsReceiptOpen(false)}>Close</Button>

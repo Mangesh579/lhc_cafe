@@ -26,6 +26,10 @@ export const ordersTable = pgTable("orders", {
   ncReason: text("nc_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  kotNumber: integer("kot_number").notNull().default(1),
+  kotAt: timestamp("kot_at"),
+  kotNote: text("kot_note"),
+  kotBy: text("kot_by"),
 });
 
 export const orderItemsTable = pgTable("order_items", {

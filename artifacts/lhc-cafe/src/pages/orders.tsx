@@ -20,6 +20,7 @@ import { Clock, Printer, CreditCard, AlertCircle, RefreshCw, ChevronDown, Chevro
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useNotifications } from "@/contexts/notifications";
 import { useAuth } from "@/contexts/auth";
+import { buildKotHtml, printReceiptHtml } from "@/lib/kot";
 
 const POLL_INTERVAL = 5_000;
 
@@ -189,6 +190,10 @@ export default function Orders() {
     } catch (err: any) {
       toast({ title: "Failed to record payment", description: err?.data?.error, variant: "destructive" });
     }
+  };
+
+  const printKot = (order: any, kotNumber?: number) => {
+    printReceiptHtml(buildKotHtml(order, { kotNumber }));
   };
 
   const printNcBill = (order: any) => {
@@ -460,6 +465,9 @@ export default function Orders() {
                       <CreditCard className="w-3 h-3" /> Pay
                     </Button>
                   )}
+                  <Button size="sm" variant="outline" onClick={() => printKot(order)} className="gap-1.5 text-xs h-8 px-4">
+                    <Printer className="w-3 h-3" /> Print KOT
+                  </Button>
                   {(order as any).isNc && (
                     <Button size="sm" variant="outline" onClick={() => printNcBill(order)} className="gap-1.5 text-xs h-8 px-4">
                       <Printer className="w-3 h-3" /> Print NC Bill
@@ -492,6 +500,23 @@ export default function Orders() {
                       ))}
                     </div>
                   </div>
+
+                  {(() => {
+                    const kots = Array.from(new Set((order.items ?? []).map((i: any) => i.kotNumber ?? 1))).sort((a: any, b: any) => a - b);
+                    if (kots.length < 2) return null;
+                    return (
+                      <div>
+                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">KOT history</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {kots.map((n: any) => (
+                            <Button key={n} size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => printKot(order, n)}>
+                              <Printer className="w-3 h-3" /> KOT #{n}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Inline notes editor — locked once paid, per invoice immutability policy */}
                   {order.paymentStatus === "paid" ? (

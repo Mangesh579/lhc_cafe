@@ -87,6 +87,10 @@ async function getOrderWithItems(orderId: number) {
       unitPrice: orderItemsTable.unitPrice,
       subtotal: orderItemsTable.subtotal,
       notes: orderItemsTable.notes,
+      kotNumber: orderItemsTable.kotNumber,
+      kotAt: orderItemsTable.kotAt,
+      kotNote: orderItemsTable.kotNote,
+      kotBy: orderItemsTable.kotBy,
     })
     .from(orderItemsTable)
     .leftJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id))
@@ -156,6 +160,10 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
           unitPrice: orderItemsTable.unitPrice,
           subtotal: orderItemsTable.subtotal,
           notes: orderItemsTable.notes,
+          kotNumber: orderItemsTable.kotNumber,
+          kotAt: orderItemsTable.kotAt,
+          kotNote: orderItemsTable.kotNote,
+          kotBy: orderItemsTable.kotBy,
         })
         .from(orderItemsTable)
         .leftJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id))
@@ -195,7 +203,26 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
   // zero collected revenue.
   const ncInvoiceNumber = isNc ? await getNextInvoiceNumber() : undefined;
 
-  const [order] = await db.insert(ordersTable).values({
+  // ── One bill per table: join the table's open unpaid bill as a new KOT ──
+  let openBill: typeof ordersTable.$inferSelect | undefined;
+  if (tableId && !isNc && !backdatedAt) {
+    [openBill] = await db.select().from(ordersTable)
+      .where(and(eq(ordersTable.tableId, tableId), eq(ordersTable.paymentStatus, "pending"), eq(ordersTable.isNc, false), sql`${ordersTable.orderStatus} <> 'cancelled'`))
+      .orderBy(desc(ordersTable.createdAt)).limit(1);
+  }
+  let kotNo = 1;
+  if (openBill) {
+    const [m] = await db.select({ maxKot: sql<number>`COALESCE(MAX(${orderItemsTable.kotNumber}), 0)` }).from(orderItemsTable).where(eq(orderItemsTable.orderId, openBill.id));
+    kotNo = Number(m?.maxKot ?? 0) + 1;
+  }
+
+  const [order] = openBill ? await db.update(ordersTable).set({
+    totalAmount: String(parseFloat(String(openBill.totalAmount)) + finalTotal),
+    discountAmount: String(parseFloat(String(openBill.discountAmount ?? 0)) + discountValue),
+    notes: [openBill.notes, notes].filter(Boolean).join(" | ") || null,
+    orderStatus: "pending",
+    loyaltyCustomerId: openBill.loyaltyCustomerId ?? loyaltyCustomerId ?? null,
+  }).where(eq(ordersTable.id, openBill.id)).returning() : await db.insert(ordersTable).values({
     tableId: tableId ?? null,
     totalAmount: String(finalTotal),
     paymentMethod: isNc ? "nc" : (paymentMethod ?? "cash"),
@@ -213,7 +240,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
   }).returning();
 
   for (const item of resolvedItems) {
-    await db.insert(orderItemsTable).values({ orderId: order.id, menuItemId: item.menuItemId, quantity: item.quantity, unitPrice: String(item.unitPrice), subtotal: String(item.subtotal), notes: item.notes ?? null });
+    await db.insert(orderItemsTable).values({ orderId: order.id, menuItemId: item.menuItemId, quantity: item.quantity, unitPrice: String(item.unitPrice), subtotal: String(item.subtotal), notes: item.notes ?? null, kotNumber: kotNo, kotAt: new Date(), kotNote: notes ?? null, kotBy: (req as any).user?.username ?? null });
   }
 
   for (const item of resolvedItems) {
@@ -225,14 +252,14 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
         const stockBefore = parseFloat(String(inv.currentStock));
         const stockAfter = stockBefore - needed;
         await db.update(inventoryItemsTable).set({ currentStock: String(stockAfter) }).where(eq(inventoryItemsTable.id, inv.id));
-        await db.insert(inventoryLogsTable).values({ inventoryItemId: inv.id, changeAmount: String(-needed), stockBefore: String(stockBefore), stockAfter: String(stockAfter), reason: `Order #${order.id}`, orderId: order.id, menuItemId: item.menuItemId });
+        await db.insert(inventoryLogsTable).values({ inventoryItemId: inv.id, changeAmount: String(-needed), stockBefore: String(stockBefore), stockAfter: String(stockAfter), reason: kotNo > 1 ? `Order #${order.id} (KOT ${kotNo})` : `Order #${order.id}`, orderId: order.id, menuItemId: item.menuItemId });
       }
     }
   }
 
-  await applyPrepWaste(order.id, resolvedItems, `Order #${order.id}`, (req as any).user?.username ?? "system");
+  await applyPrepWaste(order.id, resolvedItems, kotNo > 1 ? `Order #${order.id} (KOT ${kotNo})` : `Order #${order.id}`, (req as any).user?.username ?? "system");
   const result = await getOrderWithItems(order.id);
-  res.status(201).json(result);
+  res.status(201).json(result ? { ...result, kotNumber: kotNo, merged: !!openBill } : result);
 });
 
 router.get("/orders/:id", authenticate, async (req, res): Promise<void> => {

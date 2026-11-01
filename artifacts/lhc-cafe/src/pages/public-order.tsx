@@ -277,7 +277,10 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [tabFade, setTabFade] = useState(true);
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const [activeCatId, setActiveCatId] = useState<number|null>(null);
-  const [openCatId, setOpenCatId] = useState<number|null>(null);
+    const [openCatId, setOpenCatId] = useState<number|null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({});
+  const [orderNoteDraft, setOrderNoteDraft] = useState<string | null>(null);
   const [showLoyaltyWelcome, setShowLoyaltyWelcome] = useState(false);
   const loyaltyWelcomeShown = useRef(false);
 
@@ -398,6 +401,17 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const updateItemNote = (id: number, note: string) =>
     setCart(prev => prev.map(i => i.id === id ? { ...i, itemNote: note } : i));
 
+  const attachItemNote = (id: number) => {
+    const text = (noteDrafts[id] ?? "").trim();
+    updateItemNote(id, text);
+    setNoteDrafts(prev => { const n = { ...prev }; delete n[id]; return n; });
+  };
+  const attachOrderNote = () => {
+    if (orderNoteDraft === null) return;
+    setNotes(orderNoteDraft.trim());
+    setOrderNoteDraft(null);
+  };
+
   const cartQty = (id: number) => cart.find(i => i.id === id)?.quantity ?? 0;
   const subtotal = cart.reduce((s,i) => s + i.price*i.quantity, 0);
   const totalItems = cart.reduce((s,i) => s + i.quantity, 0);
@@ -508,7 +522,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   
   const sendRequest = async (type: "waiter" | "bill") => {
     if (!sessionToken) return;
-    setRequestSending(type);
+      setRequestSending(type); setHelpOpen(false);
     try {
       const r = await fetch(`${API_BASE}/api/public/request`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -527,12 +541,12 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     try {
       const r = await fetch(`${API_BASE}/api/public/order`, {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ sessionToken, customerNote: notes || undefined, items: cart.map(i => ({ menuItemId: i.id, quantity: i.quantity, notes: i.itemNote || undefined })) }),
+        body: JSON.stringify({ sessionToken, customerNote: (orderNoteDraft !== null ? orderNoteDraft.trim() : notes) || undefined, items: cart.map(i => ({ menuItemId: i.id, quantity: i.quantity, notes: (noteDrafts[i.id] !== undefined ? noteDrafts[i.id].trim() : i.itemNote) || undefined })) }),
       });
       if (r.status === 401) { localStorage.removeItem(SESSION_KEY); setSessionState("expired"); return; }
       if (!r.ok) throw new Error();
       const res = await r.json();
-      setOrderId(res.orderId); setIsSuccess(true); setCart([]); setCartOpen(false); setNotes("");
+      setOrderId(res.orderId); setIsSuccess(true); setCart([]); setCartOpen(false); setNotes(""); setNoteDrafts({}); setOrderNoteDraft(null);
       fetch(`${API_BASE}/api/public/my-orders?sessionToken=${encodeURIComponent(sessionToken)}`)
         .then(r2 => r2.ok ? r2.json() : null).then(d => { if (d) setMyOrders(d); }).catch(() => {});
     } catch { alert("Could not place order. Please try again."); }
@@ -631,178 +645,9 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     </>
   );
 
-  const OldMenuTab = (
-    <div style={{ minHeight: "100vh" }}>
-      <div style={{ padding: "20px 16px 12px", position: "sticky", top: 0, zIndex: 5, background: `linear-gradient(to bottom, ${BG} 75%, transparent)` }}>
-        <div className="reveal" style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 16 }}>
-          <div>
-            <h1 style={{ fontFamily: SERIF, fontSize: 24, color: TEXT, fontWeight: 500, lineHeight: 1 }}>LHC Cafe</h1>
-            <p style={{ fontFamily: SANS, fontSize: 10, color: "rgba(200,135,58,0.6)", letterSpacing: "0.14em", textTransform: "uppercase", marginTop: 4 }}>Sulimha Durbar</p>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 20 }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: WARN }} />
-            <span style={{ fontFamily: SANS, fontSize: 12, color: TEXT, fontWeight: 500 }}>{tableName || `Table ${tableNumber}`}</span>
-          </div>
-        </div>
+        
 
-        {categories.length > 1 && (
-          <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>
-            {categories.map(cat => (
-              <button key={cat.id} className="cat-chip" onClick={() => scrollToCategory(cat.id)}
-                style={{
-                  padding: "8px 16px", borderRadius: 20, flexShrink: 0, cursor: "pointer",
-                  border: activeCatId === cat.id ? `1px solid ${WARN}` : `1px solid ${BORDER}`,
-                  background: activeCatId === cat.id ? "rgba(200,135,58,0.1)" : "transparent",
-                  color: activeCatId === cat.id ? WARN : "rgba(245,238,225,0.5)",
-                  fontFamily: SANS, fontSize: 12, fontWeight: 500,
-                }}>
-                {cat.name}
-              </button>
-            ))}
-          </div>
-        )}
-        <div style={{ position: "relative", marginTop: 10 }}>
-          <input
-            type="text"
-            placeholder="Search the menu…"
-            value={menuSearch}
-            onChange={e => setMenuSearch(e.target.value)}
-            style={{ width: "100%", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 20, padding: "9px 14px", color: TEXT, fontFamily: SANS, fontSize: 13 }}
-          />
-        </div>
-      </div>
-
-      {bestsellerItems.length > 0 && (
-        <div className="reveal-2" style={{ padding: "4px 0 20px" }}>
-          <p style={{ fontFamily: SANS, fontSize: 11, color: "rgba(245,238,225,0.5)", letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600, padding: "0 16px", marginBottom: 12 }}>★ Most Popular</p>
-          <div style={{ display: "flex", gap: 10, overflowX: "auto", padding: "0 16px" }}>
-            {bestsellerItems.map(item => {
-              const inCart = cartQty(item.id) > 0;
-              return (
-                <button key={item.id} onClick={() => scrollToItem(item.id)}
-                  style={{ flexShrink: 0, width: 104, background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left" }}>
-                  <div style={{ position: "relative", borderRadius: 10, overflow: "hidden", marginBottom: 8, border: `1px solid ${BORDER}` }}>
-                    <DishMedia item={item} height={80} variant="thumb" />
-                    {inCart && (
-                      <div style={{ position: "absolute", top: 6, right: 6, width: 18, height: 18, borderRadius: "50%", background: WARN, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <span style={{ fontFamily: SANS, fontSize: 9, color: BG, fontWeight: 700 }}>{cartQty(item.id)}</span>
-                      </div>
-                    )}
-                  </div>
-                  <p style={{ fontFamily: SERIF, fontSize: 14, color: TEXT, fontWeight: 500, lineHeight: 1.25, marginBottom: 2, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical" }}>{item.name}</p>
-                  <p style={{ fontFamily: SANS, fontSize: 12, color: WARN, fontWeight: 600 }}>Rs {item.price}</p>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <div ref={feedRef} style={{ display: "flex", flexDirection: "column", gap: 10, padding: "0 16px 16px" }}>
-        {categories.map((cat) => (
-          <div key={cat.id} ref={el => { catRefs.current[cat.id] = el; }} data-catid={cat.id} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {cat.items.filter(item => !menuSearch.trim() || item.name.toLowerCase().includes(menuSearch.toLowerCase())).map((item) => {
-              const inCart = cartQty(item.id) > 0;
-
-              return (
-                <div key={item.id} className="list-row" ref={el => { itemRefs.current[item.id] = el; }}>
-                  <HeritageMotif seed={item.id} />
-                  {/* Compact row — image only, never video */}
-                  <div
-                    onClick={() => toggleExpand(item.id)}
-                    style={{ display: "flex", alignItems: "stretch", cursor: "pointer", minHeight: 100, position: "relative", zIndex: 1 }}
-                  >
-                    <div style={{ flex: 1, minWidth: 0, padding: "16px 12px 16px 18px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 7 }}>
-                      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                        <h3 style={{ fontFamily: SERIF, fontSize: 19, color: TEXT, fontWeight: 500, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</h3>
-                        <ChevronDown size={13} color="rgba(245,238,225,0.3)" className={`expand-chevron${expandedItems[item.id] ? " expanded" : ""}`} style={{ flexShrink: 0 }} />
-                      </div>
-                      {item.isBestseller && (
-                        <span style={{ fontFamily: SANS, fontSize: 9, fontWeight: 700, color: WARN, letterSpacing: "0.04em" }}>★ TOP PICK</span>
-                      )}
-                      <p style={{ fontFamily: SERIF, fontSize: 16, color: WARN, fontWeight: 600 }}>Rs {item.price}</p>
-
-                      <div onClick={e => e.stopPropagation()} style={{ marginTop: 2 }}>
-                        {inCart ? (
-                          <div className={pulsingItems[item.id] ? "qty-pulse" : ""} style={{ display: "inline-flex", alignItems: "center", gap: 8, background: SURFACE_2, border: `1px solid ${BORDER}`, borderRadius: 20, padding: "3px 4px" }}>
-                            <button onClick={() => updateQty(item.id, -1)} className="qty-btn" style={{ width: 24, height: 24, borderRadius: "50%", border: `1px solid ${BORDER}`, background: "transparent", color: TEXT, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Minus size={12} /></button>
-                            <span style={{ fontFamily: SANS, fontSize: 13, color: TEXT, fontWeight: 700, minWidth: 12, textAlign: "center" }}>{cartQty(item.id)}</span>
-                            <button onClick={() => updateQty(item.id, 1)} className="qty-btn" style={{ width: 24, height: 24, borderRadius: "50%", border: "none", background: WARN, color: BG, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Plus size={12} /></button>
-                          </div>
-                        ) : (
-                          <button onClick={() => addToCart(item)} className="add-pill" style={{ background: WARN, border: "none", borderRadius: 20, padding: "6px 16px", color: BG, fontFamily: SANS, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                            <Plus size={12} /> Add
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div style={{ width: "42%", maxWidth: 160, flexShrink: 0, padding: 10, display: "flex" }}>
-                      <div style={{ width: "100%", borderRadius: 10, overflow: "hidden", border: `1px solid ${BORDER}`, height: "100%" }}>
-                        <DishMedia item={item} height="100%" variant="thumb" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Level 1: description panel */}
-                  <div className={`list-row-body${expandedItems[item.id] ? " expanded" : ""}`}>
-                    <div className="list-row-body-inner">
-                      <div style={{ borderTop: `1px solid ${BORDER}`, padding: "14px 18px 16px" }}>
-                        {item.description && (
-                          <p style={{ fontFamily: SANS, fontSize: 13, color: "rgba(245,238,225,0.55)", lineHeight: 1.6, fontWeight: 400, marginBottom: 12 }}>
-                            {item.description}
-                          </p>
-                        )}
-
-                        {item.videoUrl && (
-                          <button
-                            onClick={e => { e.stopPropagation(); toggleVideoExpand(item.id); }}
-                            style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: videoExpandedItems[item.id] ? 12 : 0 }}
-                          >
-                            <span style={{ fontFamily: SANS, fontSize: 11, color: WARN, fontWeight: 600, letterSpacing: "0.02em" }}>
-                              {videoExpandedItems[item.id] ? "Hide preparation video" : "▶ Watch it being made"}
-                            </span>
-                            <ChevronDown size={12} color={WARN} className={`expand-chevron${videoExpandedItems[item.id] ? " expanded" : ""}`} />
-                          </button>
-                        )}
-
-                        <div className={`list-row-body${videoExpandedItems[item.id] ? " expanded" : ""}`}>
-                          <div className="list-row-body-inner">
-                            <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${BORDER}`, height: 190 }}>
-                              <DishMedia item={item} height="100%" variant="hero" muted={mutedItems[item.id] !== false} onToggleMute={() => toggleMute(item.id)} />
-                            </div>
-                          </div>
-                        </div>
-
-                        {inCart && (
-                          <div style={{ marginTop: 14 }}>
-                            <input
-                              type="text"
-                              placeholder="Add a note for this item (e.g. less sugar, no ice)…"
-                              value={cart.find(c => c.id === item.id)?.itemNote ?? ""}
-                              onChange={e => updateItemNote(item.id, e.target.value)}
-                              onClick={e => e.stopPropagation()}
-                              style={{ width: "100%", background: SURFACE_2, border: `1px solid ${BORDER}`, borderRadius: 8, padding: "9px 12px", color: "rgba(245,238,225,0.75)", fontFamily: SANS, fontSize: 12 }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-
-      <div style={{ padding: "0 20px 24px", textAlign: "center" }}>
-        <p style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: 12, color: "rgba(200,135,58,0.22)" }}>Sulimha Durbar Heritage Hotel & Museum · Patan</p>
-      </div>
-    </div>
-  );
-
-    // ── Customer-friendly menu: category tiles → one category at a time, global search ──
+  // ── Customer-friendly menu: category tiles → one category at a time, global search ──
   const searchTerm = menuSearch.trim().toLowerCase();
   const openCat = categories.find(c => c.id === openCatId) ?? null;
 
@@ -900,18 +745,41 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
                     </div>
                   </div>
                 )}
-                {inCart && (
-                  <div style={{ marginTop: 14 }}>
-                    <input
-                      type="text"
-                      placeholder="Add a note for this item (e.g. less sugar, no ice)…"
-                      value={cart.find(c => c.id === item.id)?.itemNote ?? ""}
-                      onChange={e => updateItemNote(item.id, e.target.value)}
-                      onClick={e => e.stopPropagation()}
-                      style={{ width: "100%", background: SURFACE_2, border: `1px solid ${BORDER}`, borderRadius: 8, padding: "9px 12px", color: "rgba(245,238,225,0.75)", fontFamily: SANS, fontSize: 12 }}
-                    />
-                  </div>
-                )}
+                {inCart && (() => {
+                  const saved = cart.find(c => c.id === item.id)?.itemNote ?? "";
+                  const draft = noteDrafts[item.id];
+                  const editing = draft !== undefined || !saved;
+                  return (
+                    <div style={{ marginTop: 14 }} onClick={e => e.stopPropagation()}>
+                      {editing ? (
+                        <>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <input
+                              type="text"
+                              placeholder="Add a note (e.g. less sugar, no ice)…"
+                              value={draft ?? ""}
+                              onChange={e => { const v = e.target.value; setNoteDrafts(p => ({ ...p, [item.id]: v })); }}
+                              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); attachItemNote(item.id); } }}
+                              style={{ flex: 1, minWidth: 0, background: SURFACE_2, border: `1px solid ${BORDER}`, borderRadius: 8, padding: "9px 12px", color: "rgba(245,238,225,0.85)", fontFamily: SANS, fontSize: 12 }}
+                            />
+                            <button onClick={() => attachItemNote(item.id)} disabled={!(draft ?? "").trim()}
+                              style={{ flexShrink: 0, background: WARN, border: "none", borderRadius: 8, padding: "0 14px", color: BG, fontFamily: SANS, fontSize: 11, fontWeight: 700, cursor: "pointer", opacity: (draft ?? "").trim() ? 1 : 0.4 }}>
+                              Add note
+                            </button>
+                          </div>
+                          {(draft ?? "").trim() && <p style={{ fontFamily: SANS, fontSize: 10, color: "rgba(245,238,225,0.4)", marginTop: 6 }}>Press Enter or "Add note" to attach it to this dish.</p>}
+                        </>
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(143,174,110,0.1)", border: "1px solid rgba(143,174,110,0.35)", borderRadius: 8, padding: "8px 10px" }}>
+                          <CheckCircle2 size={14} color="#8FAE6E" style={{ flexShrink: 0 }} />
+                          <span style={{ flex: 1, minWidth: 0, fontFamily: SANS, fontSize: 12, color: "rgba(245,238,225,0.8)", overflowWrap: "anywhere" }}>Note added: “{saved}”</span>
+                          <button onClick={() => setNoteDrafts(p => ({ ...p, [item.id]: saved }))} style={{ background: "none", border: "none", color: WARN, fontFamily: SANS, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Edit</button>
+                          <button onClick={() => updateItemNote(item.id, "")} style={{ background: "none", border: "none", color: "rgba(245,238,225,0.4)", fontFamily: SANS, fontSize: 11, cursor: "pointer" }}>Remove</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -1283,8 +1151,26 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
               </div>
             ))}
             <div style={{ padding:"10px 0 4px" }}>
-              <input type="text" placeholder="Any special requests for the whole order…" value={notes} onChange={e => setNotes(e.target.value)}
-                style={{ width:"100%", background:"transparent", border:"none", borderBottom:`1px solid ${BORDER}`, padding:"6px 0", color:"rgba(245,238,225,0.4)", fontFamily:SANS, fontSize:12, fontWeight:300 }} />
+              {orderNoteDraft === null && notes ? (
+                <div style={{ display:"flex", alignItems:"center", gap:8, background:"rgba(143,174,110,0.1)", border:"1px solid rgba(143,174,110,0.35)", borderRadius:8, padding:"8px 10px" }}>
+                  <CheckCircle2 size={14} color="#8FAE6E" style={{ flexShrink:0 }} />
+                  <span style={{ flex:1, minWidth:0, fontFamily:SANS, fontSize:12, color:"rgba(245,238,225,0.8)", overflowWrap:"anywhere" }}>Note for your whole order: “{notes}”</span>
+                  <button onClick={() => setOrderNoteDraft(notes)} style={{ background:"none", border:"none", color:WARN, fontFamily:SANS, fontSize:11, fontWeight:600, cursor:"pointer" }}>Edit</button>
+                  <button onClick={() => setNotes("")} style={{ background:"none", border:"none", color:"rgba(245,238,225,0.4)", fontFamily:SANS, fontSize:11, cursor:"pointer" }}>Remove</button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <input type="text" placeholder="Any special requests for the whole order…" value={orderNoteDraft ?? ""}
+                      onChange={e => setOrderNoteDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); attachOrderNote(); } }}
+                      style={{ flex:1, minWidth:0, background:SURFACE_2, border:`1px solid ${BORDER}`, borderRadius:8, padding:"8px 10px", color:"rgba(245,238,225,0.85)", fontFamily:SANS, fontSize:12 }} />
+                    <button onClick={attachOrderNote} disabled={!(orderNoteDraft ?? "").trim()}
+                      style={{ flexShrink:0, background:WARN, border:"none", borderRadius:8, padding:"0 14px", color:BG, fontFamily:SANS, fontSize:11, fontWeight:700, cursor:"pointer", opacity:(orderNoteDraft ?? "").trim() ? 1 : 0.4 }}>Add note</button>
+                  </div>
+                  {(orderNoteDraft ?? "").trim() && <p style={{ fontFamily:SANS, fontSize:10, color:"rgba(245,238,225,0.4)", marginTop:6 }}>Press Enter or "Add note" to attach it to your order.</p>}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1311,13 +1197,17 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       )}
 
       {/* Call Waiter / Request Bill — floating, always accessible */}
-      <div style={{ position: "fixed", bottom: 68, right: 16, zIndex: 47, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ position: "fixed", bottom: activeTab === "menu" && cart.length > 0 ? 118 : 68, left: 16, zIndex: 47, display: "flex", flexDirection: "column-reverse", alignItems: "flex-start", gap: 8 }}>
+        <button onClick={() => setHelpOpen(o => !o)}
+          style={{ background: SURFACE, border: `1px solid ${helpOpen ? WARN : BORDER}`, borderRadius: 20, padding: "7px 14px", color: helpOpen ? WARN : TEXT, fontFamily: SANS, fontSize: 11, fontWeight: 500, cursor: "pointer", boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
+          {helpOpen ? "✕ Close" : "🛎 Need help?"}
+        </button>
         <button onClick={() => sendRequest("bill")} disabled={!!requestSending}
-          style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 20, padding: "8px 14px", color: TEXT, fontFamily: SANS, fontSize: 11, fontWeight: 600, cursor: "pointer", boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
+          style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 20, padding: "8px 14px", color: TEXT, fontFamily: SANS, fontSize: 11, fontWeight: 600, cursor: "pointer", boxShadow: "0 4px 12px rgba(0,0,0,0.3)", display: helpOpen ? "block" : "none" }}>
           {requestSending === "bill" ? "…" : "🧾 Request Bill"}
         </button>
         <button onClick={() => sendRequest("waiter")} disabled={!!requestSending}
-          style={{ background: WARN, border: "none", borderRadius: 20, padding: "8px 14px", color: BG, fontFamily: SANS, fontSize: 11, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
+          style={{ background: WARN, border: "none", borderRadius: 20, padding: "8px 14px", color: BG, fontFamily: SANS, fontSize: 11, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(0,0,0,0.3)", display: helpOpen ? "block" : "none" }}>
           {requestSending === "waiter" ? "…" : "🔔 Call Waiter"}
         </button>
       </div>
