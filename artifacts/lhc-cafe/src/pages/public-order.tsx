@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Plus, Minus, X, Clock, CheckCircle2, ChefHat, Bell, ChevronDown, Gift } from "lucide-react";
+import { Plus, Minus, X, Clock, CheckCircle2, ChefHat, Bell, ChevronDown, ChevronLeft, Gift } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 const STATUS_POLL_MS = 5_000;
@@ -27,7 +27,7 @@ type MenuItem = {
   isBestseller?: boolean;
 };
 
-type Category = { id: number; name: string; items: MenuItem[] };
+type Category = { id: number; name: string; displayOrder?: number | null; items: MenuItem[] };
 
 type MyOrder = {
   id: number;
@@ -277,6 +277,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [tabFade, setTabFade] = useState(true);
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const [activeCatId, setActiveCatId] = useState<number|null>(null);
+  const [openCatId, setOpenCatId] = useState<number|null>(null);
   const [showLoyaltyWelcome, setShowLoyaltyWelcome] = useState(false);
   const loyaltyWelcomeShown = useRef(false);
 
@@ -325,7 +326,8 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         if (!data) return;
         const cats: Category[] = (data.categories??[])
           .map((c:any) => ({ ...c, items:(data.items??[]).filter((i:any)=>i.categoryId===c.id) }))
-          .filter((c:Category)=>c.items.length>0);
+          .filter((c:Category)=>c.items.length>0)
+          .sort((a: any, b: any) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || a.id - b.id);
         setCategories(cats);
         if (cats.length > 0) setActiveCatId(cats[0].id);
         if (!loyaltyWelcomeShown.current) {
@@ -629,7 +631,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     </>
   );
 
-  const MenuTab = (
+  const OldMenuTab = (
     <div style={{ minHeight: "100vh" }}>
       <div style={{ padding: "20px 16px 12px", position: "sticky", top: 0, zIndex: 5, background: `linear-gradient(to bottom, ${BG} 75%, transparent)` }}>
         <div className="reveal" style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 16 }}>
@@ -795,6 +797,257 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       </div>
 
       <div style={{ padding: "0 20px 24px", textAlign: "center" }}>
+        <p style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: 12, color: "rgba(200,135,58,0.22)" }}>Sulimha Durbar Heritage Hotel & Museum · Patan</p>
+      </div>
+    </div>
+  );
+
+    // ── Customer-friendly menu: category tiles → one category at a time, global search ──
+  const searchTerm = menuSearch.trim().toLowerCase();
+  const openCat = categories.find(c => c.id === openCatId) ?? null;
+
+  const sortItems = (items: MenuItem[]) =>
+    [...items].sort((a, b) => Number(!!b.isBestseller) - Number(!!a.isBestseller) || a.name.localeCompare(b.name));
+
+  const openCategory = (id: number) => { setMenuSearch(""); setOpenCatId(id); window.scrollTo({ top: 0 }); };
+  const closeCategory = () => { setOpenCatId(null); window.scrollTo({ top: 0 }); };
+  const openItemFromHome = (item: MenuItem) => {
+    const cat = categories.find(c => c.items.some(i => i.id === item.id));
+    if (!cat) return;
+    setMenuSearch("");
+    setOpenCatId(cat.id);
+    setExpandedItems(prev => ({ ...prev, [item.id]: true }));
+    setTimeout(() => itemRefs.current[item.id]?.scrollIntoView({ behavior: "smooth", block: "center" }), 150);
+  };
+
+  const searchResults = searchTerm
+    ? categories.flatMap(c =>
+        sortItems(c.items.filter(i => i.name.toLowerCase().includes(searchTerm) || (i.description ?? "").toLowerCase().includes(searchTerm)))
+          .map(i => ({ item: i, catName: c.name })))
+    : [];
+
+  const renderItem = (item: MenuItem, categoryLabel?: string) => {
+    const inCart = cartQty(item.id) > 0;
+    const open = !!expandedItems[item.id];
+    const hasDetails = !!item.description || !!item.videoUrl || inCart;
+    return (
+      <div key={item.id} className="list-row" ref={el => { itemRefs.current[item.id] = el; }}>
+        <div onClick={() => toggleExpand(item.id)} style={{ padding: "14px 16px", cursor: "pointer" }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {categoryLabel && (
+                <p style={{ fontFamily: SANS, fontSize: 10, color: "rgba(200,135,58,0.7)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 3 }}>{categoryLabel}</p>
+              )}
+              <h3 style={{ fontFamily: SERIF, fontSize: 18, color: TEXT, fontWeight: 500, lineHeight: 1.25, overflowWrap: "anywhere" }}>{item.name}</h3>
+              {item.isBestseller && (
+                <span style={{ fontFamily: SANS, fontSize: 9, fontWeight: 700, color: WARN, letterSpacing: "0.04em" }}>★ TOP PICK</span>
+              )}
+              {item.description && !open && (
+                <p style={{ fontFamily: SANS, fontSize: 12, color: "rgba(245,238,225,0.45)", lineHeight: 1.5, marginTop: 4, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{item.description}</p>
+              )}
+            </div>
+            {item.imageUrl && (
+              <div style={{ width: 68, height: 68, flexShrink: 0, borderRadius: 10, overflow: "hidden", border: `1px solid ${BORDER}` }}>
+                <DishMedia item={item} height="100%" variant="thumb" />
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
+            <p style={{ fontFamily: SERIF, fontSize: 17, color: WARN, fontWeight: 600 }}>Rs {item.price}</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <ChevronDown size={14} color="rgba(245,238,225,0.3)" className={`expand-chevron${open ? " expanded" : ""}`} />
+              <div onClick={e => e.stopPropagation()}>
+                {inCart ? (
+                  <div className={pulsingItems[item.id] ? "qty-pulse" : ""} style={{ display: "inline-flex", alignItems: "center", gap: 8, background: SURFACE_2, border: `1px solid ${BORDER}`, borderRadius: 20, padding: "3px 4px" }}>
+                    <button onClick={() => updateQty(item.id, -1)} className="qty-btn" style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${BORDER}`, background: "transparent", color: TEXT, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Minus size={13} /></button>
+                    <span style={{ fontFamily: SANS, fontSize: 14, color: TEXT, fontWeight: 700, minWidth: 14, textAlign: "center" }}>{cartQty(item.id)}</span>
+                    <button onClick={() => updateQty(item.id, 1)} className="qty-btn" style={{ width: 28, height: 28, borderRadius: "50%", border: "none", background: WARN, color: BG, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Plus size={13} /></button>
+                  </div>
+                ) : (
+                  <button onClick={() => addToCart(item)} className="add-pill" style={{ background: WARN, border: "none", borderRadius: 20, padding: "7px 18px", color: BG, fontFamily: SANS, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <Plus size={12} /> Add
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {hasDetails && (
+          <div className={`list-row-body${open ? " expanded" : ""}`}>
+            <div className="list-row-body-inner">
+              <div style={{ borderTop: `1px solid ${BORDER}`, padding: "14px 16px 16px" }}>
+                {item.description && (
+                  <p style={{ fontFamily: SANS, fontSize: 13, color: "rgba(245,238,225,0.6)", lineHeight: 1.6, fontWeight: 400, marginBottom: 12 }}>{item.description}</p>
+                )}
+                {item.videoUrl && (
+                  <button
+                    onClick={e => { e.stopPropagation(); toggleVideoExpand(item.id); }}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: videoExpandedItems[item.id] ? 12 : 0 }}
+                  >
+                    <span style={{ fontFamily: SANS, fontSize: 11, color: WARN, fontWeight: 600, letterSpacing: "0.02em" }}>
+                      {videoExpandedItems[item.id] ? "Hide preparation video" : "▶ Watch it being made"}
+                    </span>
+                    <ChevronDown size={12} color={WARN} className={`expand-chevron${videoExpandedItems[item.id] ? " expanded" : ""}`} />
+                  </button>
+                )}
+                {item.videoUrl && (
+                  <div className={`list-row-body${videoExpandedItems[item.id] ? " expanded" : ""}`}>
+                    <div className="list-row-body-inner">
+                      <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${BORDER}`, height: 190 }}>
+                        <DishMedia item={item} height="100%" variant="hero" muted={mutedItems[item.id] !== false} onToggleMute={() => toggleMute(item.id)} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {inCart && (
+                  <div style={{ marginTop: 14 }}>
+                    <input
+                      type="text"
+                      placeholder="Add a note for this item (e.g. less sugar, no ice)…"
+                      value={cart.find(c => c.id === item.id)?.itemNote ?? ""}
+                      onChange={e => updateItemNote(item.id, e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      style={{ width: "100%", background: SURFACE_2, border: `1px solid ${BORDER}`, borderRadius: 8, padding: "9px 12px", color: "rgba(245,238,225,0.75)", fontFamily: SANS, fontSize: 12 }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const MenuTab = (
+    <div style={{ minHeight: "100vh" }}>
+      {/* Sticky header: brand or category title, search, category chips */}
+      <div style={{ padding: "16px 16px 10px", position: "sticky", top: 0, zIndex: 5, background: `linear-gradient(to bottom, ${BG} 85%, transparent)` }}>
+        <div className="reveal" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+          {openCat && !searchTerm ? (
+            <button onClick={closeCategory} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", padding: 0, minWidth: 0, textAlign: "left" }}>
+              <ChevronLeft size={22} color={WARN} style={{ flexShrink: 0 }} />
+              <span style={{ fontFamily: SERIF, fontSize: 21, color: TEXT, fontWeight: 500, lineHeight: 1.15, overflowWrap: "anywhere" }}>{openCat.name}</span>
+            </button>
+          ) : (
+            <div>
+              <h1 style={{ fontFamily: SERIF, fontSize: 24, color: TEXT, fontWeight: 500, lineHeight: 1 }}>LHC Cafe</h1>
+              <p style={{ fontFamily: SANS, fontSize: 10, color: "rgba(200,135,58,0.6)", letterSpacing: "0.14em", textTransform: "uppercase", marginTop: 4 }}>Sulimha Durbar</p>
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 20, flexShrink: 0 }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: WARN }} />
+            <span style={{ fontFamily: SANS, fontSize: 12, color: TEXT, fontWeight: 500 }}>{tableName || `Table ${tableNumber}`}</span>
+          </div>
+        </div>
+
+        <input
+          type="text"
+          placeholder="Search the whole menu…"
+          value={menuSearch}
+          onChange={e => setMenuSearch(e.target.value)}
+          style={{ width: "100%", background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 20, padding: "9px 14px", color: TEXT, fontFamily: SANS, fontSize: 13 }}
+        />
+
+        {openCat && !searchTerm && categories.length > 1 && (
+          <div
+            ref={el => {
+              if (el && el.dataset.for !== String(openCatId)) {
+                el.dataset.for = String(openCatId);
+                const active = el.querySelector('[data-active="true"]') as HTMLElement | null;
+                if (active) el.scrollLeft = Math.max(0, active.offsetLeft - 32);
+              }
+            }}
+            style={{ display: "flex", gap: 8, overflowX: "auto", marginTop: 10, paddingBottom: 2 }}
+          >
+            {categories.map(cat => (
+              <button key={cat.id} className="cat-chip" data-active={cat.id === openCatId ? "true" : "false"}
+                onClick={() => { setOpenCatId(cat.id); window.scrollTo({ top: 0 }); }}
+                style={{
+                  padding: "7px 14px", borderRadius: 20, flexShrink: 0, cursor: "pointer",
+                  border: cat.id === openCatId ? `1px solid ${WARN}` : `1px solid ${BORDER}`,
+                  background: cat.id === openCatId ? "rgba(200,135,58,0.1)" : "transparent",
+                  color: cat.id === openCatId ? WARN : "rgba(245,238,225,0.5)",
+                  fontFamily: SANS, fontSize: 12, fontWeight: 500,
+                }}>
+                {cat.name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Home: most popular + category tiles */}
+      {!openCat && !searchTerm && (
+        <>
+          {bestsellerItems.length > 0 && (
+            <div className="reveal-2" style={{ padding: "6px 0 18px" }}>
+              <p style={{ fontFamily: SANS, fontSize: 11, color: "rgba(245,238,225,0.5)", letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600, padding: "0 16px", marginBottom: 12 }}>★ Most Popular</p>
+              <div style={{ display: "flex", gap: 10, overflowX: "auto", padding: "0 16px" }}>
+                {bestsellerItems.map(item => {
+                  const inCart = cartQty(item.id) > 0;
+                  return (
+                    <button key={item.id} onClick={() => openItemFromHome(item)}
+                      style={{ flexShrink: 0, width: 112, background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left" }}>
+                      {item.imageUrl && (
+                        <div style={{ position: "relative", borderRadius: 10, overflow: "hidden", marginBottom: 8, border: `1px solid ${BORDER}` }}>
+                          <DishMedia item={item} height={78} variant="thumb" />
+                          {inCart && (
+                            <div style={{ position: "absolute", top: 6, right: 6, width: 18, height: 18, borderRadius: "50%", background: WARN, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <span style={{ fontFamily: SANS, fontSize: 9, color: BG, fontWeight: 700 }}>{cartQty(item.id)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <p style={{ fontFamily: SERIF, fontSize: 14, color: TEXT, fontWeight: 500, lineHeight: 1.25, marginBottom: 2, overflowWrap: "anywhere" }}>{item.name}{!item.imageUrl && inCart ? ` · ${cartQty(item.id)}` : ""}</p>
+                      <p style={{ fontFamily: SANS, fontSize: 12, color: WARN, fontWeight: 600 }}>Rs {item.price}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div style={{ padding: "0 16px 8px" }}>
+            <p style={{ fontFamily: SANS, fontSize: 11, color: "rgba(245,238,225,0.5)", letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600, marginBottom: 12 }}>Browse the menu</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {categories.map((cat, idx) => (
+                <button key={cat.id} onClick={() => openCategory(cat.id)} className="list-row"
+                  style={{ textAlign: "left", cursor: "pointer", minHeight: 92, padding: "14px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 }}>
+                  <HeritageMotif seed={idx} opacity={0.2} />
+                  <span style={{ position: "relative", zIndex: 1, fontFamily: SERIF, fontSize: 18, color: TEXT, fontWeight: 500, lineHeight: 1.2, overflowWrap: "anywhere" }}>{cat.name}</span>
+                  <span style={{ position: "relative", zIndex: 1, fontFamily: SANS, fontSize: 11, color: "rgba(200,135,58,0.7)" }}>{cat.items.length} item{cat.items.length === 1 ? "" : "s"}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* One category at a time */}
+      {openCat && !searchTerm && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "4px 16px 0" }}>
+          {sortItems(openCat.items).map(item => renderItem(item))}
+        </div>
+      )}
+
+      {/* Search across the whole menu */}
+      {searchTerm && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "4px 16px 0" }}>
+          <p style={{ fontFamily: SANS, fontSize: 11, color: "rgba(245,238,225,0.5)", letterSpacing: "0.06em" }}>
+            {searchResults.length} result{searchResults.length === 1 ? "" : "s"} for "{menuSearch.trim()}"
+          </p>
+          {searchResults.length === 0 && (
+            <div style={{ textAlign: "center", padding: "36px 0", border: `1px dashed ${BORDER}`, borderRadius: 12 }}>
+              <p style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: 15, color: "rgba(245,238,225,0.4)" }}>No dishes match your search</p>
+            </div>
+          )}
+          {searchResults.map(r => renderItem(r.item, r.catName))}
+        </div>
+      )}
+
+      <div style={{ padding: "28px 20px 110px", textAlign: "center" }}>
         <p style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: 12, color: "rgba(200,135,58,0.22)" }}>Sulimha Durbar Heritage Hotel & Museum · Patan</p>
       </div>
     </div>
@@ -1020,7 +1273,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
             {cart.map(item => (
               <div key={item.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:`1px solid ${BORDER}` }}>
                 <div style={{ width:26, height:26, borderRadius:8, background:SURFACE_2, flexShrink:0 }} />
-                <span style={{ fontFamily:SERIF, fontSize:14, color:"rgba(245,238,225,0.7)", flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.name}</span>
+                <span style={{ fontFamily:SERIF, fontSize:14, color:"rgba(245,238,225,0.7)", flex:1, minWidth:0, overflowWrap:"anywhere", lineHeight:1.25 }}>{item.name}</span>
                 <span style={{ fontFamily:SANS, fontSize:11, color:"rgba(200,135,58,0.6)" }}>Rs {(item.price*item.quantity).toFixed(0)}</span>
                 <div style={{ display:"flex", alignItems:"center", gap:5 }}>
                   <button onClick={() => updateQty(item.id,-1)} className="qty-btn" style={{ width:22,height:22,borderRadius:"50%",border:`1px solid ${BORDER}`,background:"transparent",color:WARN,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}><Minus size={10}/></button>
@@ -1045,7 +1298,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
                 <span style={{ fontFamily:SANS, fontSize:10, color:TEXT, fontWeight:700 }}>{totalItems}</span>
               </div>
               <span style={{ fontFamily:SANS, fontSize:11, color:"rgba(245,238,225,0.4)", flex:1, textAlign:"left", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                {cart.map(i => i.name).join(" · ")}
+                {totalItems} item{totalItems === 1 ? "" : "s"} · tap to review
               </span>
             </button>
             <span style={{ fontFamily:SERIF, fontSize:16, color:WARN, fontWeight:600, flexShrink:0 }}>Rs&nbsp;{subtotal.toFixed(0)}</span>
