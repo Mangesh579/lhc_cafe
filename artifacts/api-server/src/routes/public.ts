@@ -4,6 +4,7 @@ import { eq, and, gte, desc, sql } from "drizzle-orm";
 import { randomBytes, randomInt } from "crypto";
 import { publicOrderRateLimiter } from "../middlewares/rateLimit";
 import { applyPrepWaste } from "../lib/prepWaste";
+import { claimOrderRequest, completeOrderRequest } from "../lib/idempotency";
 import { expandRecipeLines } from "../lib/ingredientUsage";
 import { Resend } from "resend";
 import type { Request, Response, NextFunction } from "express";
@@ -321,6 +322,21 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
       resolvedItems.push({ menuItemId: item.menuItemId, quantity: item.quantity, unitPrice, subtotal, notes: item.notes });
     }
 
+    // ── Place each order only once: a repeated request id returns the order already made ──
+    const requestId: string | undefined = typeof req.body.requestId === "string" && req.body.requestId.length >= 8 ? req.body.requestId.slice(0, 80) : undefined;
+    if (requestId) {
+      const claim = await claimOrderRequest(requestId);
+      if (claim.state === "done") {
+        const [previous] = await db.select().from(ordersTable).where(eq(ordersTable.id, claim.orderId));
+        res.json({ success: true, orderId: claim.orderId, totalAmount: previous ? parseFloat(String(previous.totalAmount)) : 0, duplicate: true });
+        return;
+      }
+      if (claim.state === "busy") {
+        res.status(409).json({ error: "Your order is already being placed. Please wait a moment." });
+        return;
+      }
+    }
+
     // ── One bill per table: join the table's open unpaid bill as a new KOT ──
     const [openBill] = await db.select().from(ordersTable)
       .where(and(eq(ordersTable.tableId, table.id), eq(ordersTable.paymentStatus, "pending"), eq(ordersTable.isNc, false), sql`${ordersTable.orderStatus} <> 'cancelled'`))
@@ -380,6 +396,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
     }
 
     await applyPrepWaste(order.id, resolvedItems, `QR Order #${order.id} (${table.name || `Table ${table.tableNumber}`})`, "QR order", kotNo);
+    if (requestId) await completeOrderRequest(requestId, order.id, kotNo, !!openBill);
     res.json({ success: true, orderId: order.id, totalAmount });
   } catch (err) {
     console.error(err);

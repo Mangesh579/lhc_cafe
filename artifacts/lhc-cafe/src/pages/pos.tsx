@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { newRequestId } from "@/lib/requestId";
 import {
   useListMenuItems,
   useListMenuCategories,
@@ -170,7 +171,26 @@ export default function POS() {
     } catch { return ""; }
   }
 
+  const placingRef = useRef(false);
+  const [placing, setPlacing] = useState(false);
+  const attemptRef = useRef<{ sig: string; id: string } | null>(null);
+
+  // One id per order attempt: pressing again, or retrying after lag, re-sends the SAME id,
+  // so the server places the order only once. Changing the cart starts a new attempt.
+  const attemptId = (extra = "") => {
+    const sig = JSON.stringify([extra, cart.map(i => [i.id, i.cartQuantity, i.cartNotes ?? ""]), tableNumber, orderNotes, paymentMethod, isNc, ncPersonName, ncReason, currentCustomer?.id ?? null]);
+    if (attemptRef.current?.sig !== sig) attemptRef.current = { sig, id: newRequestId() };
+    return attemptRef.current.id;
+  };
+
   const handlePlaceOrder = async () => {
+    if (placingRef.current) return;
+    placingRef.current = true; setPlacing(true);
+    try { await placeOrderInner(); }
+    finally { placingRef.current = false; setPlacing(false); }
+  };
+
+  const placeOrderInner = async () => {
     if (cart.length === 0) return;
     try {
       const orderData: any = {
@@ -181,6 +201,7 @@ export default function POS() {
         isNc,
         ncPersonName: isNc ? ncPersonName : undefined,
         ncReason: isNc ? ncReason : undefined,
+        requestId: attemptId(),
       };
       if (tableNumber) {
         const tables = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/tables`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } }).then(r => r.json());
@@ -200,7 +221,7 @@ export default function POS() {
       setCart([]); setPhone(""); setSelectedCustomerId(null); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
       setIsNc(false); setNcPersonName(""); setNcReason("");
       setIsReceiptOpen(true);
-      setMobileTab("menu");
+      setMobileTab("menu"); attemptRef.current = null;
       queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
     } catch (err: any) {
       toast({ title: "Error", description: err?.message ?? "Failed to place order.", variant: "destructive" });
@@ -424,8 +445,8 @@ export default function POS() {
             <span className="font-bold text-lg">{isNc ? "Value (NC — Free)" : "Total"}</span>
             <span className={`font-bold text-2xl ${isNc ? "text-muted-foreground line-through" : "text-primary"}`}>Rs. {finalTotal.toFixed(0)}</span>
           </div>
-          <Button className="w-full h-12 text-base font-bold" disabled={cart.length === 0 || createOrder.isPending || (isNc && !ncPersonName.trim())} onClick={handlePlaceOrder}>
-            {createOrder.isPending ? "Processing..." : isNc ? "Place NC Order" : "Place Order"}
+          <Button className="w-full h-12 text-base font-bold" disabled={cart.length === 0 || createOrder.isPending || placing || (isNc && !ncPersonName.trim())} onClick={handlePlaceOrder}>
+            {(createOrder.isPending || placing) ? "Placing order…" : isNc ? "Place NC Order" : "Place Order"}
           </Button>
         </div>
       </div>
@@ -712,6 +733,7 @@ export default function POS() {
                     loyaltyCustomerId: currentCustomer?.id,
                     notes: [orderNotes, "⚠️ Backdated order — entered late"].filter(Boolean).join(" | "),
                     backdatedAt: new Date(missedDateTime).toISOString(),
+                    requestId: attemptId(missedDateTime),
                     items: cart.map(i => ({ menuItemId: i.id, quantity: i.cartQuantity, notes: i.cartNotes })),
                   };
                   if (tableNumber) {
@@ -728,7 +750,7 @@ export default function POS() {
                   setLastOrderDetails({ ...result, cartItems: [...cart], subtotal, customer: currentCustomer });
                   toast({ title: "Missed order logged", description: `Backdated to ${new Date(missedDateTime).toLocaleString()}` });
                   setCart([]); setPhone(""); setSelectedCustomerId(null); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
-                  setMissedOrderOpen(false);
+                  setMissedOrderOpen(false); attemptRef.current = null;
                   setIsReceiptOpen(true);
                   queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
                 } catch (err: any) {

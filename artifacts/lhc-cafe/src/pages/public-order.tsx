@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Plus, Minus, X, Clock, CheckCircle2, ChefHat, Bell, ChevronDown, ChevronLeft, Gift } from "lucide-react";
+import { newRequestId } from "@/lib/requestId";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 const STATUS_POLL_MS = 5_000;
@@ -277,8 +278,10 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [tabFade, setTabFade] = useState(true);
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const [activeCatId, setActiveCatId] = useState<number|null>(null);
-    const [openCatId, setOpenCatId] = useState<number|null>(null);
+  const [openCatId, setOpenCatId] = useState<number|null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const submittingRef = useRef(false);
+  const qrAttemptRef = useRef<{ sig: string; id: string } | null>(null);
   const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({});
   const [orderNoteDraft, setOrderNoteDraft] = useState<string | null>(null);
   const [showLoyaltyWelcome, setShowLoyaltyWelcome] = useState(false);
@@ -535,22 +538,30 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     finally { setRequestSending(null); }
   };
 
+  const qrAttemptId = () => {
+    const sig = JSON.stringify([cart.map(i => [i.id, i.quantity, noteDrafts[i.id] ?? i.itemNote ?? ""]), orderNoteDraft ?? notes]);
+    if (qrAttemptRef.current?.sig !== sig) qrAttemptRef.current = { sig, id: newRequestId() };
+    return qrAttemptRef.current.id;
+  };
+
   const placeOrder = async () => {
-    if (!cart.length || isSubmitting || !sessionToken) return;
+    if (!cart.length || isSubmitting || submittingRef.current || !sessionToken) return;
+    submittingRef.current = true;
     setIsSubmitting(true);
     try {
       const r = await fetch(`${API_BASE}/api/public/order`, {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ sessionToken, customerNote: (orderNoteDraft !== null ? orderNoteDraft.trim() : notes) || undefined, items: cart.map(i => ({ menuItemId: i.id, quantity: i.quantity, notes: (noteDrafts[i.id] !== undefined ? noteDrafts[i.id].trim() : i.itemNote) || undefined })) }),
+        body: JSON.stringify({ sessionToken, requestId: qrAttemptId(), customerNote: (orderNoteDraft !== null ? orderNoteDraft.trim() : notes) || undefined, items: cart.map(i => ({ menuItemId: i.id, quantity: i.quantity, notes: (noteDrafts[i.id] !== undefined ? noteDrafts[i.id].trim() : i.itemNote) || undefined })) }),
       });
       if (r.status === 401) { localStorage.removeItem(SESSION_KEY); setSessionState("expired"); return; }
+      if (r.status === 409) { alert("Your order is already being placed. Please wait a moment, then check My Order."); return; }
       if (!r.ok) throw new Error();
       const res = await r.json();
-      setOrderId(res.orderId); setIsSuccess(true); setCart([]); setCartOpen(false); setNotes(""); setNoteDrafts({}); setOrderNoteDraft(null);
+      qrAttemptRef.current = null; setOrderId(res.orderId); setIsSuccess(true); setCart([]); setCartOpen(false); setNotes(""); setNoteDrafts({}); setOrderNoteDraft(null);
       fetch(`${API_BASE}/api/public/my-orders?sessionToken=${encodeURIComponent(sessionToken)}`)
         .then(r2 => r2.ok ? r2.json() : null).then(d => { if (d) setMyOrders(d); }).catch(() => {});
     } catch { alert("Could not place order. Please try again."); }
-    finally { setIsSubmitting(false); }
+    finally { submittingRef.current = false; setIsSubmitting(false); }
   };
 
   const G = (

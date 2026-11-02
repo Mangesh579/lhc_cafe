@@ -3,6 +3,7 @@ import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, 
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth";
 import { applyPrepWaste } from "../lib/prepWaste";
+import { claimOrderRequest, completeOrderRequest } from "../lib/idempotency";
 import { expandRecipeLines } from "../lib/ingredientUsage";
 const NepaliDateLib = require("nepali-date-converter");
 const NepaliDate: any = NepaliDateLib.default ?? NepaliDateLib;
@@ -196,6 +197,21 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
     resolvedItems.push({ menuItemId: item.menuItemId, quantity: item.quantity, unitPrice, subtotal, notes: item.notes });
   }
 
+  // ── Place each order only once: a repeated request id returns the order already made ──
+  const requestId: string | undefined = typeof req.body.requestId === "string" && req.body.requestId.length >= 8 ? req.body.requestId.slice(0, 80) : undefined;
+  if (requestId) {
+    const claim = await claimOrderRequest(requestId);
+    if (claim.state === "done") {
+      const previous = await getOrderWithItems(claim.orderId);
+      res.status(200).json({ ...previous, kotNumber: claim.kotNumber, merged: claim.merged, duplicate: true });
+      return;
+    }
+    if (claim.state === "busy") {
+      res.status(409).json({ error: "This order is still being placed. Wait a moment and check Active Orders before trying again." });
+      return;
+    }
+  }
+
   const discountValue = discountAmount ? parseFloat(String(discountAmount)) : 0;
   const finalTotal = Math.max(0, totalAmount - discountValue);
 
@@ -262,6 +278,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
 
   await applyPrepWaste(order.id, resolvedItems, kotNo > 1 ? `Order #${order.id} (KOT ${kotNo})` : `Order #${order.id}`, (req as any).user?.username ?? "system", kotNo);
   const result = await getOrderWithItems(order.id);
+  if (requestId) await completeOrderRequest(requestId, order.id, kotNo, !!openBill);
   res.status(201).json(result ? { ...result, kotNumber: kotNo, merged: !!openBill } : result);
 });
 
@@ -311,6 +328,11 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   if (paymentStatus === "paid") {
     const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
     if (order) {
+      // Already paid (double press or retry): return it as is, so points and totals are never counted twice
+      if (order.paymentStatus === "paid") {
+        res.json(await getOrderWithItems(id));
+        return;
+      }
       // Only assign an invoice number once — reprints/edits must never get a new one
       if (!order.invoiceNumber) {
         updateData.invoiceNumber = await getNextInvoiceNumber();
