@@ -58,7 +58,6 @@ export function buildKotHtml(order: KotOrder, opts: { kotNumber?: number; showPr
   return `
     <div style="font-family:monospace;font-size:12px;color:#000;background:#fff;">
       <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:8px;">
-        {/* <img src="${logo}" alt="LHC Cafe" style="height:44px;display:block;margin:0 auto 6px;" /> */}
         <h2 style="font-size:15px;font-weight:bold;margin:0;">Legendary House Cafe &amp; Barista School</h2>
         <p style="font-size:11px;margin:2px 0;">Sulimha Durbar, Pimbahal, Nepal</p>
         <p style="font-size:11px;margin:2px 0;">PAN/VAT No: ${PAN_NUMBER}</p>
