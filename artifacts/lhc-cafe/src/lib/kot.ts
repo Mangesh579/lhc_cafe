@@ -81,6 +81,21 @@ export function buildKotHtml(order: KotOrder, opts: { kotNumber?: number; showPr
     </div>`;
 }
 
+// ── Print size: one dial for every bill and KOT. 1 = old size, smaller = more compact ──
+export const RECEIPT_ZOOM = 0.80;
+// Hide the logo, address and PAN on the KOT (saves paper in the kitchen). Bills keep theirs.
+export const KOT_SHOW_LOGO = false;
+
+export function wrapReceipt(inner: string): string {
+  const z = RECEIPT_ZOOM;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+    @page { margin: 0; }
+    html, body { margin: 0; padding: 0; background: #fff; }
+    body { zoom: ${z}; width: ${(72 / z).toFixed(1)}mm; margin: 0 auto; font-family: monospace; font-size: 12px; line-height: 1.2; color: #000; }
+    body > div { padding: 1mm 3mm 3mm !important; }
+  </style></head><body>${inner}</body></html>`;
+}
+
 export function printReceiptHtml(html: string) {
   const iframe = document.createElement("iframe");
   iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
@@ -88,7 +103,7 @@ export function printReceiptHtml(html: string) {
   const doc = iframe.contentWindow?.document;
   if (!doc) { document.body.removeChild(iframe); return; }
   doc.open();
-  doc.write(`<!DOCTYPE html><html><head><style>@page{margin:0}html,body{margin:0}body{font-family:monospace;font-size:12px;width:72mm;margin:0 auto;padding:8px 6px;box-sizing:border-box;color:#000;background:#fff;}</style></head><body>${html}</body></html>`);
+  doc.write(wrapReceipt(html));
   doc.close();
   const waits = Array.from(doc.images).map(img => img.complete ? Promise.resolve() : new Promise<void>(res => { img.onload = () => res(); img.onerror = () => res(); }));
   Promise.race([Promise.all(waits), new Promise(res => setTimeout(res, 2000))]).then(() => {

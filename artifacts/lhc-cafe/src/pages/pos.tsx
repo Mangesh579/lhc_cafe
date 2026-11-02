@@ -24,7 +24,7 @@ import NepaliDate from "nepali-date-converter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FloatingSelect } from "@/components/FloatingSelect";
-import { buildKotHtml } from "@/lib/kot";
+import { buildKotHtml, printReceiptHtml } from "@/lib/kot";
 
 
 interface CartItem extends MenuItem {
@@ -493,7 +493,7 @@ export default function POS() {
           {lastOrderDetails && (
             <div className="bg-white text-black p-5 font-mono text-sm border rounded my-2" id="receipt-preview-legacy" style={{ display: "none" }}>
               <div className="text-center mb-3 border-b-2 border-gray-800 pb-3">
-                <img src="/LHC_logo.png" alt="LHC Cafe" style={{ height: 48, margin: "0 auto 8px", display: "block" }} />
+                {/* <img src="/LHC_logo.png" alt="LHC Cafe" style={{ height: 48, margin: "0 auto 8px", display: "block" }} /> */}
                 <h2 className="text-lg font-bold">Legendary House Cafe & Barista Coffee School</h2>
                 <p className="text-xs">Sulimha Durbar, Pimbahal, Nepal</p>
                 <p className="text-xs">PAN/VAT No: 194139113</p>
@@ -558,6 +558,7 @@ export default function POS() {
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setIsReceiptOpen(false)}>Close</Button>
             <Button onClick={() => {
+              if (lastOrderDetails) { printReceiptHtml(buildKotHtml(lastOrderDetails, { kotNumber: lastOrderDetails.kotNumber })); return; }
               const receipt = document.getElementById("receipt-preview");
               if (!receipt) return;
               const iframe = document.createElement("iframe");
