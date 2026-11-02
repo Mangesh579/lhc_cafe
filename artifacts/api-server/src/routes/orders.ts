@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable, wasteLogsTable } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable, wasteLogsTable, orderKotCancellationsTable } from "@workspace/db";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth";
 import { applyPrepWaste } from "../lib/prepWaste";
@@ -97,7 +97,8 @@ async function getOrderWithItems(orderId: number) {
     .where(eq(orderItemsTable.orderId, orderId));
 
   const corrections = await db.select().from(orderCorrectionsTable).where(eq(orderCorrectionsTable.originalOrderId, orderId)).orderBy(desc(orderCorrectionsTable.createdAt));
-  return { ...order, items, corrections };
+  const kotCancellations = await db.select().from(orderKotCancellationsTable).where(eq(orderKotCancellationsTable.orderId, orderId)).orderBy(orderKotCancellationsTable.cancelledAt);
+  return { ...order, items, corrections, kotCancellations };
 }
 
 router.get("/orders", authenticate, async (req, res): Promise<void> => {
@@ -170,8 +171,9 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
         .where(eq(orderItemsTable.orderId, order.id));
 
       const corrections = await db.select().from(orderCorrectionsTable).where(eq(orderCorrectionsTable.originalOrderId, order.id)).orderBy(desc(orderCorrectionsTable.createdAt));
+      const kotCancellations = await db.select().from(orderKotCancellationsTable).where(eq(orderKotCancellationsTable.orderId, order.id)).orderBy(orderKotCancellationsTable.cancelledAt);
 
-      return { ...order, items, corrections };
+      return { ...order, items, corrections, kotCancellations };
     })
   );
 
@@ -213,7 +215,8 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
   let kotNo = 1;
   if (openBill) {
     const [m] = await db.select({ maxKot: sql<number>`COALESCE(MAX(${orderItemsTable.kotNumber}), 0)` }).from(orderItemsTable).where(eq(orderItemsTable.orderId, openBill.id));
-    kotNo = Number(m?.maxKot ?? 0) + 1;
+    const [c] = await db.select({ maxKot: sql<number>`COALESCE(MAX(${orderKotCancellationsTable.kotNumber}), 0)` }).from(orderKotCancellationsTable).where(eq(orderKotCancellationsTable.orderId, openBill.id));
+    kotNo = Math.max(Number(m?.maxKot ?? 0), Number(c?.maxKot ?? 0)) + 1;
   }
 
   const [order] = openBill ? await db.update(ordersTable).set({
@@ -257,7 +260,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
     }
   }
 
-  await applyPrepWaste(order.id, resolvedItems, kotNo > 1 ? `Order #${order.id} (KOT ${kotNo})` : `Order #${order.id}`, (req as any).user?.username ?? "system");
+  await applyPrepWaste(order.id, resolvedItems, kotNo > 1 ? `Order #${order.id} (KOT ${kotNo})` : `Order #${order.id}`, (req as any).user?.username ?? "system", kotNo);
   const result = await getOrderWithItems(order.id);
   res.status(201).json(result ? { ...result, kotNumber: kotNo, merged: !!openBill } : result);
 });
@@ -452,6 +455,130 @@ router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req: any, 
   const result = await getOrderWithItems(id);
   if (!result) { res.status(404).json({ error: "Order not found" }); return; }
   res.json(result);
+});
+
+// ── Cancel one KOT (admin, unpaid bills only) ──
+router.post("/orders/:id/kots/:kot/cancel", authenticate, requireAdmin, async (req: any, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  const kot = parseInt(Array.isArray(req.params.kot) ? req.params.kot[0] : req.params.kot, 10);
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+  if (order.paymentStatus !== "pending") { res.status(400).json({ error: "Only unpaid bills can have a KOT cancelled. Use a correction for paid orders." }); return; }
+
+  const allItems = await db
+    .select({ id: orderItemsTable.id, menuItemId: orderItemsTable.menuItemId, menuItemName: menuItemsTable.name, quantity: orderItemsTable.quantity, subtotal: orderItemsTable.subtotal, kotNumber: orderItemsTable.kotNumber })
+    .from(orderItemsTable)
+    .leftJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id))
+    .where(eq(orderItemsTable.orderId, id));
+  const kotItems = allItems.filter(i => (i.kotNumber ?? 1) === kot);
+  if (kotItems.length === 0) { res.status(404).json({ error: "That KOT was not found on this bill." }); return; }
+  if (!allItems.some(i => (i.kotNumber ?? 1) !== kot)) { res.status(400).json({ error: "This is the only KOT on the bill. Cancel the whole order instead." }); return; }
+
+  const admin = req.user?.username ?? "admin";
+  const kotAmount = kotItems.reduce((s, i) => s + parseFloat(String(i.subtotal)), 0);
+
+  await db.transaction(async (tx) => {
+    for (const item of kotItems) {
+      const lines = await expandRecipeLines(item.menuItemId);
+      for (const line of lines) {
+        const restore = (line.quantityRequired + line.wasteQuantity) * item.quantity;
+        if (!(restore > 0)) continue;
+        const [inv] = await tx.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, line.inventoryItemId));
+        if (!inv) continue;
+        const before = parseFloat(String(inv.currentStock));
+        const after = before + restore;
+        await tx.update(inventoryItemsTable).set({ currentStock: String(after) }).where(eq(inventoryItemsTable.id, inv.id));
+        await tx.insert(inventoryLogsTable).values({
+          inventoryItemId: inv.id, changeAmount: String(restore), stockBefore: String(before), stockAfter: String(after),
+          reason: `Order #${id} · KOT ${kot} cancelled — stock restored`, orderId: id, menuItemId: item.menuItemId, changedBy: admin,
+        });
+      }
+    }
+    await tx.delete(wasteLogsTable).where(and(eq(wasteLogsTable.orderId, id), eq(wasteLogsTable.kotNumber, kot)));
+    await tx.delete(orderItemsTable).where(and(eq(orderItemsTable.orderId, id), eq(orderItemsTable.kotNumber, kot)));
+    await tx.insert(orderKotCancellationsTable).values({
+      orderId: id, kotNumber: kot,
+      itemsText: kotItems.map(i => `${i.quantity}× ${i.menuItemName}`).join(", "),
+      amount: String(kotAmount), reason: reason || null, cancelledBy: admin,
+    });
+    await tx.update(ordersTable).set({ totalAmount: String(Math.max(0, parseFloat(String(order.totalAmount)) - kotAmount)) }).where(eq(ordersTable.id, id));
+  });
+
+  const result = await getOrderWithItems(id);
+  res.json(result);
+});
+
+// ── Change an unpaid order's table (merges into the new table's open bill if it has one) ──
+router.patch("/orders/:id/table", authenticate, async (req: any, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  const raw = req.body?.tableId;
+  const newTableId: number | null = raw === null || raw === undefined || raw === "" ? null : parseInt(String(raw), 10);
+  if (newTableId !== null && Number.isNaN(newTableId)) { res.status(400).json({ error: "Invalid table" }); return; }
+
+  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+  if (order.paymentStatus !== "pending") { res.status(400).json({ error: "Only unpaid orders can be moved to another table." }); return; }
+  if ((order.tableId ?? null) === newTableId) { res.status(400).json({ error: "The order is already on that table." }); return; }
+  if (newTableId !== null) {
+    const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, newTableId));
+    if (!table) { res.status(404).json({ error: "Table not found" }); return; }
+    if (!table.isOccupied) { res.status(400).json({ error: "That table is not open. Open it first." }); return; }
+  }
+
+  const username = req.user?.username ?? "staff";
+  let mergedInto = null as number | null;
+
+  await db.transaction(async (tx) => {
+    const target = newTableId === null ? undefined : (await tx.select().from(ordersTable)
+      .where(and(eq(ordersTable.tableId, newTableId), eq(ordersTable.paymentStatus, "pending"), eq(ordersTable.isNc, false), sql`${ordersTable.orderStatus} <> 'cancelled'`, sql`${ordersTable.id} <> ${id}`))
+      .orderBy(desc(ordersTable.createdAt)).limit(1))[0];
+
+    if (!target) {
+      await tx.update(ordersTable).set({ tableId: newTableId }).where(eq(ordersTable.id, id));
+      return;
+    }
+
+    mergedInto = target.id;
+    const [mk] = await tx.select({ m: sql<number>`COALESCE(MAX(${orderItemsTable.kotNumber}), 0)` }).from(orderItemsTable).where(eq(orderItemsTable.orderId, target.id));
+    const [ck] = await tx.select({ m: sql<number>`COALESCE(MAX(${orderKotCancellationsTable.kotNumber}), 0)` }).from(orderKotCancellationsTable).where(eq(orderKotCancellationsTable.orderId, target.id));
+    const offset = Math.max(Number(mk?.m ?? 0), Number(ck?.m ?? 0));
+
+    const srcItems = await tx.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
+    for (const it of srcItems) {
+      await tx.update(orderItemsTable).set({
+        orderId: target.id,
+        kotNumber: offset + (it.kotNumber ?? 1),
+        kotAt: it.kotAt ?? order.createdAt,
+        kotNote: it.kotNote ?? ((it.kotNumber ?? 1) === 1 ? order.notes : null),
+        kotBy: it.kotBy ?? order.createdBy,
+      }).where(eq(orderItemsTable.id, it.id));
+    }
+    const srcWaste = await tx.select().from(wasteLogsTable).where(eq(wasteLogsTable.orderId, id));
+    for (const w of srcWaste) {
+      await tx.update(wasteLogsTable).set({ orderId: target.id, kotNumber: offset + (w.kotNumber ?? 1) }).where(eq(wasteLogsTable.id, w.id));
+    }
+    const srcCancels = await tx.select().from(orderKotCancellationsTable).where(eq(orderKotCancellationsTable.orderId, id));
+    for (const c of srcCancels) {
+      await tx.update(orderKotCancellationsTable).set({ orderId: target.id, kotNumber: offset + c.kotNumber }).where(eq(orderKotCancellationsTable.id, c.id));
+    }
+    await tx.update(loyaltyRedemptionsTable).set({ orderId: target.id }).where(eq(loyaltyRedemptionsTable.orderId, id));
+
+    await tx.update(ordersTable).set({
+      totalAmount: String(parseFloat(String(target.totalAmount)) + parseFloat(String(order.totalAmount))),
+      discountAmount: String(parseFloat(String(target.discountAmount ?? 0)) + parseFloat(String(order.discountAmount ?? 0))),
+      notes: [target.notes, order.notes].filter(Boolean).join(" | ") || null,
+      orderStatus: "pending",
+      loyaltyCustomerId: target.loyaltyCustomerId ?? order.loyaltyCustomerId ?? null,
+    }).where(eq(ordersTable.id, target.id));
+    await tx.update(ordersTable).set({
+      orderStatus: "cancelled", paymentStatus: "cancelled", totalAmount: "0", discountAmount: "0",
+      notes: [order.notes, `Merged into order #${target.id} (table changed by ${username})`].filter(Boolean).join(" | "),
+    }).where(eq(ordersTable.id, id));
+  });
+
+  const result = await getOrderWithItems(mergedInto ?? id);
+  res.json({ ...result, mergedInto });
 });
 
 router.patch("/orders/:id/notes", authenticate, async (req, res): Promise<void> => {

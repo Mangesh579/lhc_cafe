@@ -11,6 +11,7 @@ export * from "./waste";
 export * from "./menu-changelog";
 export * from "./ingredient-components";
 export * from "./inventory-requests";
+export * from "./order-kot-cancellations";
 export { tableSessionsTable } from "./tables";
 export { bestsellerCacheTable } from "./bestseller-cache";
 export { staffShiftsTable, attendancePunchesTable, attendanceCommentsTable } from "./staff";

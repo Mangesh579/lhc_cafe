@@ -655,6 +655,13 @@ export default function OrderLog() {
                       {item.notes && <p className="text-xs text-amber-600 italic ml-4 mt-0.5">↳ {item.notes}</p>}
                     </div>
                   ))}
+                {(order as any).kotCancellations?.length > 0 && (
+                  <div className="space-y-0.5 mt-1">
+                    {(order as any).kotCancellations.map((c: any) => (
+                      <p key={c.id} className="text-xs text-red-600">KOT #{c.kotNumber} cancelled by {c.cancelledBy} ({format(new Date(c.cancelledAt), 'MMM d, h:mm a')}): {c.itemsText} — Rs. {parseFloat(c.amount).toFixed(0)}{c.reason ? ` — ${c.reason}` : ""}</p>
+                    ))}
+                  </div>
+                )}
                 {order.notes && <p className="text-xs mt-2 text-amber-700 italic">Note: {order.notes}</p>}
                 {(order as any).loyaltyCustomerName && (
                   <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
@@ -785,6 +792,13 @@ export default function OrderLog() {
                                 {item.notes && <p className="text-xs text-amber-600 italic ml-4 mt-0.5">↳ {item.notes}</p>}
                               </div>
                             ))}
+                            {(order as any).kotCancellations?.length > 0 && (
+                              <div className="space-y-0.5 mt-1">
+                                {(order as any).kotCancellations.map((c: any) => (
+                                  <p key={c.id} className="text-xs text-red-600">KOT #{c.kotNumber} cancelled by {c.cancelledBy} ({format(new Date(c.cancelledAt), 'MMM d, h:mm a')}): {c.itemsText} — Rs. {parseFloat(c.amount).toFixed(0)}{c.reason ? ` — ${c.reason}` : ""}</p>
+                                ))}
+                              </div>
+                            )}
                             {order.notes && <p className="text-xs mt-1 text-amber-700 italic">Note: {order.notes}</p>}
                             {parseFloat(String((order as any).discountAmount ?? 0)) > 0 && (
                               <p className="text-xs text-blue-600">Discount: −Rs. {parseFloat(String((order as any).discountAmount)).toFixed(0)}</p>

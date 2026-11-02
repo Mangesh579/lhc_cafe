@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable, bestsellerCacheTable, loyaltyEmailVerificationsTable, loyaltyCustomersTable, loyaltyRedemptionsTable, tableRequestsTable } from "@workspace/db";
+import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable, bestsellerCacheTable, loyaltyEmailVerificationsTable, loyaltyCustomersTable, loyaltyRedemptionsTable, tableRequestsTable, orderKotCancellationsTable } from "@workspace/db";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 import { randomBytes, randomInt } from "crypto";
 import { publicOrderRateLimiter } from "../middlewares/rateLimit";
@@ -328,7 +328,8 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
     let kotNo = 1;
     if (openBill) {
       const [m] = await db.select({ maxKot: sql<number>`COALESCE(MAX(${orderItemsTable.kotNumber}), 0)` }).from(orderItemsTable).where(eq(orderItemsTable.orderId, openBill.id));
-      kotNo = Number(m?.maxKot ?? 0) + 1;
+      const [c] = await db.select({ maxKot: sql<number>`COALESCE(MAX(${orderKotCancellationsTable.kotNumber}), 0)` }).from(orderKotCancellationsTable).where(eq(orderKotCancellationsTable.orderId, openBill.id));
+      kotNo = Math.max(Number(m?.maxKot ?? 0), Number(c?.maxKot ?? 0)) + 1;
     }
 
     const [order] = openBill ? await db.update(ordersTable).set({
@@ -378,7 +379,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
       }
     }
 
-    await applyPrepWaste(order.id, resolvedItems, `QR Order #${order.id} (${table.name || `Table ${table.tableNumber}`})`, "QR order");
+    await applyPrepWaste(order.id, resolvedItems, `QR Order #${order.id} (${table.name || `Table ${table.tableNumber}`})`, "QR order", kotNo);
     res.json({ success: true, orderId: order.id, totalAmount });
   } catch (err) {
     console.error(err);

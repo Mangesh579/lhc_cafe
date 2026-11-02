@@ -9,6 +9,7 @@ export async function applyPrepWaste(
   items: Array<{ menuItemId: number; quantity: number }>,
   orderLabel: string,
   changedBy: string,
+  kotNumber: number = 1,
 ): Promise<void> {
   for (const item of items) {
     const recipes = await expandRecipeLines(item.menuItemId);
@@ -41,6 +42,7 @@ export async function applyPrepWaste(
         reason: `Prep waste — ${orderLabel}`,
         wasteValue: "0",
         department: inv.department,
+        kotNumber,
         orderId,
         changedBy,
       });

@@ -19,7 +19,7 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { token, user } = useAuth();
   const [tableRequests, setTableRequests] = useState<any[]>([]);
-  const knownOrderIds = useRef<Set<number> | null>(null);
+  const knownOrderKots = useRef<Map<number, number> | null>(null);
   const knownRequestIds = useRef<Set<number> | null>(null);
   const soundQueueRef = useRef<string[]>([]);
   const isPlayingRef = useRef(false);
@@ -48,12 +48,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       const r = await fetch(`${API_BASE}/api/orders`, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) return;
       const orders = await r.json();
-      const currentIds = new Set<number>(orders.filter((o: any) => o.orderStatus === "pending").map((o: any) => o.id as number));
-      if (knownOrderIds.current !== null) {
-        const hasNew = [...currentIds].some((id: number) => !knownOrderIds.current!.has(id));
+      const currentKots = new Map<number, number>(orders.filter((o: any) => o.orderStatus === "pending").map((o: any) => [o.id as number, Math.max(1, ...(o.items ?? []).map((i: any) => i.kotNumber ?? 1))] as [number, number]));
+      if (knownOrderKots.current !== null) {
+        const hasNew = [...currentKots].some(([id, kot]) => (knownOrderKots.current!.get(id) ?? 0) < kot);
         if (hasNew) enqueueSound(NEW_ORDER_SOUND_URL);
       }
-      knownOrderIds.current = currentIds as Set<number>;
+      knownOrderKots.current = currentKots;
     } catch { /* non-critical */ }
   };
 

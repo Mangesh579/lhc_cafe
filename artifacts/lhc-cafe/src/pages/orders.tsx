@@ -192,6 +192,54 @@ export default function Orders() {
     }
   };
 
+  const [tableDialog, setTableDialog] = useState<{ order: any } | null>(null);
+  const [tableChoices, setTableChoices] = useState<any[]>([]);
+  const [newTableId, setNewTableId] = useState("");
+  const [tableSaving, setTableSaving] = useState(false);
+
+  const openTableDialog = async (order: any) => {
+    setTableDialog({ order }); setNewTableId("");
+    try {
+      const r = await fetch(`${API_BASE}/api/tables`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      const all = r.ok ? await r.json() : [];
+      setTableChoices(all.filter((t: any) => t.isOccupied));
+    } catch { setTableChoices([]); }
+  };
+
+  const saveTableChange = async () => {
+    if (!tableDialog || !newTableId) return;
+    setTableSaving(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/orders/${tableDialog.order.id}/table`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+        body: JSON.stringify({ tableId: newTableId === "none" ? null : parseInt(newTableId) }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast({ title: "Couldn't change table", description: d?.error, variant: "destructive" }); return; }
+      queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
+      toast(d.mergedInto ? { title: `Merged into bill #${d.mergedInto}`, description: "Added to that table's open bill as new KOTs." } : { title: "Table changed" });
+      setTableDialog(null);
+    } catch { toast({ title: "Failed to change table", variant: "destructive" }); }
+    finally { setTableSaving(false); }
+  };
+
+  const cancelKot = async (orderId: number, kot: number) => {
+    const reason = window.prompt(`Cancel KOT #${kot}? Its items leave the bill and the stock is restored.\n\nReason (optional):`);
+    if (reason === null) return;
+    try {
+      const r = await fetch(`${API_BASE}/api/orders/${orderId}/kots/${kot}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+        body: JSON.stringify({ reason }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast({ title: "Couldn't cancel KOT", description: d?.error, variant: "destructive" }); return; }
+      queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
+      toast({ title: `KOT #${kot} cancelled`, description: "Removed from the bill and stock restored." });
+    } catch { toast({ title: "Failed to cancel KOT", variant: "destructive" }); }
+  };
+
   const printKot = (order: any, kotNumber?: number) => {
     printReceiptHtml(buildKotHtml(order, { kotNumber }));
   };
@@ -465,6 +513,11 @@ export default function Orders() {
                       <CreditCard className="w-3 h-3" /> Pay
                     </Button>
                   )}
+                  {isPaymentPending && (
+                    <Button size="sm" variant="outline" onClick={() => openTableDialog(order)} className="gap-1.5 text-xs h-8 px-4">
+                      Change table
+                    </Button>
+                  )}
                   <Button size="sm" variant="outline" onClick={() => printKot(order)} className="gap-1.5 text-xs h-8 px-4">
                     <Printer className="w-3 h-3" /> Print KOT
                   </Button>
@@ -514,6 +567,30 @@ export default function Orders() {
                             </Button>
                           ))}
                         </div>
+                      </div>
+                    );
+                  })()}
+
+                  {(() => {
+                    const kots = Array.from(new Set((order.items ?? []).map((i: any) => i.kotNumber ?? 1))).sort((a: any, b: any) => a - b);
+                    const cancelled: any[] = (order as any).kotCancellations ?? [];
+                    const canCancel = isAdmin && kots.length >= 2 && order.paymentStatus === "pending";
+                    if (!canCancel && cancelled.length === 0) return null;
+                    return (
+                      <div className="space-y-1.5">
+                        {canCancel && (
+                          <>
+                            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cancel a KOT (admin)</h4>
+                            <div className="flex flex-wrap gap-2">
+                              {kots.map((n: any) => (
+                                <Button key={n} size="sm" variant="outline" className="h-7 text-xs text-destructive" onClick={() => cancelKot(order.id, n)}>Cancel KOT #{n}</Button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                        {cancelled.map((c: any) => (
+                          <p key={c.id} className="text-xs text-red-600">KOT #{c.kotNumber} cancelled by {c.cancelledBy}: {c.itemsText} (Rs. {parseFloat(c.amount).toFixed(0)}){c.reason ? ` — ${c.reason}` : ""}</p>
+                        ))}
                       </div>
                     );
                   })()}
@@ -782,7 +859,39 @@ export default function Orders() {
           </div>
         </div>
       )}
-            <Dialog open={!!correctionOrder} onOpenChange={o => !o && setCorrectionOrder(null)}>
+      <Dialog open={!!tableDialog} onOpenChange={(o) => !o && setTableDialog(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Change table — Order #{tableDialog?.order?.id}</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-3">
+            <p className="text-sm text-muted-foreground">
+              Currently: <strong>{tableDialog?.order?.tableNumber ? (tableDialog.order.tableName || `Table ${tableDialog.order.tableNumber}`) : "Takeaway"}</strong>
+            </p>
+            <select value={newTableId} onChange={e => setNewTableId(e.target.value)} className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm">
+              <option value="">Select the correct table…</option>
+              <option value="none">Takeaway (no table)</option>
+              {tableChoices.filter((t: any) => t.id !== tableDialog?.order?.tableId).map((t: any) => (
+                <option key={t.id} value={String(t.id)}>{t.name ? `${t.name} (Table ${t.tableNumber})` : `Table ${t.tableNumber}`}</option>
+              ))}
+            </select>
+            {(() => {
+              if (!newTableId || newTableId === "none") return null;
+              const bill = orders?.find((o: any) => o.tableId === parseInt(newTableId) && o.paymentStatus === "pending" && !o.isNc && o.orderStatus !== "cancelled" && o.id !== tableDialog?.order?.id);
+              return bill ? (
+                <p className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-md px-3 py-2">
+                  That table already has an open bill (#{bill.id}). This order will be merged into it as new KOTs, and this order number will show as cancelled (merged).
+                </p>
+              ) : null;
+            })()}
+            <p className="text-xs text-muted-foreground">The bill, KOTs, Order Log and the customer's QR page all follow the new table. Paper KOTs already printed keep the old table, so reprint if needed.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTableDialog(null)}>Cancel</Button>
+            <Button onClick={saveTableChange} disabled={!newTableId || tableSaving}>{tableSaving ? "Saving…" : "Change table"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!correctionOrder} onOpenChange={o => !o && setCorrectionOrder(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader><DialogTitle>Add Correction — Order #{correctionOrder?.id}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
