@@ -53,12 +53,13 @@ function DeptToggle({ value, onChange }: { value: Dept; onChange: (v: Dept) => v
 }
 
 // ─── Ingredient Form Dialog ────────────────────────────────────────────────────
-function IngredientDialog({ item, department, open, onClose, onSaved }: { item?: any; department: Dept; open: boolean; onClose: () => void; onSaved: () => void }) {
+function IngredientDialog({ item, department, categories, open, onClose, onSaved }: { item?: any; department: Dept; categories: string[]; open: boolean; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(item?.name ?? "");
   const [unit, setUnit] = useState(item?.unit ?? "grams");
   const [currentStock, setCurrentStock] = useState(item?.currentStock ? String(item.currentStock) : "0");
   const [minStock, setMinStock] = useState(item?.minStockLevel ? String(item.minStockLevel) : "");
   const [calories, setCalories] = useState(item?.caloriesPerUnit ? String(item.caloriesPerUnit) : "");
+  const [category, setCategory] = useState(item?.category ?? "");
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
@@ -69,6 +70,7 @@ function IngredientDialog({ item, department, open, onClose, onSaved }: { item?:
       setCurrentStock(item?.currentStock ? String(parseFloat(String(item.currentStock))) : "0");
       setMinStock(item?.minStockLevel ? String(parseFloat(String(item.minStockLevel))) : "");
       setCalories(item?.caloriesPerUnit ? String(parseFloat(String(item.caloriesPerUnit))) : "");
+      setCategory(item?.category ?? "");
     }
   }, [open, item]);
 
@@ -79,6 +81,7 @@ function IngredientDialog({ item, department, open, onClose, onSaved }: { item?:
       name, unit, currentStock: parseFloat(currentStock) || 0,
       minStockLevel: minStock ? parseFloat(minStock) : undefined,
       caloriesPerUnit: calories ? parseFloat(calories) : undefined,
+      category: category.trim(),
       department,
     };
     try {
@@ -137,6 +140,12 @@ function IngredientDialog({ item, department, open, onClose, onSaved }: { item?:
           <div className="space-y-1"><Label>Current Stock</Label><Input type="number" value={currentStock} onChange={e => setCurrentStock(e.target.value)} disabled={!!item && user?.role !== "admin"} />{!!item && user?.role !== "admin" && <p className="text-xs text-muted-foreground">Use "Request change" to adjust stock.</p>}</div>
           <div className="space-y-1"><Label>Min Stock Level</Label><Input type="number" value={minStock} onChange={e => setMinStock(e.target.value)} placeholder="Alert threshold" /></div>
           <div className="space-y-1"><Label>Calories / unit</Label><Input type="number" value={calories} onChange={e => setCalories(e.target.value)} placeholder="kcal per unit" /></div>
+          <div className="col-span-2 space-y-1">
+            <Label>Category</Label>
+            <Input list={`ing-cats-${department}`} value={category} onChange={e => setCategory(e.target.value)} placeholder={department === "kitchen" ? "e.g. Vegetables, Dairy, Spices…" : "e.g. Coffee Beans, Milk, Syrups…"} />
+            <datalist id={`ing-cats-${department}`}>{categories.map(c => <option key={c} value={c} />)}</datalist>
+            <p className="text-xs text-muted-foreground">Pick an existing category or type a new one. Kitchen and Drink / Coffee keep separate categories.</p>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
@@ -436,7 +445,7 @@ function ComponentsDialog({ item, inventory, open, onClose, onSaved, canEdit }: 
                 value={newChild}
                 onChange={setNewChild}
                 placeholder="Type to search ingredients…"
-                options={inventory.filter(i => i.id !== item?.id && !rows.find(r => r.childItemId === i.id)).map(i => ({ value: String(i.id), label: `${i.name} (${i.unit})` }))}
+                options={inventory.filter(i => i.id !== item?.id && !rows.find(r => r.childItemId === i.id)).map(i => ({ value: String(i.id), label: `${i.name} (${i.unit})${i.category ? " · " + i.category : ""}` }))}
               />
               <div className="flex gap-2">
                 <Input type="number" placeholder="Quantity" value={newQty} onChange={e => setNewQty(e.target.value)} />
@@ -566,6 +575,7 @@ export default function Inventory() {
   };
   const [compMap, setCompMap] = useState<Record<number, any[]>>({});
   const [ingredientSearch, setIngredientSearch] = useState("");
+  const [ingredientCategory, setIngredientCategory] = useState("all");
   const [adjustItem, setAdjustItem] = useState<any>(null);
   const [adjustQty, setAdjustQty] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
@@ -583,6 +593,7 @@ export default function Inventory() {
   const [adjustSaving, setAdjustSaving] = useState(false);
   const [invLogDateFilter, setInvLogDateFilter] = useState("");
   const [invLogIngredientFilter, setInvLogIngredientFilter] = useState("");
+  const [invLogCategoryFilter, setInvLogCategoryFilter] = useState("all");
   const [logsLoaded, setLogsLoaded] = useState<string | null>(null);
 
   const [stockExportDialog, setStockExportDialog] = useState(false);
@@ -688,7 +699,9 @@ export default function Inventory() {
 
   const lowStockItems = (inventory as any[]).filter(i => i.minStockLevel && parseFloat(String(i.currentStock)) < parseFloat(String(i.minStockLevel)));
 
-  const filteredInventory = (inventory as any[]).filter(i =>
+  const categoriesOf = (dept: Dept) => Array.from(new Set((inventory as any[]).filter(i => i.department === dept && i.category).map(i => String(i.category)))).sort((a, b) => a.localeCompare(b));
+  const deptCategories = categoriesOf(ingredientDept);
+  const filteredInventory = (inventory as any[]).filter(i => (ingredientCategory === "all" || (ingredientCategory === "none" ? !i.category : i.category === ingredientCategory)) &&
     i.department === ingredientDept &&
     (!ingredientSearch.trim() || i.name.toLowerCase().includes(ingredientSearch.toLowerCase()))
   );
@@ -704,10 +717,14 @@ export default function Inventory() {
   const filteredWasteLogs = wasteLogs.filter((w: any) => w.department === wasteDept);
   const canWriteWaste = wasteDept === "kitchen" ? canWriteKitchen : canWriteDrink;
 
-  const deptIngredientsForLogFilter = (inventory as any[]).filter(i => i.department === logDept);
+  const deptIngredientsForLogFilter = (inventory as any[]).filter(i => i.department === logDept && (invLogCategoryFilter === "all" || (invLogCategoryFilter === "none" ? !i.category : i.category === invLogCategoryFilter)));
   const requestRowsForLog = stockRequests.filter((r: any) => r.department === logDept).map((r: any) => ({ ...r, _isRequest: true, createdAt: r.requestedAt }));
   const filteredInvLogs = [...invLogs, ...requestRowsForLog].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).filter((log: any) => {
     if (log.department !== logDept) return false;
+    if (invLogCategoryFilter !== "all") {
+      const cat = (inventory as any[]).find((i: any) => i.id === log.inventoryItemId)?.category;
+      if (invLogCategoryFilter === "none" ? !!cat : cat !== invLogCategoryFilter) return false;
+    }
     if (invLogDateFilter && !log.createdAt.startsWith(invLogDateFilter)) return false;
     if (invLogIngredientFilter && log.ingredientName !== invLogIngredientFilter) return false;
     return true;
@@ -764,7 +781,18 @@ export default function Inventory() {
 
         {/* ── Ingredients Tab ─────────────────────────────────────────────── */}
         <TabsContent value="ingredients" className="space-y-4 mt-4">
-          <DeptToggle value={ingredientDept} onChange={setIngredientDept} />
+          <DeptToggle value={ingredientDept} onChange={(d) => { setIngredientDept(d); setIngredientCategory("all"); }} />
+          {deptCategories.length > 0 && (
+            <div className="flex gap-2 flex-wrap">
+              <Button size="sm" variant={ingredientCategory === "all" ? "default" : "outline"} className="rounded-full h-8" onClick={() => setIngredientCategory("all")}>All</Button>
+              {deptCategories.map(c => (
+                <Button key={c} size="sm" variant={ingredientCategory === c ? "default" : "outline"} className="rounded-full h-8" onClick={() => setIngredientCategory(c)}>{c}</Button>
+              ))}
+              {(inventory as any[]).some(i => i.department === ingredientDept && !i.category) && (
+                <Button size="sm" variant={ingredientCategory === "none" ? "default" : "outline"} className="rounded-full h-8" onClick={() => setIngredientCategory("none")}>Uncategorised</Button>
+              )}
+            </div>
+          )}
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="relative max-w-sm flex-1 min-w-48">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -807,6 +835,7 @@ export default function Inventory() {
                       <tr key={item.id} className={`hover:bg-muted/20 ${isLow ? "bg-red-50/50" : ""}`}>
                         <td className="px-5 py-3">
                           <div className="font-medium">{item.name}</div>
+                          {item.category && <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground mt-0.5">{item.category}</span>}
                           {(compMap[item.id] ?? []).length > 0 && (
                             <div className="text-xs text-blue-700">Made of: {compMap[item.id].map((c: any) => `${parseFloat(String(c.quantity))} ${c.childUnit} ${c.childName}`).join(", ")}</div>
                           )}
@@ -997,6 +1026,13 @@ export default function Inventory() {
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex gap-2 flex-wrap">
               <Input type="date" value={invLogDateFilter} onChange={e => setInvLogDateFilter(e.target.value)} className="h-9 w-40" />
+              <Select value={invLogCategoryFilter} onValueChange={setInvLogCategoryFilter}>
+                <SelectTrigger className="h-9 w-44"><SelectValue placeholder="All categories" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All categories</SelectItem>
+                  {categoriesOf(logDept).map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
               <Select value={invLogIngredientFilter || "all"} onValueChange={v => setInvLogIngredientFilter(v === "all" ? "" : v)}>
                 <SelectTrigger className="h-9 w-48"><SelectValue placeholder="All ingredients" /></SelectTrigger>
                 <SelectContent>
@@ -1004,8 +1040,8 @@ export default function Inventory() {
                   {deptIngredientsForLogFilter.map(i => <SelectItem key={i.id} value={i.name}>{i.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              {(invLogDateFilter || invLogIngredientFilter) && (
-                <Button variant="ghost" size="sm" onClick={() => { setInvLogDateFilter(""); setInvLogIngredientFilter(""); }}>Clear</Button>
+              {(invLogDateFilter || invLogIngredientFilter || invLogCategoryFilter !== "all") && (
+                <Button variant="ghost" size="sm" onClick={() => { setInvLogDateFilter(""); setInvLogIngredientFilter(""); setInvLogCategoryFilter("all"); }}>Clear</Button>
               )}
             </div>
             <Button variant="outline" size="sm" onClick={() => loadTab("inv-log", true)} className="gap-2"><RefreshCw className="w-4 h-4" /> Refresh</Button>
@@ -1189,7 +1225,7 @@ export default function Inventory() {
         </DialogContent>
       </Dialog>
       <ComponentsDialog item={compDialog.item} inventory={inventory as any[]} open={compDialog.open} canEdit={canWriteIngredient} onClose={() => setCompDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); loadComponents(); }} />
-      <IngredientDialog item={ingDialog.item} department={ingredientDept} open={ingDialog.open} onClose={() => setIngDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); }} />
+      <IngredientDialog item={ingDialog.item} department={ingredientDept} categories={deptCategories} open={ingDialog.open} onClose={() => setIngDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); }} />
       <EquipmentDialog eq={eqDialog.eq} department={equipmentDept} open={eqDialog.open} onClose={() => setEqDialog({ open: false })} onSaved={() => loadTab("equipment", true)} />
       <WasteDialog inventory={inventory as any[]} menuItems={menuItems as any[]} equipment={equipment} department={wasteDept} open={wasteDialog} onClose={() => setWasteDialog(false)} onSaved={() => { loadTab("waste", true); loadTab("equipment", true); }} />
     

@@ -13,6 +13,7 @@ export const inventoryItemsTable = pgTable("inventory_items", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
   department: text("department").notNull().default("kitchen"),
   batchYield: numeric("batch_yield", { precision: 10, scale: 4 }).notNull().default("1"),
+  category: text("category"),
 });
 
 export const inventoryLogsTable = pgTable("inventory_logs", {

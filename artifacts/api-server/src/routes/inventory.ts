@@ -8,6 +8,15 @@ import type { Response } from "express";
 
 const router = Router();
 
+// Keeps category spelling consistent within a department ("dairy" matches an existing "Dairy")
+async function normalizeCategory(department: string, value: unknown): Promise<string | null> {
+  const clean = String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
+  if (!clean) return null;
+  const rows = await db.select({ category: inventoryItemsTable.category }).from(inventoryItemsTable).where(eq(inventoryItemsTable.department, department));
+  const match = rows.map(r => r.category).find(c => c && c.toLowerCase() === clean.toLowerCase());
+  return match ?? clean;
+}
+
 function withDeptPrefix(name: string, department: string): string {
   const prefix = department === "kitchen" ? "K " : "D ";
   const stripped = name.replace(/^[KD]\s+/, "");
@@ -23,7 +32,7 @@ router.get("/inventory", authenticate, async (req, res): Promise<void> => {
 });
 
 router.post("/inventory", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const { name, currentStock, unit, minStockLevel, caloriesPerUnit, department } = req.body;
+  const { name, currentStock, unit, minStockLevel, caloriesPerUnit, department, category } = req.body;
   if (!name || !unit || !department) { res.status(400).json({ error: "Name, unit, and department required" }); return; }
   if (!canWriteDepartment(req.user?.role, department)) {
     res.status(403).json({ error: `Only ${department === "kitchen" ? "the head chef" : "the head barista"} or an admin can add ${department} ingredients.` });
@@ -32,6 +41,7 @@ router.post("/inventory", authenticate, async (req: AuthRequest, res: Response):
 
   const [item] = await db.insert(inventoryItemsTable).values({
     name: withDeptPrefix(name, department), currentStock: String(currentStock ?? 0), unit, department,
+    category: await normalizeCategory(department, category),
     minStockLevel: minStockLevel != null ? String(minStockLevel) : null,
     caloriesPerUnit: caloriesPerUnit != null ? String(caloriesPerUnit) : null,
   }).returning();
@@ -52,7 +62,7 @@ router.patch("/inventory/:id", authenticate, async (req: AuthRequest, res: Respo
     return;
   }
 
-  const { name, currentStock, unit, minStockLevel, caloriesPerUnit } = req.body;
+  const { name, currentStock, unit, minStockLevel, caloriesPerUnit, category } = req.body;
   const updateData: Record<string, unknown> = {};
   if (name !== undefined) updateData.name = withDeptPrefix(name, existing.department);
     if (currentStock !== undefined && parseFloat(String(currentStock)) !== parseFloat(String(existing.currentStock))) {
@@ -63,6 +73,7 @@ router.patch("/inventory/:id", authenticate, async (req: AuthRequest, res: Respo
     updateData.currentStock = String(currentStock);
   }
   if (unit !== undefined) updateData.unit = unit;
+  if (category !== undefined) updateData.category = await normalizeCategory(existing.department, category);
   if (minStockLevel !== undefined) updateData.minStockLevel = minStockLevel != null ? String(minStockLevel) : null;
   if (caloriesPerUnit !== undefined) updateData.caloriesPerUnit = caloriesPerUnit != null ? String(caloriesPerUnit) : null;
   const [item] = await db.update(inventoryItemsTable).set(updateData).where(eq(inventoryItemsTable.id, id)).returning();

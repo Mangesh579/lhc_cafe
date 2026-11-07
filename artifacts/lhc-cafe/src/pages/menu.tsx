@@ -311,7 +311,7 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
                 value={newIngId}
                 onChange={setNewIngId}
                 placeholder="Type to search ingredients…"
-                options={inventory.filter(inv => !recipes.find(r => r.inventoryItemId === inv.id)).map(inv => ({ value: String(inv.id), label: `${inv.name} (${inv.unit})` }))}
+                options={inventory.filter(inv => !recipes.find(r => r.inventoryItemId === inv.id)).map(inv => ({ value: String(inv.id), label: `${inv.name} (${inv.unit})${inv.category ? " · " + inv.category : ""}` }))}
               />
               <div className="grid grid-cols-2 gap-2">
                 <Input type="number" placeholder="Qty" value={newQty} onChange={e => setNewQty(e.target.value)} />
