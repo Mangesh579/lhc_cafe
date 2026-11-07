@@ -4,9 +4,11 @@ import { eq, desc, and, gte, lte, inArray, sql } from "drizzle-orm";
 import * as os from "os";
 import * as fs from "fs";
 import { authenticate, requireAdmin, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
+import { hideCosts } from "../middlewares/hideCosts";
 import type { Response } from "express";
 
 const router = Router();
+router.use(hideCosts);
 
 // Keeps category spelling consistent within a department ("dairy" matches an existing "Dairy")
 async function normalizeCategory(department: string, value: unknown): Promise<string | null> {
@@ -32,7 +34,7 @@ router.get("/inventory", authenticate, async (req, res): Promise<void> => {
 });
 
 router.post("/inventory", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const { name, currentStock, unit, minStockLevel, caloriesPerUnit, department, category } = req.body;
+  const { name, currentStock, unit, minStockLevel, caloriesPerUnit, department, category, costPerUnit } = req.body;
   if (!name || !unit || !department) { res.status(400).json({ error: "Name, unit, and department required" }); return; }
   if (!canWriteDepartment(req.user?.role, department)) {
     res.status(403).json({ error: `Only ${department === "kitchen" ? "the head chef" : "the head barista"} or an admin can add ${department} ingredients.` });
@@ -42,6 +44,7 @@ router.post("/inventory", authenticate, async (req: AuthRequest, res: Response):
   const [item] = await db.insert(inventoryItemsTable).values({
     name: withDeptPrefix(name, department), currentStock: String(currentStock ?? 0), unit, department,
     category: await normalizeCategory(department, category),
+    costPerUnit: req.user?.role === "admin" && costPerUnit != null && costPerUnit !== "" ? String(costPerUnit) : null,
     minStockLevel: minStockLevel != null ? String(minStockLevel) : null,
     caloriesPerUnit: caloriesPerUnit != null ? String(caloriesPerUnit) : null,
   }).returning();
@@ -62,7 +65,7 @@ router.patch("/inventory/:id", authenticate, async (req: AuthRequest, res: Respo
     return;
   }
 
-  const { name, currentStock, unit, minStockLevel, caloriesPerUnit, category } = req.body;
+  const { name, currentStock, unit, minStockLevel, caloriesPerUnit, category, costPerUnit } = req.body;
   const updateData: Record<string, unknown> = {};
   if (name !== undefined) updateData.name = withDeptPrefix(name, existing.department);
     if (currentStock !== undefined && parseFloat(String(currentStock)) !== parseFloat(String(existing.currentStock))) {
@@ -74,6 +77,7 @@ router.patch("/inventory/:id", authenticate, async (req: AuthRequest, res: Respo
   }
   if (unit !== undefined) updateData.unit = unit;
   if (category !== undefined) updateData.category = await normalizeCategory(existing.department, category);
+  if (costPerUnit !== undefined && req.user?.role === "admin") updateData.costPerUnit = costPerUnit === null || costPerUnit === "" ? null : String(costPerUnit);
   if (minStockLevel !== undefined) updateData.minStockLevel = minStockLevel != null ? String(minStockLevel) : null;
   if (caloriesPerUnit !== undefined) updateData.caloriesPerUnit = caloriesPerUnit != null ? String(caloriesPerUnit) : null;
   const [item] = await db.update(inventoryItemsTable).set(updateData).where(eq(inventoryItemsTable.id, id)).returning();

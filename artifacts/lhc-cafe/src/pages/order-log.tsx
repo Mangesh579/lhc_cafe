@@ -35,6 +35,76 @@ function toNepaliDateTime(dateStr: string): string {
   } catch { return dateStr; }
 }
 
+// Profit for one order: net sales (after discount, without VAT or card charge) minus ingredient cost
+function orderProfit(order: any) {
+  const items: any[] = order.items ?? [];
+  const cost = items.reduce((s, i) => s + parseFloat(String(i.unitCost ?? 0)) * i.quantity, 0);
+  const complete = items.length > 0 && items.every(i => i.costComplete);
+  const total = parseFloat(String(order.totalAmount ?? 0));
+  const vat = parseFloat(String(order.vatAmount ?? 0));
+  const card = parseFloat(String(order.cardSurcharge ?? 0));
+  const revenue = order.isNc ? 0 : Math.max(0, total - vat - card);
+  return { cost, complete, revenue, profit: revenue - cost };
+}
+
+function ProfitBreakdown({ order }: { order: any }) {
+  if (order.orderStatus === "cancelled" || order.paymentStatus === "cancelled") return null;
+  const items: any[] = order.items ?? [];
+  if (items.length === 0) return null;
+  const p = orderProfit(order);
+  const money = (n: number) => `Rs. ${n.toFixed(2)}`;
+  return (
+    <div className="mt-2 border rounded-md bg-background overflow-hidden">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-3 py-1.5 bg-muted/40">Cost &amp; profit (admin only)</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-muted-foreground">
+            <tr>
+              <th className="px-3 py-1 text-left font-medium">Item</th>
+              <th className="px-2 py-1 text-right font-medium">Qty</th>
+              <th className="px-2 py-1 text-right font-medium">Selling price</th>
+              <th className="px-2 py-1 text-right font-medium">Ingredient cost</th>
+              <th className="px-2 py-1 text-right font-medium">Profit / item</th>
+              <th className="px-3 py-1 text-right font-medium">Total profit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((i: any) => {
+              const price = parseFloat(String(i.unitPrice ?? 0));
+              const hasCost = i.unitCost != null;
+              const cost = hasCost ? parseFloat(String(i.unitCost)) : 0;
+              const ok = hasCost && i.costComplete;
+              const per = price - cost;
+              return (
+                <tr key={i.id} className="border-t">
+                  <td className="px-3 py-1">{i.menuItemName}</td>
+                  <td className="px-2 py-1 text-right">{i.quantity}</td>
+                  <td className="px-2 py-1 text-right whitespace-nowrap">{money(price)}</td>
+                  <td className="px-2 py-1 text-right whitespace-nowrap">
+                    {hasCost ? <>{money(cost)}{!i.costComplete && <span className="text-amber-600"> incomplete</span>}{i.costEstimated && <span className="text-muted-foreground"> est.</span>}</> : <span className="text-muted-foreground">—</span>}
+                  </td>
+                  <td className={`px-2 py-1 text-right whitespace-nowrap ${ok ? (per >= 0 ? "text-green-700" : "text-red-600") : ""}`}>{ok ? money(per) : "—"}</td>
+                  <td className={`px-3 py-1 text-right whitespace-nowrap font-medium ${ok ? (per >= 0 ? "text-green-700" : "text-red-600") : ""}`}>{ok ? money(per * i.quantity) : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-3 py-2 border-t bg-muted/20 text-xs space-y-0.5">
+        <div className="flex justify-between"><span>{order.isNc ? "Sales (Not Chargeable, nothing collected)" : "Net sales (after discount, without VAT and card charge)"}</span><span>{money(p.revenue)}</span></div>
+        <div className="flex justify-between"><span>Ingredient cost</span><span>{money(p.cost)}</span></div>
+        <div className="flex justify-between font-semibold">
+          <span>Profit</span>
+          {p.complete
+            ? <span className={p.profit >= 0 ? "text-green-700" : "text-red-600"}>{money(p.profit)}{p.revenue > 0 && ` (${((p.profit / p.revenue) * 100).toFixed(0)}%)`}</span>
+            : <span className="text-amber-700">Not final: some items have no complete costing</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function OrderLog() {
   const [useNepaliDate, setUseNepaliDate] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
@@ -64,6 +134,21 @@ export default function OrderLog() {
   const [showCorrectionsTab, setShowCorrectionsTab] = useState(false);
   const [correctionLogs, setCorrectionLogs] = useState<any[]>([]);
 
+  const [recalcBusy, setRecalcBusy] = useState(false);
+  const recalcCosts = async () => {
+    if (!confirm("Give orders that have no complete cost a cost using TODAY'S ingredient prices?\n\nThey will be marked as estimates. Orders that already have a cost recorded at the time of sale are not touched.")) return;
+    setRecalcBusy(true);
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+      const r = await fetch(`${API_BASE}/api/profit/recalculate`, { method: "POST", headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast({ title: "Couldn't recalculate", description: d?.error, variant: "destructive" }); return; }
+      toast({ title: `Updated ${d.updated} item${d.updated === 1 ? "" : "s"}`, description: d.stillIncomplete ? `${d.stillIncomplete} still have ingredients with no cost.` : undefined });
+      refetchOrders();
+    } catch { toast({ title: "Failed to recalculate", variant: "destructive" }); }
+    finally { setRecalcBusy(false); }
+  };
+
   const loadCorrectionLogs = async () => {
     try {
       const API_BASE = import.meta.env.VITE_API_BASE ?? "";
@@ -91,7 +176,7 @@ export default function OrderLog() {
       ).slice(0, 6)
     : [];
 
-  const { data: orders, isLoading } = useListOrders({ date: dateFilter || undefined });
+  const { data: orders, isLoading, refetch: refetchOrders } = useListOrders({ date: dateFilter || undefined });
 
   
 
@@ -365,6 +450,7 @@ export default function OrderLog() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl md:text-3xl font-serif font-bold">Order Log</h1>
         <div className="flex items-center gap-3 flex-wrap">
+          {isAdmin && <Button variant="outline" size="sm" onClick={recalcCosts} disabled={recalcBusy}>{recalcBusy ? "Working…" : "Recalculate costs"}</Button>}
           <Button variant="outline" size="sm" onClick={() => setExportDialogOpen(true)} className="gap-2"><Download className="w-4 h-4" /> Export CSV</Button>
           {isAdmin && (
             <Button variant="outline" size="sm" onClick={() => { setShowPrintLogTab(v => !v); if (!showPrintLogTab) loadPrintLogs(); }}>
@@ -401,6 +487,27 @@ export default function OrderLog() {
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Paid Orders</p><p className="text-xl font-bold mt-1">{paidCount}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Avg. Order</p><p className="text-xl font-bold mt-1">Rs. {paidCount > 0 ? (totalSales / paidCount).toFixed(0) : 0}</p></CardContent></Card>
       </div>
+
+      {isAdmin && (() => {
+        let revenue = 0, cost = 0, nUncosted = 0;
+        for (const o of filteredOrders as any[]) {
+          if (o.paymentStatus !== "paid") continue;
+          const p = orderProfit(o);
+          if (p.complete) { revenue += p.revenue; cost += p.cost; } else nUncosted++;
+        }
+        const profit = revenue - cost;
+        return (
+          <Card className="border-dashed">
+            <CardContent className="p-3 flex flex-wrap items-center gap-x-8 gap-y-1 text-sm">
+              <span className="text-xs font-semibold text-muted-foreground uppercase">Profit (paid, fully costed)</span>
+              <span>Sales <strong>Rs. {revenue.toFixed(0)}</strong></span>
+              <span>Ingredient cost <strong>Rs. {cost.toFixed(0)}</strong></span>
+              <span>Profit <strong className={profit >= 0 ? "text-green-700" : "text-red-600"}>Rs. {profit.toFixed(0)}</strong>{revenue > 0 && <span className="text-xs text-muted-foreground"> ({((profit / revenue) * 100).toFixed(0)}%)</span>}</span>
+              {nUncosted > 0 && <span className="text-xs text-amber-700">{nUncosted} paid order{nUncosted === 1 ? "" : "s"} not fully costed, left out</span>}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Category breakdown */}
       {categoryFilter === "all" && categorySales.size > 0 && (
@@ -654,6 +761,7 @@ export default function OrderLog() {
                       {item.notes && <p className="text-xs text-amber-600 italic ml-4 mt-0.5">↳ {item.notes}</p>}
                     </div>
                   ))}
+                {isAdmin && <ProfitBreakdown order={order} />}
                 {(order as any).kotCancellations?.length > 0 && (
                   <div className="space-y-0.5 mt-1">
                     {(order as any).kotCancellations.map((c: any) => (
@@ -791,6 +899,7 @@ export default function OrderLog() {
                                 {item.notes && <p className="text-xs text-amber-600 italic ml-4 mt-0.5">↳ {item.notes}</p>}
                               </div>
                             ))}
+                            {isAdmin && <ProfitBreakdown order={order} />}
                             {(order as any).kotCancellations?.length > 0 && (
                               <div className="space-y-0.5 mt-1">
                                 {(order as any).kotCancellations.map((c: any) => (

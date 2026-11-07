@@ -44,6 +44,9 @@ export const orderItemsTable = pgTable("order_items", {
   kotAt: timestamp("kot_at"),
   kotNote: text("kot_note"),
   kotBy: text("kot_by"),
+  unitCost: numeric("unit_cost", { precision: 12, scale: 4 }),
+  costComplete: boolean("cost_complete").notNull().default(false),
+  costEstimated: boolean("cost_estimated").notNull().default(false),
 });
 
 export const insertOrderSchema = createInsertSchema(ordersTable).omit({ id: true, createdAt: true, updatedAt: true });

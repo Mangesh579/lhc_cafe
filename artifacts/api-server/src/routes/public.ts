@@ -5,6 +5,7 @@ import { randomBytes, randomInt } from "crypto";
 import { publicOrderRateLimiter } from "../middlewares/rateLimit";
 import { applyPrepWaste } from "../lib/prepWaste";
 import { claimOrderRequest, completeOrderRequest } from "../lib/idempotency";
+import { itemCostFields } from "../lib/costing";
 import { expandRecipeLines } from "../lib/ingredientUsage";
 import { Resend } from "resend";
 import type { Request, Response, NextFunction } from "express";
@@ -370,6 +371,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
         subtotal: String(item.subtotal),
         notes: item.notes ?? null,
         kotNumber: kotNo, kotAt: new Date(), kotNote: customerNote ?? null, kotBy: null,
+        ...(await itemCostFields(item.menuItemId)),
       });
     }
 

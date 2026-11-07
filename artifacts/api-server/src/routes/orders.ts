@@ -1,14 +1,17 @@
 import { Router } from "express";
 import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable, wasteLogsTable, orderKotCancellationsTable } from "@workspace/db";
-import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
+import { eq, and, gte, lte, desc, sql, inArray } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth";
 import { applyPrepWaste } from "../lib/prepWaste";
 import { claimOrderRequest, completeOrderRequest } from "../lib/idempotency";
+import { itemCostFields } from "../lib/costing";
+import { hideCosts } from "../middlewares/hideCosts";
 import { expandRecipeLines } from "../lib/ingredientUsage";
 const NepaliDateLib = require("nepali-date-converter");
 const NepaliDate: any = NepaliDateLib.default ?? NepaliDateLib;
 
 const router = Router();
+router.use(hideCosts);
 
 // Nepal's fiscal year runs Shrawan 1 (~mid-July) to Ashadh end (~mid-July next year).
 // BS months: 1=Baisakh...4=Shrawan...12=Chaitra. FY label format: "2082/83".
@@ -92,6 +95,9 @@ async function getOrderWithItems(orderId: number) {
       kotAt: orderItemsTable.kotAt,
       kotNote: orderItemsTable.kotNote,
       kotBy: orderItemsTable.kotBy,
+      unitCost: orderItemsTable.unitCost,
+      costComplete: orderItemsTable.costComplete,
+      costEstimated: orderItemsTable.costEstimated,
     })
     .from(orderItemsTable)
     .leftJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id))
@@ -166,6 +172,9 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
           kotAt: orderItemsTable.kotAt,
           kotNote: orderItemsTable.kotNote,
           kotBy: orderItemsTable.kotBy,
+          unitCost: orderItemsTable.unitCost,
+          costComplete: orderItemsTable.costComplete,
+          costEstimated: orderItemsTable.costEstimated,
         })
         .from(orderItemsTable)
         .leftJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id))
@@ -259,7 +268,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
   }).returning();
 
   for (const item of resolvedItems) {
-    await db.insert(orderItemsTable).values({ orderId: order.id, menuItemId: item.menuItemId, quantity: item.quantity, unitPrice: String(item.unitPrice), subtotal: String(item.subtotal), notes: item.notes ?? null, kotNumber: kotNo, kotAt: new Date(), kotNote: notes ?? null, kotBy: (req as any).user?.username ?? null });
+    await db.insert(orderItemsTable).values({ orderId: order.id, menuItemId: item.menuItemId, quantity: item.quantity, unitPrice: String(item.unitPrice), subtotal: String(item.subtotal), notes: item.notes ?? null, kotNumber: kotNo, kotAt: new Date(), kotNote: notes ?? null, kotBy: (req as any).user?.username ?? null, ...(await itemCostFields(item.menuItemId)) });
   }
 
   for (const item of resolvedItems) {
@@ -477,6 +486,57 @@ router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req: any, 
   const result = await getOrderWithItems(id);
   if (!result) { res.status(404).json({ error: "Order not found" }); return; }
   res.json(result);
+});
+
+// ── Profit for a day (admin): paid orders only, excludes VAT and card charge ──
+router.get("/profit/daily", authenticate, requireAdmin, async (req, res): Promise<void> => {
+  const from = new Date(String(req.query.from ?? ""));
+  const to = new Date(String(req.query.to ?? ""));
+  if (isNaN(from.getTime()) || isNaN(to.getTime()) || from >= to) { res.status(400).json({ error: "Valid from and to times are required." }); return; }
+
+  const dayOrders = await db.select().from(ordersTable).where(and(
+    eq(ordersTable.paymentStatus, "paid"),
+    sql`COALESCE(${ordersTable.backdatedAt}, ${ordersTable.createdAt}) >= ${from}`,
+    sql`COALESCE(${ordersTable.backdatedAt}, ${ordersTable.createdAt}) <= ${to}`,
+  ));
+  const ids = dayOrders.map(o => o.id);
+  const items = ids.length ? await db.select().from(orderItemsTable).where(inArray(orderItemsTable.orderId, ids)) : [];
+  const byOrder = new Map<number, typeof items>();
+  for (const it of items) byOrder.set(it.orderId, [...(byOrder.get(it.orderId) ?? []), it]);
+
+  let revenueAll = 0, revenue = 0, cost = 0, ncCost = 0, costedOrders = 0, uncostedOrders = 0, uncostedRevenue = 0;
+  for (const o of dayOrders) {
+    const its = byOrder.get(o.id) ?? [];
+    const net = o.isNc ? 0 : Math.max(0, parseFloat(String(o.totalAmount)) - parseFloat(String(o.vatAmount ?? 0)) - parseFloat(String(o.cardSurcharge ?? 0)));
+    revenueAll += net;
+    const complete = its.length > 0 && its.every(i => i.costComplete);
+    if (!complete) { uncostedOrders++; uncostedRevenue += net; continue; }
+    const c = its.reduce((s, i) => s + parseFloat(String(i.unitCost ?? 0)) * i.quantity, 0);
+    costedOrders++; revenue += net; cost += c;
+    if (o.isNc) ncCost += c;
+  }
+  const profit = revenue - cost;
+  res.json({
+    orders: dayOrders.length, costedOrders, uncostedOrders,
+    revenueAll, revenue, cost, profit,
+    marginPct: revenue > 0 ? (profit / revenue) * 100 : null,
+    ncCost, uncostedRevenue,
+  });
+});
+
+// ── Give older orders a cost using TODAY's ingredient prices (marked as estimates) ──
+router.post("/profit/recalculate", authenticate, requireAdmin, async (_req, res): Promise<void> => {
+  const pending = await db.select({ id: orderItemsTable.id, menuItemId: orderItemsTable.menuItemId }).from(orderItemsTable).where(eq(orderItemsTable.costComplete, false));
+  const cache = new Map<number, { unitCost: string | null; costComplete: boolean }>();
+  let updated = 0, stillIncomplete = 0;
+  for (const row of pending) {
+    let f = cache.get(row.menuItemId);
+    if (!f) { f = await itemCostFields(row.menuItemId); cache.set(row.menuItemId, f); }
+    if (!f.costComplete) { stillIncomplete++; continue; }
+    await db.update(orderItemsTable).set({ unitCost: f.unitCost, costComplete: true, costEstimated: true }).where(eq(orderItemsTable.id, row.id));
+    updated++;
+  }
+  res.json({ checked: pending.length, updated, stillIncomplete });
 });
 
 // ── Cancel one KOT (admin, unpaid bills only) ──

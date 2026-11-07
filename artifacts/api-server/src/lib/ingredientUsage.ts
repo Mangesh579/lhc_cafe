@@ -1,10 +1,10 @@
 import { db, recipesTable, inventoryItemsTable, ingredientComponentsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
-type Leaf = { inventoryItemId: number; quantity: number };
+export type Leaf = { inventoryItemId: number; quantity: number };
 
 // Breaks an ingredient quantity down into the basic ingredients it is made of.
-async function expandUsage(inventoryItemId: number, quantity: number, trail: number[] = []): Promise<Leaf[]> {
+export async function expandUsage(inventoryItemId: number, quantity: number, trail: number[] = []): Promise<Leaf[]> {
   if (trail.includes(inventoryItemId) || trail.length > 6) return [{ inventoryItemId, quantity }];
   const components = await db.select().from(ingredientComponentsTable).where(eq(ingredientComponentsTable.parentItemId, inventoryItemId));
   if (components.length === 0) return [{ inventoryItemId, quantity }];

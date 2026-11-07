@@ -14,6 +14,7 @@ export const inventoryItemsTable = pgTable("inventory_items", {
   department: text("department").notNull().default("kitchen"),
   batchYield: numeric("batch_yield", { precision: 10, scale: 4 }).notNull().default("1"),
   category: text("category"),
+  costPerUnit: numeric("cost_per_unit", { precision: 12, scale: 4 }),
 });
 
 export const inventoryLogsTable = pgTable("inventory_logs", {

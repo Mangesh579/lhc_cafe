@@ -60,6 +60,9 @@ function IngredientDialog({ item, department, categories, open, onClose, onSaved
   const [minStock, setMinStock] = useState(item?.minStockLevel ? String(item.minStockLevel) : "");
   const [calories, setCalories] = useState(item?.caloriesPerUnit ? String(item.caloriesPerUnit) : "");
   const [category, setCategory] = useState(item?.category ?? "");
+  const [costPerUnit, setCostPerUnit] = useState(item?.costPerUnit != null ? String(parseFloat(String(item.costPerUnit))) : "");
+  const [buyPrice, setBuyPrice] = useState("");
+  const [buyQty, setBuyQty] = useState("");
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
@@ -71,6 +74,8 @@ function IngredientDialog({ item, department, categories, open, onClose, onSaved
       setMinStock(item?.minStockLevel ? String(parseFloat(String(item.minStockLevel))) : "");
       setCalories(item?.caloriesPerUnit ? String(parseFloat(String(item.caloriesPerUnit))) : "");
       setCategory(item?.category ?? "");
+      setCostPerUnit(item?.costPerUnit != null ? String(parseFloat(String(item.costPerUnit))) : "");
+      setBuyPrice(""); setBuyQty("");
     }
   }, [open, item]);
 
@@ -82,6 +87,7 @@ function IngredientDialog({ item, department, categories, open, onClose, onSaved
       minStockLevel: minStock ? parseFloat(minStock) : undefined,
       caloriesPerUnit: calories ? parseFloat(calories) : undefined,
       category: category.trim(),
+      costPerUnit: user?.role === "admin" ? (costPerUnit.trim() === "" ? null : parseFloat(costPerUnit)) : undefined,
       department,
     };
     try {
@@ -145,6 +151,18 @@ function IngredientDialog({ item, department, categories, open, onClose, onSaved
             <Input list={`ing-cats-${department}`} value={category} onChange={e => setCategory(e.target.value)} placeholder={department === "kitchen" ? "e.g. Vegetables, Dairy, Spices…" : "e.g. Coffee Beans, Milk, Syrups…"} />
             <datalist id={`ing-cats-${department}`}>{categories.map(c => <option key={c} value={c} />)}</datalist>
             <p className="text-xs text-muted-foreground">Pick an existing category or type a new one. Kitchen and Drink / Coffee keep separate categories.</p>
+          </div>
+          <div className="col-span-2 space-y-1 border-t pt-3" style={{ display: user?.role === "admin" ? "block" : "none" }}>
+            <Label>Cost per {unit} (Rs.) <span className="text-xs font-normal text-muted-foreground">— admin only, used for profit</span></Label>
+            <Input type="number" step="any" value={costPerUnit} onChange={e => setCostPerUnit(e.target.value)} placeholder="e.g. 1 for Rs. 1 per gram" />
+            <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+              <span>or bought</span>
+              <Input type="number" className="h-8 w-24" placeholder="Rs." value={buyPrice} onChange={e => { setBuyPrice(e.target.value); const p = parseFloat(e.target.value), q = parseFloat(buyQty); if (p > 0 && q > 0) setCostPerUnit(String(Math.round((p / q) * 10000) / 10000)); }} />
+              <span>for</span>
+              <Input type="number" className="h-8 w-24" placeholder="qty" value={buyQty} onChange={e => { setBuyQty(e.target.value); const p = parseFloat(buyPrice), q = parseFloat(e.target.value); if (p > 0 && q > 0) setCostPerUnit(String(Math.round((p / q) * 10000) / 10000)); }} />
+              <span>{unit}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">Example: Rs. 500 for 500 grams fills in Rs. 1 per gram. Sauces made from other ingredients are costed from their components, so leave their cost empty.</p>
           </div>
         </div>
         <DialogFooter>
@@ -836,6 +854,13 @@ export default function Inventory() {
                         <td className="px-5 py-3">
                           <div className="font-medium">{item.name}</div>
                           {item.category && <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground mt-0.5">{item.category}</span>}
+                          {role === "admin" && (
+                            (compMap[item.id] ?? []).length > 0
+                              ? <div className="text-[10px] text-muted-foreground">Cost from components</div>
+                              : item.costPerUnit != null
+                                ? <div className="text-[10px] text-muted-foreground">Cost: Rs. {parseFloat(String(item.costPerUnit))}/{item.unit}</div>
+                                : <div className="text-[10px] text-red-600">No cost set</div>
+                          )}
                           {(compMap[item.id] ?? []).length > 0 && (
                             <div className="text-xs text-blue-700">Made of: {compMap[item.id].map((c: any) => `${parseFloat(String(c.quantity))} ${c.childUnit} ${c.childName}`).join(", ")}</div>
                           )}

@@ -223,10 +223,20 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
   const qc = useQueryClient();
   const updateMenuItem = useUpdateMenuItem();
 
+  const [costing, setCosting] = useState<any | null>(null);
+  const loadCosting = async () => {
+    if (!item) return;
+    try {
+      const r = await fetch(`${API_BASE}/api/menu-items/${item.id}/costing`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      setCosting(r.ok ? await r.json() : null);
+    } catch { setCosting(null); }
+  };
+
   const loadRecipes = async () => {
     if (!item) return;
     const data = await APIJSON(`/menu-items/${item.id}/recipes`);
     setRecipes(Array.isArray(data) ? data : []);
+    loadCosting();
   };
 
   const syncCaloriesToItem = async (total: number) => {
@@ -248,7 +258,7 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
       setNewIngId(""); setNewQty(""); setNewWaste("");
       const updated = await APIJSON(`/menu-items/${item.id}/recipes`);
       const list = Array.isArray(updated) ? updated : [];
-      setRecipes(list);
+      setRecipes(list); loadCosting();
       const total = list.reduce((sum: number, r: any) => sum + parseFloat(String(r.caloriesPerUnit ?? 0)) * parseFloat(String(r.quantityRequired ?? 0)), 0);
       await syncCaloriesToItem(total);
     } catch { toast({ title: "Failed to add ingredient", variant: "destructive" }); }
@@ -263,7 +273,7 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
       toast({ title: "Ingredient removed" });
       const updated = await APIJSON(`/menu-items/${item.id}/recipes`);
       const list = Array.isArray(updated) ? updated : [];
-      setRecipes(list);
+      setRecipes(list); loadCosting();
       const total = list.reduce((sum: number, r: any) => sum + parseFloat(String(r.caloriesPerUnit ?? 0)) * parseFloat(String(r.quantityRequired ?? 0)), 0);
       await syncCaloriesToItem(total);
     } catch { toast({ title: "Failed to remove", variant: "destructive" }); }
@@ -300,6 +310,41 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
           {recipes.length > 0 && (
             <div className="text-sm text-muted-foreground bg-muted/20 rounded px-3 py-2">
               Total calories: ~{totalCalories.toFixed(0)} kcal per serving
+            </div>
+          )}
+
+          {costing && costing.lines.length > 0 && (
+            <div className="border rounded-md overflow-hidden">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-3 py-2 bg-muted/40">Costing sheet (one serving)</p>
+              <table className="w-full text-xs">
+                <thead className="text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-1 text-left font-medium">Ingredient</th>
+                    <th className="px-2 py-1 text-left font-medium">Used</th>
+                    <th className="px-2 py-1 text-left font-medium">Cost / unit</th>
+                    <th className="px-3 py-1 text-right font-medium">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {costing.lines.map((l: any) => (
+                    <tr key={l.inventoryItemId} className="border-t">
+                      <td className="px-3 py-1.5">{l.ingredientName}{l.composite && <span className="text-muted-foreground"> (from components)</span>}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">{parseFloat(l.totalQuantity.toFixed(3))} {l.unit}{l.wasteQuantity > 0 && <span className="text-amber-600"> incl. waste</span>}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">{l.composite ? "—" : l.costPerUnit != null ? `Rs. ${l.costPerUnit}` : <span className="text-red-600">no cost</span>}</td>
+                      <td className="px-3 py-1.5 text-right">{l.complete ? `Rs. ${l.lineCost.toFixed(2)}` : <span className="text-red-600">incomplete</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="px-3 py-2 border-t bg-muted/20 text-sm space-y-0.5">
+                <div className="flex justify-between"><span>Total ingredient cost</span><span className="font-medium">Rs. {costing.totalCost.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span>Selling price</span><span className="font-medium">Rs. {costing.price.toFixed(2)}</span></div>
+                <div className="flex justify-between font-semibold">
+                  <span>Profit per serving</span>
+                  <span className={costing.profit >= 0 ? "text-green-700" : "text-red-600"}>Rs. {costing.profit.toFixed(2)}{costing.marginPct != null && ` (${costing.marginPct.toFixed(0)}%)`}</span>
+                </div>
+              </div>
+              {!costing.complete && <p className="px-3 py-2 text-xs text-amber-700 bg-amber-50 border-t border-amber-200">Some ingredients have no cost yet, so this profit is not final. Set their cost in Inventory.</p>}
             </div>
           )}
 

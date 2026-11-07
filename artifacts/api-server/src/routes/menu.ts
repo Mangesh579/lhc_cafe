@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { db, menuCategoriesTable, menuItemsTable, recipesTable, inventoryItemsTable, menuChangelogsTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
-import { authenticate, type AuthRequest } from "../middlewares/auth";
+import { authenticate, requireAdmin, type AuthRequest } from "../middlewares/auth";
+import { menuItemCosting } from "../lib/costing";
 import type { Response } from "express";
 
 const router = Router();
@@ -200,6 +201,19 @@ router.get("/menu-changelog", authenticate, async (_req, res): Promise<void> => 
 });
 
 // ─── Recipes ──────────────────────────────────────────────────────────────────
+
+router.get("/menu-items/:id/costing", authenticate, requireAdmin, async (req, res): Promise<void> => {
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  const [item] = await db.select().from(menuItemsTable).where(eq(menuItemsTable.id, id));
+  if (!item) { res.status(404).json({ error: "Menu item not found" }); return; }
+  const costing = await menuItemCosting(id);
+  const price = parseFloat(String(item.price));
+  res.json({
+    price, ...costing,
+    profit: price - costing.totalCost,
+    marginPct: price > 0 ? ((price - costing.totalCost) / price) * 100 : null,
+  });
+});
 
 router.get("/menu-items/:id/recipes", authenticate, async (req, res): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);

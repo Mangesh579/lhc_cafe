@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/auth";
 import StockRequestsCard from "@/components/StockRequestsCard";
 import ServerStatsCard from "@/components/ServerStatsCard";
+import ProfitTodayCard from "@/components/ProfitTodayCard";
 
 type SystemHealth = {
   cloudinary: { storageUsedGB: number; storageLimitGB: number; bandwidthUsedGB: number; bandwidthLimitGB: number; creditsUsed: number; creditsLimit: number; creditsPercent: number } | null;
@@ -70,6 +71,7 @@ export default function Dashboard() {
       </div>
 
       <StockRequestsCard />
+      <ProfitTodayCard />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
