@@ -1,4 +1,4 @@
-const COST_KEYS = new Set(["unitCost", "costComplete", "costEstimated", "costPerUnit"]);
+const COST_KEYS = new Set(["unitCost", "costComplete", "costEstimated", "costPerUnit", "lastPurchasePrice", "lastPurchaseQty"]);
 
 function strip(v: any): any {
   if (Array.isArray(v)) return v.map(strip);
@@ -16,6 +16,6 @@ function strip(v: any): any {
 // Ingredient costs and profit figures are for admins only: remove them from every response for other roles
 export function hideCosts(req: any, res: any, next: any) {
   const send = res.json.bind(res);
-  res.json = (body: any) => (req.user?.role === "admin" ? send(body) : send(strip(body)));
+  res.json = (body: any) => (req.user?.role === "admin" || req.user?.role === "accountant" ? send(body) : send(strip(body)));
   next();
 }

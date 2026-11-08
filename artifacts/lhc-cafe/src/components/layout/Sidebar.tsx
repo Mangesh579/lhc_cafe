@@ -19,18 +19,21 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { UserRole } from "@workspace/api-client-react";
 
+import { Wallet } from "lucide-react";
+
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista"] },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista", "accountant"] },
   { href: "/pos", label: "POS", icon: Coffee, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista"] },
   { href: "/orders", label: "Active Orders", icon: ClipboardList, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista"] },
-  { href: "/order-log", label: "Order Log", icon: History, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista"] },
+  { href: "/order-log", label: "Order Log", icon: History, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista", "accountant"] },
   { href: "/menu", label: "Menu", icon: MenuSquare, roles: ["admin", "supervisor"] },
-  { href: "/inventory", label: "Inventory", icon: PackageSearch, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista"] },
+  { href: "/inventory", label: "Inventory", icon: PackageSearch, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista", "accountant"] },
   { href: "/tables", label: "Tables", icon: Grid2X2, roles: ["admin", "supervisor"] },
   { href: "/loyalty", label: "Loyalty", icon: Users, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista"] },
   { href: "/users", label: "Users", icon: UserCog, roles: ["admin"] },
+  { href: "/expenses", label: "Expenses", icon: Wallet, roles: ["admin", "accountant"] },
   { href: "/staff", label: "Staff", icon: CalendarCheck, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista"] },
-  { href: "/settings", label: "Settings", icon: Settings, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista"] },
+  { href: "/settings", label: "Settings", icon: Settings, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista", "accountant"] },
 ];
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {

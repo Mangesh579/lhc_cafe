@@ -59,6 +59,16 @@ export function canWriteKitchen(role?: string): boolean {
 export function canWriteDrink(role?: string): boolean {
   return role === "admin" || role === "supervisor" || role === "head_barista";
 }
+// Expenses and purchases: admin or the accountant
+export function requireAdminOrAccountant(req: AuthRequest, res: Response, next: NextFunction): void {
+  const role = req.user?.role as string | undefined;
+  if (role !== "admin" && role !== "accountant") {
+    res.status(403).json({ error: "Admin or accountant access required" });
+    return;
+  }
+  next();
+}
+
 export function canWriteDepartment(role: string | undefined, department: string): boolean {
   return department === "kitchen" ? canWriteKitchen(role) : canWriteDrink(role);
 }

@@ -5,6 +5,7 @@ import * as os from "os";
 import * as fs from "fs";
 import { authenticate, requireAdmin, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
 import { hideCosts } from "../middlewares/hideCosts";
+import expensesRouter from "./expenses";
 import type { Response } from "express";
 
 const router = Router();
@@ -185,7 +186,7 @@ router.get("/inventory/usage-map", authenticate, async (_req, res): Promise<void
 });
 
 router.get("/inventory/export-data", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const isAdmin = req.user?.role === "admin";
+  const isAdmin = req.user?.role === "admin" || req.user?.role === "accountant";
   const items = await db.select().from(inventoryItemsTable).orderBy(inventoryItemsTable.department, inventoryItemsTable.name);
 
   // Net quantity used by orders (includes prep waste, minus quantities restored by cancellations)
@@ -236,6 +237,10 @@ router.get("/inventory/export-data", authenticate, async (req: AuthRequest, res:
       costPerUnit: cost, // removed automatically for non-admins
       inventoryValue: isAdmin && cost != null ? Math.round(Math.max(0, stock) * cost * 100) / 100 : null,
       usageCost30: isAdmin && cost != null ? Math.round(u.d30 * cost * 100) / 100 : null,
+      lastPurchasePrice: i.lastPurchasePrice != null ? parseFloat(String(i.lastPurchasePrice)) : null,
+      lastPurchaseQty: i.lastPurchaseQty != null ? parseFloat(String(i.lastPurchaseQty)) : null,
+      lastPurchaseDate: i.lastPurchaseDate ?? null,
+      lastSupplier: i.lastSupplier ?? null,
     };
   });
   res.json({ rows, generatedAt: new Date().toISOString() });
@@ -526,5 +531,7 @@ router.put("/inventory/:id/components", authenticate, async (req: AuthRequest, r
     .returning();
   res.json(updated);
 });
+
+router.use(expensesRouter);
 
 export default router;

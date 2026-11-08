@@ -15,6 +15,10 @@ export const inventoryItemsTable = pgTable("inventory_items", {
   batchYield: numeric("batch_yield", { precision: 10, scale: 4 }).notNull().default("1"),
   category: text("category"),
   costPerUnit: numeric("cost_per_unit", { precision: 12, scale: 4 }),
+  lastPurchasePrice: numeric("last_purchase_price", { precision: 12, scale: 2 }),
+  lastPurchaseQty: numeric("last_purchase_qty", { precision: 12, scale: 4 }),
+  lastPurchaseDate: text("last_purchase_date"),
+  lastSupplier: text("last_supplier"),
 });
 
 export const inventoryLogsTable = pgTable("inventory_logs", {

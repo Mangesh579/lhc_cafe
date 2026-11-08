@@ -13,6 +13,7 @@ export * from "./ingredient-components";
 export * from "./inventory-requests";
 export * from "./order-kot-cancellations";
 export * from "./order-requests";
+export * from "./expenses";
 export { tableSessionsTable } from "./tables";
 export { bestsellerCacheTable } from "./bestseller-cache";
 export { staffShiftsTable, attendancePunchesTable, attendanceCommentsTable } from "./staff";

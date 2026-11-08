@@ -17,10 +17,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Edit2, Trash2, AlertCircle, RefreshCw, PackageX, Wrench, ClipboardList, Search, X, Layers } from "lucide-react";
+import { Plus, Edit2, Trash2, AlertCircle, RefreshCw, PackageX, Wrench, ClipboardList, Search, X, Layers, ShoppingCart } from "lucide-react";
 import { format } from "date-fns";
 import { useAuth } from "@/contexts/auth";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import { DIRECT_CATEGORIES, PAYMENT_METHODS, uploadReceipt } from "@/lib/expenseApi";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -386,6 +387,107 @@ function WasteDialog({ inventory, menuItems, equipment, department, open, onClos
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 // ─── Components Dialog (ingredient made of other ingredients) ──────────────────
+function PurchaseDialog({ item, open, onClose, onSaved }: { item?: any; open: boolean; onClose: () => void; onSaved: () => void }) {
+  const [qty, setQty] = useState("");
+  const [total, setTotal] = useState("");
+  const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [supplier, setSupplier] = useState("");
+  const [method, setMethod] = useState("cash");
+  const [category, setCategory] = useState(DIRECT_CATEGORIES[0]);
+  const [costMethod, setCostMethod] = useState("average");
+  const [note, setNote] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  const guessCategory = (it: any) => {
+    const c = `${it?.category ?? ""} ${it?.name ?? ""}`.toLowerCase();
+    if (/(coffee|tea)/.test(c)) return "Coffee beans and tea";
+    if (/(milk|dairy|cream|cheese|butter|curd|yogurt)/.test(c)) return "Milk and dairy products";
+    if (/(bakery|flour|sugar|chocolate|confection)/.test(c)) return "Bakery and confectionery supplies";
+    if (/(sauce|spice|season|masala|salt|pepper)/.test(c)) return "Sauces, spices and seasonings";
+    if (/(packag|container|cup|box|bag)/.test(c)) return "Packaging and takeaway containers";
+    return it?.department === "drink" ? "Beverages and drink ingredients" : "Food ingredients (meat, vegetables, fruits)";
+  };
+
+  useEffect(() => {
+    if (open && item) {
+      setQty(""); setTotal(""); setDate(format(new Date(), "yyyy-MM-dd")); setSupplier(item.lastSupplier ?? ""); setMethod("cash");
+      setCategory(guessCategory(item)); setCostMethod("average"); setNote(""); setFile(null);
+    }
+  }, [open, item]);
+
+  const unitPrice = parseFloat(total) > 0 && parseFloat(qty) > 0 ? parseFloat(total) / parseFloat(qty) : null;
+
+  const submit = async () => {
+    if (!(parseFloat(qty) > 0) || !(parseFloat(total) > 0)) { toast({ title: "Enter a quantity and a total price", variant: "destructive" }); return; }
+    setSaving(true);
+    try {
+      const d: any = await APIJSON(`/inventory/${item.id}/purchase`, "POST", {
+        quantity: parseFloat(qty), totalPrice: parseFloat(total), date, supplier, paymentMethod: method,
+        expenseCategory: category, costMethod, description: note,
+      });
+      let receiptFailed = false;
+      if (file) { try { await uploadReceipt(d.expenseId, file); } catch { receiptFailed = true; } }
+      toast({ title: "Purchase recorded", description: receiptFailed ? "Saved, but the receipt could not be uploaded. Add it from Expenses." : `Stock and expense #${d.expenseId} updated.` });
+      onSaved(); onClose();
+    } catch (err: any) {
+      const e = await err?.json?.().catch(() => null);
+      toast({ title: "Couldn't record the purchase", description: e?.error, variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogHeader><DialogTitle>Record purchase — {item?.name}</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-2">
+          <p className="text-xs text-muted-foreground">Adds the stock, updates the cost per unit, writes the Stock Log entry and creates the direct expense, all in one step.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1"><Label>Quantity bought ({item?.unit}) *</Label><Input type="number" value={qty} onChange={e => setQty(e.target.value)} /></div>
+            <div className="space-y-1"><Label>Total price paid (Rs.) *</Label><Input type="number" value={total} onChange={e => setTotal(e.target.value)} /></div>
+          </div>
+          {unitPrice != null && <p className="text-sm bg-muted/40 rounded px-3 py-2">This purchase: <strong>Rs. {unitPrice.toFixed(4)}</strong> per {item?.unit}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1"><Label>Date</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
+            <div className="space-y-1"><Label>Supplier</Label><Input value={supplier} onChange={e => setSupplier(e.target.value)} /></div>
+          </div>
+          <div className="space-y-1">
+            <Label>Payment method</Label>
+            <Select value={method} onValueChange={setMethod}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{PAYMENT_METHODS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Expense category</Label>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{DIRECT_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Cost per unit becomes</Label>
+            <Select value={costMethod} onValueChange={setCostMethod}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="average">Weighted average of old stock and this purchase (recommended)</SelectItem>
+                <SelectItem value="last">This purchase's price</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1"><Label>Note / bill number</Label><Input value={note} onChange={e => setNote(e.target.value)} /></div>
+          <div className="space-y-1"><Label>Bill or receipt (optional)</Label><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={e => setFile(e.target.files?.[0] ?? null)} className="text-sm" /></div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? "Saving…" : "Record purchase"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ComponentsDialog({ item, inventory, open, onClose, onSaved, canEdit }: { item?: any; inventory: any[]; open: boolean; onClose: () => void; onSaved: () => void; canEdit: boolean }) {
   const [rows, setRows] = useState<{ childItemId: number; quantity: string }[]>([]);
   const [batchYield, setBatchYield] = useState("1");
@@ -532,6 +634,7 @@ export default function Inventory() {
 
   const [ingDialog, setIngDialog] = useState<{ open: boolean; item?: any }>({ open: false });
   const [compDialog, setCompDialog] = useState<{ open: boolean; item?: any }>({ open: false });
+  const [purchaseDialog, setPurchaseDialog] = useState<{ open: boolean; item?: any }>({ open: false });
 
   const [usageDialog, setUsageDialog] = useState(false);
   const [usageDate, setUsageDate] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -546,7 +649,7 @@ export default function Inventory() {
     try {
       const d = await APIJSON("/inventory/export-data");
       const rows: any[] = d.rows ?? [];
-      const admin = role === "admin";
+      const admin = role === "admin" || role === "accountant";
       const deptLabel = (x: string) => (x === "kitchen" ? "Kitchen" : "Drink / Coffee");
 
       const sheet: any[] = rows.map(r => ({
@@ -555,6 +658,7 @@ export default function Inventory() {
         "Category": r.category ?? "",
         "Unit": r.unit,
         ...(admin ? { "Cost per unit (Rs.)": r.isComposite ? "from components" : (r.costPerUnit ?? "missing") } : {}),
+        ...(admin ? { "Last purchase price (Rs.)": r.lastPurchasePrice ?? "", "Last purchase quantity": r.lastPurchaseQty ?? "", "Last purchase date": r.lastPurchaseDate ?? "", "Last supplier": r.lastSupplier ?? "" } : {}),
         "Current stock": r.currentStock,
         "Minimum stock": r.minStockLevel ?? "",
         "Stock status": r.status,
@@ -968,6 +1072,9 @@ export default function Inventory() {
                             <Button variant="outline" size="sm" onClick={() => { setAdjustItem(item); setAdjustQty(""); setAdjustReason(""); }} className="gap-1.5">
                               <RefreshCw className="w-3 h-3" /> {role === "admin" ? "Adjust" : "Request change"}
                             </Button>
+                            {(role === "admin" || role === "accountant") && (compMap[item.id] ?? []).length === 0 && (
+                              <Button variant="ghost" size="icon" onClick={() => setPurchaseDialog({ open: true, item })} title="Record a purchase"><ShoppingCart className="w-4 h-4 text-muted-foreground" /></Button>
+                            )}
                             <Button variant="ghost" size="icon" onClick={() => setCompDialog({ open: true, item })} title="Components (what this ingredient is made of)"><Layers className="w-4 h-4 text-muted-foreground" /></Button>
                             <Button variant="ghost" size="icon" onClick={() => setIngDialog({ open: true, item })} disabled={!canWriteIngredient} title={!canWriteIngredient ? noWritePermissionMsg(ingredientDept) : undefined}><Edit2 className="w-4 h-4 text-muted-foreground" /></Button>
                             <Button variant="ghost" size="icon" onClick={() => handleDeleteIngredient(item.id, item.name)} disabled={role !== "admin"} title={role !== "admin" ? "Only an admin can delete items" : undefined}><Trash2 className="w-4 h-4 text-destructive" /></Button>
@@ -1310,6 +1417,7 @@ export default function Inventory() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <PurchaseDialog item={purchaseDialog.item} open={purchaseDialog.open} onClose={() => setPurchaseDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); setLogsLoaded(null); }} />
       <ComponentsDialog item={compDialog.item} inventory={inventory as any[]} open={compDialog.open} canEdit={canWriteIngredient} onClose={() => setCompDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); loadComponents(); }} />
       <IngredientDialog item={ingDialog.item} department={ingredientDept} categories={deptCategories} open={ingDialog.open} onClose={() => setIngDialog({ open: false })} onSaved={() => { qc.invalidateQueries({ queryKey: getListInventoryQueryKey() }); refetch(); }} />
       <EquipmentDialog eq={eqDialog.eq} department={equipmentDept} open={eqDialog.open} onClose={() => setEqDialog({ open: false })} onSaved={() => loadTab("equipment", true)} />

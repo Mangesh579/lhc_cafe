@@ -57,6 +57,7 @@ function UserDialog({ user, open, onClose, onSaved }: { user?: any; open: boolea
                 <SelectItem value="staff">Staff</SelectItem>
                 <SelectItem value="head_chef">Head Chef</SelectItem>
                 <SelectItem value="head_barista">Head Barista</SelectItem>
+                <SelectItem value="accountant">Accountant</SelectItem>
                 <SelectItem value="supervisor">Supervisor</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
               </SelectContent>

@@ -16,6 +16,7 @@ import Orders from "@/pages/orders";
 import OrderLog from "@/pages/order-log";
 import MenuPage from "@/pages/menu";
 import Inventory from "@/pages/inventory";
+import Expenses from "@/pages/expenses";
 import Tables from "@/pages/tables";
 import Loyalty from "@/pages/loyalty";
 import Settings from "@/pages/settings";
@@ -87,6 +88,7 @@ function Router() {
         <Route path="/order-log" component={OrderLog} />
         <Route path="/menu" component={MenuPage} />
         <Route path="/inventory" component={Inventory} />
+        <Route path="/expenses" component={Expenses} />
         <Route path="/tables" component={Tables} />
         <Route path="/loyalty" component={Loyalty} />
         <Route path="/users" component={Users} />
