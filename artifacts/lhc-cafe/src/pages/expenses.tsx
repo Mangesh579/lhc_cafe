@@ -14,6 +14,7 @@ import { ChevronLeft, ChevronRight, Plus, Paperclip, Download, Repeat } from "lu
 import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import { DIRECT_CATEGORIES, INDIRECT_CATEGORIES, PAYMENT_METHODS, apiJson, uploadReceipt, openReceipt } from "@/lib/expenseApi";
+import OperatingCosts from "@/components/OperatingCosts";
 
 const money = (n: number) => `Rs. ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const methodLabel = (v: string) => PAYMENT_METHODS.find(m => m.value === v)?.label ?? v;
@@ -196,6 +197,7 @@ export default function Expenses() {
         <TabsList>
           <TabsTrigger value="records">Records</TabsTrigger>
           <TabsTrigger value="summary">Summary</TabsTrigger>
+          <TabsTrigger value="operating">Operating costs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="records" className="space-y-4 mt-4">
@@ -328,6 +330,9 @@ export default function Expenses() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+      <TabsContent value="operating" className="mt-4">
+          <OperatingCosts ym={ym} />
         </TabsContent>
       </Tabs>
 

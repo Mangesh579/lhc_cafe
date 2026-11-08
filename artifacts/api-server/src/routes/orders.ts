@@ -5,6 +5,7 @@ import { authenticate, requireAdmin } from "../middlewares/auth";
 import { applyPrepWaste } from "../lib/prepWaste";
 import { claimOrderRequest, completeOrderRequest } from "../lib/idempotency";
 import { itemCostFields } from "../lib/costing";
+import { attachOperatingCosts } from "../lib/opcosting";
 import { hideCosts } from "../middlewares/hideCosts";
 import { expandRecipeLines } from "../lib/ingredientUsage";
 const NepaliDateLib = require("nepali-date-converter");
@@ -187,6 +188,8 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
     })
   );
 
+  const viewerRole = (req as any).user?.role;
+  if (viewerRole === "admin" || viewerRole === "accountant") await attachOperatingCosts(ordersWithItems as any[]);
   res.json(ordersWithItems);
 });
 

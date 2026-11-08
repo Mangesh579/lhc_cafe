@@ -1,4 +1,4 @@
-const COST_KEYS = new Set(["unitCost", "costComplete", "costEstimated", "costPerUnit", "lastPurchasePrice", "lastPurchaseQty"]);
+const COST_KEYS = new Set(["unitCost", "costComplete", "costEstimated", "costPerUnit", "lastPurchasePrice", "lastPurchaseQty", "opCost"]);
 
 function strip(v: any): any {
   if (Array.isArray(v)) return v.map(strip);

@@ -21,7 +21,7 @@ router.get("/dashboard/stats", authenticate, async (_req, res): Promise<void> =>
       orderCount: sql<number>`COUNT(*)`,
     })
     .from(ordersTable)
-    .where(and(gte(ordersTable.createdAt, today), lte(ordersTable.createdAt, todayEnd), eq(ordersTable.orderStatus, "completed")));
+    .where(and(gte(ordersTable.createdAt, today), lte(ordersTable.createdAt, todayEnd), eq(ordersTable.orderStatus, "completed"), eq(ordersTable.isNc, false)));
 
   const [pendingCount] = await db
     .select({ count: sql<number>`COUNT(*)` })
@@ -31,7 +31,7 @@ router.get("/dashboard/stats", authenticate, async (_req, res): Promise<void> =>
   const [weekStats] = await db
     .select({ total: sql<number>`COALESCE(SUM(CAST(${ordersTable.totalAmount} AS NUMERIC)), 0)` })
     .from(ordersTable)
-    .where(and(gte(ordersTable.createdAt, weekStart), eq(ordersTable.orderStatus, "completed")));
+    .where(and(gte(ordersTable.createdAt, weekStart), eq(ordersTable.orderStatus, "completed"), eq(ordersTable.isNc, false)));
 
   const [menuCount] = await db.select({ count: sql<number>`COUNT(*)` }).from(menuItemsTable);
 
@@ -99,7 +99,7 @@ router.get("/dashboard/sales-by-day", authenticate, async (req, res): Promise<vo
         orderCount: sql<number>`COUNT(*)`,
       })
       .from(ordersTable)
-      .where(and(gte(ordersTable.createdAt, date), lte(ordersTable.createdAt, dateEnd), eq(ordersTable.orderStatus, "completed")));
+      .where(and(gte(ordersTable.createdAt, date), lte(ordersTable.createdAt, dateEnd), eq(ordersTable.orderStatus, "completed"), eq(ordersTable.isNc, false)));
     results.push({
       date: date.toISOString().split("T")[0],
       sales: Number(stats?.total ?? 0),

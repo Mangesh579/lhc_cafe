@@ -13,6 +13,7 @@ export const menuItemsTable = pgTable("menu_items", {
   videoUrl: text("video_url"),
   calories: integer("calories"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  operatingProfileId: integer("operating_profile_id"),
 });
 
 export const insertMenuItemSchema = createInsertSchema(menuItemsTable).omit({ id: true, createdAt: true });

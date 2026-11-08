@@ -6,6 +6,7 @@ import * as fs from "fs";
 import { authenticate, requireAdmin, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
 import { hideCosts } from "../middlewares/hideCosts";
 import expensesRouter from "./expenses";
+import opcostingRouter from "./opcosting";
 import type { Response } from "express";
 
 const router = Router();
@@ -533,5 +534,6 @@ router.put("/inventory/:id/components", authenticate, async (req: AuthRequest, r
 });
 
 router.use(expensesRouter);
+router.use(opcostingRouter);
 
 export default router;

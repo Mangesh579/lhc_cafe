@@ -3,6 +3,7 @@ import { db, menuCategoriesTable, menuItemsTable, recipesTable, inventoryItemsTa
 import { eq, and, desc } from "drizzle-orm";
 import { authenticate, requireAdmin, type AuthRequest } from "../middlewares/auth";
 import { menuItemCosting } from "../lib/costing";
+import { menuItemOperating } from "../lib/opcosting";
 import type { Response } from "express";
 
 const router = Router();
@@ -208,8 +209,12 @@ router.get("/menu-items/:id/costing", authenticate, requireAdmin, async (req, re
   if (!item) { res.status(404).json({ error: "Menu item not found" }); return; }
   const costing = await menuItemCosting(id);
   const price = parseFloat(String(item.price));
+  const operating = await menuItemOperating(id, price);
+  const actualCost = costing.totalCost + operating.variable + operating.fixed;
+  const netProfit = price - actualCost;
+  const netMarginPct = price > 0 ? (netProfit / price) * 100 : null;
   res.json({
-    price, ...costing,
+    price, ...costing, operating, actualCost, netProfit, netMarginPct,
     profit: price - costing.totalCost,
     marginPct: price > 0 ? ((price - costing.totalCost) / price) * 100 : null,
   });

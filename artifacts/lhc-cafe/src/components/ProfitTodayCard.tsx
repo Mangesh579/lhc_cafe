@@ -8,16 +8,17 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 export default function ProfitTodayCard() {
   const { user } = useAuth();
   const [d, setD] = useState<any | null>(null);
-  const isAdmin = user?.role === "admin";
+  const role = user?.role as string | undefined;
+  const allowed = role === "admin" || role === "accountant";
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!allowed) return;
     let stop = false;
     const load = async () => {
       const start = new Date(); start.setHours(0, 0, 0, 0);
       const end = new Date(); end.setHours(23, 59, 59, 999);
       try {
-        const r = await fetch(`${API_BASE}/api/profit/daily?from=${encodeURIComponent(start.toISOString())}&to=${encodeURIComponent(end.toISOString())}`, {
+        const r = await fetch(`${API_BASE}/api/profit/net-daily?from=${encodeURIComponent(start.toISOString())}&to=${encodeURIComponent(end.toISOString())}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
         });
         if (!r.ok) return;
@@ -28,9 +29,9 @@ export default function ProfitTodayCard() {
     load();
     const t = setInterval(load, 60000);
     return () => { stop = true; clearInterval(t); };
-  }, [isAdmin]);
+  }, [allowed]);
 
-  if (!isAdmin) return null;
+  if (!allowed) return null;
   const money = (n: number) => `Rs. ${Math.round(n).toLocaleString()}`;
 
   return (
@@ -43,21 +44,32 @@ export default function ProfitTodayCard() {
         {!d ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : (
-          <div className="flex flex-wrap items-end gap-x-10 gap-y-2">
-            <div>
-              <p className={`text-3xl font-bold ${d.profit >= 0 ? "text-green-700" : "text-red-600"}`}>{money(d.profit)}</p>
-              {d.marginPct != null && <p className="text-xs text-muted-foreground">{d.marginPct.toFixed(0)}% margin</p>}
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-end gap-x-10 gap-y-2">
+              <div>
+                <p className="text-xs text-muted-foreground">Net profit (after ingredients, operating costs and overhead)</p>
+                <p className={`text-3xl font-bold ${d.net.profit >= 0 ? "text-green-700" : "text-red-600"}`}>{money(d.net.profit)}</p>
+                {d.net.marginPct != null && <p className="text-xs text-muted-foreground">{d.net.marginPct.toFixed(0)}% margin on {d.net.orders} fully costed order{d.net.orders === 1 ? "" : "s"}</p>}
+              </div>
+              <div className="text-sm">
+                <p><span className="text-muted-foreground">Net sales </span><strong>{money(d.net.revenue)}</strong></p>
+                <p><span className="text-muted-foreground">Ingredients </span><strong>{money(d.net.ingredientCost)}</strong></p>
+                <p><span className="text-muted-foreground">Gas, oil, water, soap </span><strong>{money(d.net.variableCost)}</strong></p>
+                <p><span className="text-muted-foreground">Overhead share </span><strong>{money(d.net.overheadCost)}</strong></p>
+                {d.ncCost > 0 && <p className="text-xs text-muted-foreground">includes {money(d.ncCost)} of free (NC) items</p>}
+              </div>
+              <div className="text-sm">
+                <p className="text-xs text-muted-foreground">Profit after ingredients only</p>
+                <p className="text-xl font-semibold">{money(d.gross.profit)}</p>
+              </div>
             </div>
-            <div className="text-sm">
-              <p><span className="text-muted-foreground">Net sales </span><strong>{money(d.revenue)}</strong></p>
-              <p><span className="text-muted-foreground">Ingredient cost </span><strong>{money(d.cost)}</strong></p>
-              {d.ncCost > 0 && <p className="text-xs text-muted-foreground">includes {money(d.ncCost)} of free (NC) items</p>}
-            </div>
-            {d.uncostedOrders > 0 && (
-              <p className="text-xs text-amber-700 max-w-xs">
-                {d.uncostedOrders} paid order{d.uncostedOrders === 1 ? "" : "s"} today ({money(d.uncostedRevenue)} in sales) {d.uncostedOrders === 1 ? "has" : "have"} items with no full costing and {d.uncostedOrders === 1 ? "is" : "are"} left out. Add the missing ingredient costs.
+            {d.net.excludedOrders > 0 && (
+              <p className="text-xs text-amber-700">
+                {d.net.excludedOrders} paid order{d.net.excludedOrders === 1 ? "" : "s"} today ({money(d.net.excludedRevenue)} in sales) {d.net.excludedOrders === 1 ? "has" : "have"} missing ingredient costs, operating prices, profiles or an overhead rate and {d.net.excludedOrders === 1 ? "is" : "are"} left out of net profit.
               </p>
             )}
+            {!d.overhead.available && <p className="text-xs text-amber-700">No overhead rate yet. Set it up in Expenses → Operating costs.</p>}
+            {d.overhead.estimatedBuckets.length > 0 && <p className="text-xs text-muted-foreground">Overhead uses last month's {d.overhead.estimatedBuckets.join(", ")} until this month's bills are entered.</p>}
           </div>
         )}
       </CardContent>

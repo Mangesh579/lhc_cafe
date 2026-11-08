@@ -36,7 +36,7 @@ function toNepaliDateTime(dateStr: string): string {
 }
 
 // Profit for one order: net sales (after discount, without VAT or card charge) minus ingredient cost
-function orderProfit(order: any) {
+function orderProfitLegacy(order: any) {
   const items: any[] = order.items ?? [];
   const cost = items.reduce((s, i) => s + parseFloat(String(i.unitCost ?? 0)) * i.quantity, 0);
   const complete = items.length > 0 && items.every(i => i.costComplete);
@@ -46,7 +46,7 @@ function orderProfit(order: any) {
   return { cost, complete, revenue, profit: revenue - cost };
 }
 
-function ProfitBreakdown({ order }: { order: any }) {
+function ProfitBreakdownLegacy({ order }: { order: any }) {
   if (order.orderStatus === "cancelled" || order.paymentStatus === "cancelled") return null;
   const items: any[] = order.items ?? [];
   if (items.length === 0) return null;
@@ -104,6 +104,110 @@ function ProfitBreakdown({ order }: { order: any }) {
   );
 }
 
+// Net profit for one order: net sales (after discount, without VAT) minus ingredients, operating costs and overhead share
+function orderProfit(order: any) {
+  const items: any[] = order.items ?? [];
+  let ingredient = 0, variable = 0, fixed = 0;
+  let ingredientOk = items.length > 0, opOk = items.length > 0;
+  for (const i of items) {
+    const q = i.quantity;
+    ingredient += parseFloat(String(i.unitCost ?? 0)) * q;
+    if (!(i.unitCost != null && i.costComplete)) ingredientOk = false;
+    const op = i.opCost;
+    if (op) {
+      variable += op.variable * q; fixed += op.fixed * q;
+      if (!(op.variableComplete && op.fixedComplete)) opOk = false;
+    } else opOk = false;
+  }
+  const total = parseFloat(String(order.totalAmount ?? 0));
+  const vat = parseFloat(String(order.vatAmount ?? 0));
+  const revenue = order.isNc ? 0 : Math.max(0, total - vat);
+  const cost = ingredient + variable + fixed;
+  return { revenue, ingredient, variable, fixed, cost, ingredientOk, opOk, complete: ingredientOk && opOk, profit: revenue - cost, grossProfit: revenue - ingredient };
+}
+
+function ProfitBreakdown({ order }: { order: any }) {
+  if (order.orderStatus === "cancelled" || order.paymentStatus === "cancelled") return null;
+  const items: any[] = order.items ?? [];
+  if (items.length === 0) return null;
+  const p = orderProfit(order);
+  const resNames: string[] = [];
+  for (const i of items) for (const r of i.opCost?.resources ?? []) if (!resNames.includes(r.resource)) resNames.push(r.resource);
+  const m = (n: number) => n.toFixed(2);
+  const resCost = (i: any, name: string) => (i.opCost?.resources ?? []).find((r: any) => r.resource === name)?.cost ?? 0;
+  const noProfile = items.some(i => i.opCost && !i.opCost.profileAssigned);
+  const noPrice = items.some(i => i.opCost?.profileAssigned && !i.opCost.variableComplete);
+  const noRate = items.some(i => i.opCost && !i.opCost.fixedComplete);
+  const cell = "px-2 py-1 text-right whitespace-nowrap";
+  return (
+    <div className="mt-2 border rounded-md bg-background overflow-hidden">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-3 py-1.5 bg-muted/40">Cost &amp; net profit (admin and accountant only). Figures per dish unless stated.</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[11px]">
+          <thead className="text-muted-foreground">
+            <tr>
+              <th className="px-3 py-1 text-left font-medium">Item</th>
+              <th className={cell}>Qty</th>
+              <th className={cell}>Selling price</th>
+              <th className={cell}>Ingredients</th>
+              {resNames.map(n => <th key={n} className={cell}>{n}</th>)}
+              <th className={cell}>Salary share</th>
+              <th className={cell}>Electricity share</th>
+              <th className={cell}>Other overhead</th>
+              <th className={cell}>Total cost</th>
+              <th className={cell}>Net profit</th>
+              <th className="px-3 py-1 text-right font-medium whitespace-nowrap">Total net profit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((i: any) => {
+              const price = parseFloat(String(i.unitPrice ?? 0));
+              const ing = i.unitCost != null ? parseFloat(String(i.unitCost)) : 0;
+              const op = i.opCost;
+              const total = ing + (op ? op.variable + op.fixed : 0);
+              const ok = i.unitCost != null && i.costComplete && op && op.variableComplete && op.fixedComplete;
+              const per = price - total;
+              const tone = ok ? (per >= 0 ? "text-green-700" : "text-red-600") : "text-muted-foreground";
+              return (
+                <tr key={i.id} className="border-t">
+                  <td className="px-3 py-1">{i.menuItemName}</td>
+                  <td className={cell}>{i.quantity}</td>
+                  <td className={cell}>{m(price)}</td>
+                  <td className={cell}>{i.unitCost != null ? m(ing) : "—"}{i.costEstimated && <span className="text-muted-foreground"> est.</span>}</td>
+                  {resNames.map(n => <td key={n} className={cell}>{m(resCost(i, n))}</td>)}
+                  <td className={cell}>{m(op?.salary ?? 0)}</td>
+                  <td className={cell}>{m(op?.electricity ?? 0)}</td>
+                  <td className={cell}>{m(op?.other ?? 0)}</td>
+                  <td className={`${cell} font-medium`}>{m(total)}</td>
+                  <td className={`${cell} ${tone}`}>{m(per)}</td>
+                  <td className={`px-3 py-1 text-right whitespace-nowrap font-medium ${tone}`}>{m(per * i.quantity)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-3 py-2 border-t bg-muted/20 text-xs space-y-0.5">
+        <div className="flex justify-between"><span>{order.isNc ? "Sales (Not Chargeable, nothing collected)" : "Net sales (after discount, without VAT)"}</span><span>Rs. {m(p.revenue)}</span></div>
+        <div className="flex justify-between"><span>Ingredient cost</span><span>Rs. {m(p.ingredient)}</span></div>
+        <div className="flex justify-between"><span>Operating costs ({resNames.join(", ") || "none"})</span><span>Rs. {m(p.variable)}</span></div>
+        <div className="flex justify-between"><span>Allocated overhead (salary, electricity, other)</span><span>Rs. {m(p.fixed)}</span></div>
+        <div className="flex justify-between border-t pt-0.5"><span>Total actual cost</span><span>Rs. {m(p.cost)}</span></div>
+        <div className="flex justify-between font-semibold">
+          <span>Total net profit of this order</span>
+          {p.complete
+            ? <span className={p.profit >= 0 ? "text-green-700" : "text-red-600"}>Rs. {m(p.profit)}{p.revenue > 0 && ` (${((p.profit / p.revenue) * 100).toFixed(0)}%)`}</span>
+            : <span className="text-amber-700">Not final</span>}
+        </div>
+        {!p.ingredientOk && <p className="text-amber-700">Some ingredient costs are missing.</p>}
+        {noProfile && <p className="text-amber-700">Some dishes have no operating profile (Expenses → Operating costs).</p>}
+        {noPrice && <p className="text-amber-700">Some resource prices are not set.</p>}
+        {noRate && <p className="text-amber-700">No overhead rate for this month yet.</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function OrderLog() {
   const [useNepaliDate, setUseNepaliDate] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
@@ -124,6 +228,7 @@ export default function OrderLog() {
   const [allCustomers, setAllCustomers] = useState<any[]>([]);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const canSeeProfit = (user?.role as string | undefined) === "admin" || (user?.role as string | undefined) === "accountant";
   const { toast } = useToast();
   const [printOrder, setPrintOrder] = useState<any>(null);
   const [printBillType, setPrintBillType] = useState<"pan" | "vat">("pan");
@@ -224,7 +329,7 @@ export default function OrderLog() {
       return true;
     });
 
-    const headers = ["Order ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Total", "Discount", ...(isAdmin ? ["Net Sales", "Ingredient Cost", "Profit", "Costing"] : [])];
+    const headers = ["Order ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Total", "Discount", ...(canSeeProfit ? ["Net Sales", "Ingredient Cost", "Operating Cost", "Overhead Share", "Total Cost", "Net Profit", "Costing"] : [])];
     const rows = ordersToExport.map(o => [
       o.id,
       new Date((o as any).backdatedAt ?? o.createdAt).toLocaleString(),
@@ -236,8 +341,8 @@ export default function OrderLog() {
       parseFloat(String(o.totalAmount)).toFixed(0),
       parseFloat(String((o as any).discountAmount ?? 0)).toFixed(0),
     ]);
-    const profitCols = (o: any) => { const p = orderProfit(o); return [p.revenue.toFixed(2), p.cost.toFixed(2), p.complete ? p.profit.toFixed(2) : "", p.complete ? "Complete" : "Incomplete"]; };
-    const csv = [headers, ...rows.map((r, idx) => isAdmin ? [...r, ...profitCols(ordersToExport[idx])] : r)].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const profitCols = (o: any) => { const p = orderProfit(o); return [p.revenue.toFixed(2), p.ingredient.toFixed(2), p.variable.toFixed(2), p.fixed.toFixed(2), p.cost.toFixed(2), p.complete ? p.profit.toFixed(2) : "", p.complete ? "Complete" : "Incomplete"]; };
+    const csv = [headers, ...rows.map((r, idx) => canSeeProfit ? [...r, ...profitCols(ordersToExport[idx])] : r)].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -269,14 +374,14 @@ export default function OrderLog() {
       "Total": parseFloat(String(o.totalAmount)).toFixed(0),
       "Discount": parseFloat(String((o as any).discountAmount ?? 0)).toFixed(0),
     }));
-    const rowsOut = isAdmin ? rows.map((r, idx) => {
+    const rowsOut = canSeeProfit ? rows.map((r, idx) => {
       const p = orderProfit(ordersToExport[idx] as any);
-      return { ...r, "Net Sales": Number(p.revenue.toFixed(2)), "Ingredient Cost": Number(p.cost.toFixed(2)), "Profit": p.complete ? Number(p.profit.toFixed(2)) : "", "Costing": p.complete ? "Complete" : "Incomplete" };
+      return { ...r, "Net Sales": Number(p.revenue.toFixed(2)), "Ingredient Cost": Number(p.ingredient.toFixed(2)), "Operating Cost": Number(p.variable.toFixed(2)), "Overhead Share": Number(p.fixed.toFixed(2)), "Total Cost": Number(p.cost.toFixed(2)), "Net Profit": p.complete ? Number(p.profit.toFixed(2)) : "", "Costing": p.complete ? "Complete" : "Incomplete" };
     }) : rows;
     const ws = XLSX.utils.json_to_sheet(rowsOut);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Orders");
-    if (isAdmin) {
+    if (canSeeProfit) {
       const itemRows: any[] = [];
       for (const o of ordersToExport as any[]) {
         if (o.orderStatus === "cancelled") continue;
@@ -284,6 +389,7 @@ export default function OrderLog() {
           const price = parseFloat(String(i.unitPrice ?? 0));
           const costed = i.unitCost != null && i.costComplete;
           const cost = costed ? parseFloat(String(i.unitCost)) : null;
+          const opCost = i.opCost ? i.opCost.variable + i.opCost.fixed : null;
           itemRows.push({
             "Order ID": o.id,
             "Date": new Date(o.backdatedAt ?? o.createdAt).toLocaleString(),
@@ -291,8 +397,9 @@ export default function OrderLog() {
             "Qty": i.quantity,
             "Selling Price": price,
             "Ingredient Cost": cost ?? "",
-            "Profit / Item": cost != null ? Number((price - cost).toFixed(2)) : "",
-            "Total Profit": cost != null ? Number(((price - cost) * i.quantity).toFixed(2)) : "",
+            "Operating + Overhead / Item": opCost != null ? Number(opCost.toFixed(2)) : "",
+            "Net Profit / Item": cost != null && opCost != null ? Number((price - cost - opCost).toFixed(2)) : "",
+            "Total Net Profit": cost != null && opCost != null ? Number(((price - cost - opCost) * i.quantity).toFixed(2)) : "",
             "Cost Source": costed ? (i.costEstimated ? "Estimated" : "At time of sale") : "Incomplete",
           });
         }
@@ -334,16 +441,16 @@ export default function OrderLog() {
       styles: { fontSize: 8 },
     });
     const rangeLabel = exportFrom || exportTo ? `${exportFrom || "start"}_to_${exportTo || "now"}` : new Date().toISOString().slice(0,10);
-    if (isAdmin) {
+    if (canSeeProfit) {
       const y = ((doc as any).lastAutoTable?.finalY ?? 22) + 10;
       doc.setFontSize(12);
       doc.text("Profit summary (admin)", 14, y);
       autoTable(doc, {
         startY: y + 4,
-        head: [["Order", "Net sales", "Ingredient cost", "Profit", "Costing"]],
+        head: [["Order", "Net sales", "Ingredients", "Operating + overhead", "Net profit", "Costing"]],
         body: ordersToExport.filter(o => o.orderStatus !== "cancelled").map(o => {
           const p = orderProfit(o as any);
-          return [o.id, p.revenue.toFixed(2), p.cost.toFixed(2), p.complete ? p.profit.toFixed(2) : "-", p.complete ? "Complete" : "Incomplete"];
+          return [o.id, p.revenue.toFixed(2), p.ingredient.toFixed(2), (p.variable + p.fixed).toFixed(2), p.complete ? p.profit.toFixed(2) : "-", p.complete ? "Complete" : "Incomplete"];
         }),
         styles: { fontSize: 8 },
       });
@@ -529,7 +636,7 @@ export default function OrderLog() {
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Avg. Order</p><p className="text-xl font-bold mt-1">Rs. {paidCount > 0 ? (totalSales / paidCount).toFixed(0) : 0}</p></CardContent></Card>
       </div>
 
-      {isAdmin && (() => {
+      {canSeeProfit && (() => {
         let revenue = 0, cost = 0, nUncosted = 0;
         for (const o of filteredOrders as any[]) {
           if (o.paymentStatus !== "paid") continue;
@@ -540,9 +647,9 @@ export default function OrderLog() {
         return (
           <Card className="border-dashed">
             <CardContent className="p-3 flex flex-wrap items-center gap-x-8 gap-y-1 text-sm">
-              <span className="text-xs font-semibold text-muted-foreground uppercase">Profit (paid, fully costed)</span>
+              <span className="text-xs font-semibold text-muted-foreground uppercase">Net profit (paid, fully costed)</span>
               <span>Sales <strong>Rs. {revenue.toFixed(0)}</strong></span>
-              <span>Ingredient cost <strong>Rs. {cost.toFixed(0)}</strong></span>
+              <span>Total cost <strong>Rs. {cost.toFixed(0)}</strong></span>
               <span>Profit <strong className={profit >= 0 ? "text-green-700" : "text-red-600"}>Rs. {profit.toFixed(0)}</strong>{revenue > 0 && <span className="text-xs text-muted-foreground"> ({((profit / revenue) * 100).toFixed(0)}%)</span>}</span>
               {nUncosted > 0 && <span className="text-xs text-amber-700">{nUncosted} paid order{nUncosted === 1 ? "" : "s"} not fully costed, left out</span>}
             </CardContent>
@@ -802,7 +909,7 @@ export default function OrderLog() {
                       {item.notes && <p className="text-xs text-amber-600 italic ml-4 mt-0.5">↳ {item.notes}</p>}
                     </div>
                   ))}
-                {isAdmin && <ProfitBreakdown order={order} />}
+                {canSeeProfit && <ProfitBreakdown order={order} />}
                 {(order as any).kotCancellations?.length > 0 && (
                   <div className="space-y-0.5 mt-1">
                     {(order as any).kotCancellations.map((c: any) => (
@@ -940,7 +1047,7 @@ export default function OrderLog() {
                                 {item.notes && <p className="text-xs text-amber-600 italic ml-4 mt-0.5">↳ {item.notes}</p>}
                               </div>
                             ))}
-                            {isAdmin && <ProfitBreakdown order={order} />}
+                            {canSeeProfit && <ProfitBreakdown order={order} />}
                             {(order as any).kotCancellations?.length > 0 && (
                               <div className="space-y-0.5 mt-1">
                                 {(order as any).kotCancellations.map((c: any) => (

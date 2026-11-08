@@ -344,6 +344,22 @@ function RecipeDialog({ item, inventory, open, onClose }: { item: any; inventory
                   <span className={costing.profit >= 0 ? "text-green-700" : "text-red-600"}>Rs. {costing.profit.toFixed(2)}{costing.marginPct != null && ` (${costing.marginPct.toFixed(0)}%)`}</span>
                 </div>
               </div>
+              {costing.operating && (
+                <div className="px-3 py-2 border-t text-sm space-y-0.5">
+                  {costing.operating.resources.map((r: any) => (
+                    <div key={r.resource} className="flex justify-between text-xs"><span>{r.resource} ({parseFloat(r.quantity.toFixed(4))} {r.unit})</span><span>Rs. {r.cost.toFixed(2)}</span></div>
+                  ))}
+                  <div className="flex justify-between text-xs"><span>Salary share</span><span>Rs. {costing.operating.salary.toFixed(2)}</span></div>
+                  <div className="flex justify-between text-xs"><span>Electricity share</span><span>Rs. {costing.operating.electricity.toFixed(2)}</span></div>
+                  <div className="flex justify-between text-xs"><span>Other overhead share</span><span>Rs. {costing.operating.other.toFixed(2)}</span></div>
+                  <div className="flex justify-between font-semibold border-t pt-1"><span>Actual cost price</span><span>Rs. {costing.actualCost.toFixed(2)}</span></div>
+                  <div className="flex justify-between font-semibold">
+                    <span>Net profit per serving</span>
+                    <span className={costing.netProfit >= 0 ? "text-green-700" : "text-red-600"}>Rs. {costing.netProfit.toFixed(2)}{costing.netMarginPct != null && ` (${costing.netMarginPct.toFixed(0)}%)`}</span>
+                  </div>
+                  {!costing.operating.profileAssigned && <p className="text-xs text-amber-700">No operating profile yet. Assign one in Expenses → Operating costs.</p>}
+                </div>
+              )}
               {!costing.complete && <p className="px-3 py-2 text-xs text-amber-700 bg-amber-50 border-t border-amber-200">Some ingredients have no cost yet, so this profit is not final. Set their cost in Inventory.</p>}
             </div>
           )}
