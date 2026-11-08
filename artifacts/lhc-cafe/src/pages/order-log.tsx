@@ -42,8 +42,7 @@ function orderProfit(order: any) {
   const complete = items.length > 0 && items.every(i => i.costComplete);
   const total = parseFloat(String(order.totalAmount ?? 0));
   const vat = parseFloat(String(order.vatAmount ?? 0));
-  const card = parseFloat(String(order.cardSurcharge ?? 0));
-  const revenue = order.isNc ? 0 : Math.max(0, total - vat - card);
+  const revenue = order.isNc ? 0 : Math.max(0, total - vat);
   return { cost, complete, revenue, profit: revenue - cost };
 }
 
@@ -225,7 +224,7 @@ export default function OrderLog() {
       return true;
     });
 
-    const headers = ["Order ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Total", "Discount"];
+    const headers = ["Order ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Total", "Discount", ...(isAdmin ? ["Net Sales", "Ingredient Cost", "Profit", "Costing"] : [])];
     const rows = ordersToExport.map(o => [
       o.id,
       new Date((o as any).backdatedAt ?? o.createdAt).toLocaleString(),
@@ -237,7 +236,8 @@ export default function OrderLog() {
       parseFloat(String(o.totalAmount)).toFixed(0),
       parseFloat(String((o as any).discountAmount ?? 0)).toFixed(0),
     ]);
-    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const profitCols = (o: any) => { const p = orderProfit(o); return [p.revenue.toFixed(2), p.cost.toFixed(2), p.complete ? p.profit.toFixed(2) : "", p.complete ? "Complete" : "Incomplete"]; };
+    const csv = [headers, ...rows.map((r, idx) => isAdmin ? [...r, ...profitCols(ordersToExport[idx])] : r)].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -269,9 +269,36 @@ export default function OrderLog() {
       "Total": parseFloat(String(o.totalAmount)).toFixed(0),
       "Discount": parseFloat(String((o as any).discountAmount ?? 0)).toFixed(0),
     }));
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const rowsOut = isAdmin ? rows.map((r, idx) => {
+      const p = orderProfit(ordersToExport[idx] as any);
+      return { ...r, "Net Sales": Number(p.revenue.toFixed(2)), "Ingredient Cost": Number(p.cost.toFixed(2)), "Profit": p.complete ? Number(p.profit.toFixed(2)) : "", "Costing": p.complete ? "Complete" : "Incomplete" };
+    }) : rows;
+    const ws = XLSX.utils.json_to_sheet(rowsOut);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Orders");
+    if (isAdmin) {
+      const itemRows: any[] = [];
+      for (const o of ordersToExport as any[]) {
+        if (o.orderStatus === "cancelled") continue;
+        for (const i of o.items ?? []) {
+          const price = parseFloat(String(i.unitPrice ?? 0));
+          const costed = i.unitCost != null && i.costComplete;
+          const cost = costed ? parseFloat(String(i.unitCost)) : null;
+          itemRows.push({
+            "Order ID": o.id,
+            "Date": new Date(o.backdatedAt ?? o.createdAt).toLocaleString(),
+            "Item": i.menuItemName,
+            "Qty": i.quantity,
+            "Selling Price": price,
+            "Ingredient Cost": cost ?? "",
+            "Profit / Item": cost != null ? Number((price - cost).toFixed(2)) : "",
+            "Total Profit": cost != null ? Number(((price - cost) * i.quantity).toFixed(2)) : "",
+            "Cost Source": costed ? (i.costEstimated ? "Estimated" : "At time of sale") : "Incomplete",
+          });
+        }
+      }
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(itemRows), "Items & Profit");
+    }
     const rangeLabel = exportFrom || exportTo ? `${exportFrom || "start"}_to_${exportTo || "now"}` : new Date().toISOString().slice(0,10);
     XLSX.writeFile(wb, `order-log-${rangeLabel}.xlsx`);
     setExportDialogOpen(false);
@@ -307,6 +334,20 @@ export default function OrderLog() {
       styles: { fontSize: 8 },
     });
     const rangeLabel = exportFrom || exportTo ? `${exportFrom || "start"}_to_${exportTo || "now"}` : new Date().toISOString().slice(0,10);
+    if (isAdmin) {
+      const y = ((doc as any).lastAutoTable?.finalY ?? 22) + 10;
+      doc.setFontSize(12);
+      doc.text("Profit summary (admin)", 14, y);
+      autoTable(doc, {
+        startY: y + 4,
+        head: [["Order", "Net sales", "Ingredient cost", "Profit", "Costing"]],
+        body: ordersToExport.filter(o => o.orderStatus !== "cancelled").map(o => {
+          const p = orderProfit(o as any);
+          return [o.id, p.revenue.toFixed(2), p.cost.toFixed(2), p.complete ? p.profit.toFixed(2) : "-", p.complete ? "Complete" : "Incomplete"];
+        }),
+        styles: { fontSize: 8 },
+      });
+    }
     doc.save(`order-log-${rangeLabel}.pdf`);
     setExportDialogOpen(false);
   };
@@ -349,9 +390,9 @@ export default function OrderLog() {
           <p style="font-weight:bold;">Issued To: ${(order as any).ncPersonName}</p>
           ${(order as any).ncReason ? `<p>Reason: ${(order as any).ncReason}</p>` : ""}
           <div style="border-top:1px dashed #999;border-bottom:1px dashed #999;padding:8px 0;margin:8px 0;">
-            ${order.items?.map((i: any) => `<div style="display:flex;justify-content:space-between;"><span>${i.quantity}× ${i.menuItemName}</span><span>Rs. ${parseFloat(i.subtotal).toFixed(0)}</span></div>`).join("")}
+            ${order.items?.map((i: any) => `<div style="display:flex;justify-content:space-between;"><span>${i.quantity}× ${i.menuItemName}</span><span>${isNcOrder ? (i.ncCost != null ? "Rs. " + Number(i.ncCost).toFixed(2) : "-") : "Rs. " + parseFloat(i.subtotal).toFixed(0)}</span></div>`).join("")}
           </div>
-          <div style="display:flex;justify-content:space-between;font-weight:bold;"><span>VALUE (NOT COLLECTED)</span><span>Rs. ${total.toFixed(0)}</span></div>
+          <div style="display:flex;justify-content:space-between;font-weight:bold;"><span>COST VALUE (NOT CHARGED)</span><span>Rs. ${total.toFixed(2)}</span></div>
           <div style="margin-top:28px;padding-top:16px;border-top:1px solid #999;display:flex;justify-content:space-between;font-size:11px;">
             <div style="width:45%;"><div style="border-bottom:1px solid #1a1a1a;height:28px;"></div><p style="margin-top:4px;">Authorized By (Staff)</p></div>
             <div style="width:45%;"><div style="border-bottom:1px solid #1a1a1a;height:28px;"></div><p style="margin-top:4px;">Received By (Signature)</p></div>
@@ -409,13 +450,13 @@ export default function OrderLog() {
     } catch { setPrintLogs([]); }
   };
 
-  const totalSales = filteredOrders.reduce((sum, o) => o.paymentStatus !== 'paid' ? sum : sum + parseFloat(String(o.totalAmount)), 0);
+  const totalSales = filteredOrders.reduce((sum, o) => o.paymentStatus !== 'paid' || (o as any).isNc ? sum : sum + parseFloat(String(o.totalAmount)), 0);
   const paidCount = filteredOrders.filter(o => o.paymentStatus === 'paid').length;
 
   const categorySales = new Map<number, { name: string; qty: number; revenue: number }>();
   if (categoryFilter === "all") {
     filteredOrders.forEach(order => {
-      if (order.paymentStatus !== 'paid') return;
+      if (order.paymentStatus !== 'paid' || (order as any).isNc) return;
       order.items?.forEach((item: any) => {
         const catId = itemCategoryMap.get(item.menuItemId);
         if (!catId) return;

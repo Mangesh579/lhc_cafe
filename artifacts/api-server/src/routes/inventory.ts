@@ -184,6 +184,63 @@ router.get("/inventory/usage-map", authenticate, async (_req, res): Promise<void
   res.json(map);
 });
 
+router.get("/inventory/export-data", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  const isAdmin = req.user?.role === "admin";
+  const items = await db.select().from(inventoryItemsTable).orderBy(inventoryItemsTable.department, inventoryItemsTable.name);
+
+  // Net quantity used by orders (includes prep waste, minus quantities restored by cancellations)
+  const logs = await db
+    .select({ id: inventoryLogsTable.inventoryItemId, change: inventoryLogsTable.changeAmount, createdAt: inventoryLogsTable.createdAt })
+    .from(inventoryLogsTable)
+    .where(sql`${inventoryLogsTable.orderId} IS NOT NULL`);
+  const since = Date.now() - 30 * 24 * 3600 * 1000;
+  const usage = new Map<number, { all: number; d30: number }>();
+  for (const l of logs) {
+    if (l.id == null) continue;
+    const used = -parseFloat(String(l.change));
+    const u = usage.get(l.id) ?? { all: 0, d30: 0 };
+    u.all += used;
+    if (new Date(l.createdAt).getTime() >= since) u.d30 += used;
+    usage.set(l.id, u);
+  }
+
+  const recipeRows = await db
+    .select({ inventoryItemId: recipesTable.inventoryItemId, menuName: menuItemsTable.name })
+    .from(recipesTable)
+    .innerJoin(menuItemsTable, eq(recipesTable.menuItemId, menuItemsTable.id));
+  const menuUse = new Map<number, string[]>();
+  for (const r of recipeRows) menuUse.set(r.inventoryItemId, [...(menuUse.get(r.inventoryItemId) ?? []), r.menuName]);
+
+  const compRows = await db
+    .select({ child: ingredientComponentsTable.childItemId, parentName: inventoryItemsTable.name })
+    .from(ingredientComponentsTable)
+    .innerJoin(inventoryItemsTable, eq(ingredientComponentsTable.parentItemId, inventoryItemsTable.id));
+  const parentUse = new Map<number, string[]>();
+  for (const c of compRows) parentUse.set(c.child, [...(parentUse.get(c.child) ?? []), c.parentName]);
+  const compositeIds = new Set((await db.select({ p: ingredientComponentsTable.parentItemId }).from(ingredientComponentsTable)).map(r => r.p));
+
+  const rows = items.map(i => {
+    const stock = parseFloat(String(i.currentStock));
+    const min = i.minStockLevel != null ? parseFloat(String(i.minStockLevel)) : null;
+    const status = stock <= 0 ? "Out of Stock" : (min != null && stock < min ? "Low Stock" : "In Stock");
+    const cost = i.costPerUnit != null ? parseFloat(String(i.costPerUnit)) : null;
+    const u = usage.get(i.id) ?? { all: 0, d30: 0 };
+    return {
+      id: i.id, name: i.name, department: i.department, category: i.category ?? null, unit: i.unit,
+      currentStock: stock, minStockLevel: min, status,
+      usedAll: Math.round(u.all * 100) / 100, used30: Math.round(u.d30 * 100) / 100,
+      usedInMenu: (menuUse.get(i.id) ?? []).join(", "),
+      usedInIngredients: (parentUse.get(i.id) ?? []).join(", "),
+      isComposite: compositeIds.has(i.id),
+      caloriesPerUnit: i.caloriesPerUnit != null ? parseFloat(String(i.caloriesPerUnit)) : null,
+      costPerUnit: cost, // removed automatically for non-admins
+      inventoryValue: isAdmin && cost != null ? Math.round(Math.max(0, stock) * cost * 100) / 100 : null,
+      usageCost30: isAdmin && cost != null ? Math.round(u.d30 * cost * 100) / 100 : null,
+    };
+  });
+  res.json({ rows, generatedAt: new Date().toISOString() });
+});
+
 router.get("/inventory/usage-report", authenticate, async (req, res): Promise<void> => {
   const from = new Date(String(req.query.from ?? ""));
   const to = new Date(String(req.query.to ?? ""));

@@ -540,6 +540,64 @@ export default function Inventory() {
   const [usageDept, setUsageDept] = useState(role === "head_chef" ? "kitchen" : role === "head_barista" ? "drink" : "all");
   const [usageLoading, setUsageLoading] = useState(false);
 
+  const [ingExporting, setIngExporting] = useState(false);
+  const exportAllIngredients = async () => {
+    setIngExporting(true);
+    try {
+      const d = await APIJSON("/inventory/export-data");
+      const rows: any[] = d.rows ?? [];
+      const admin = role === "admin";
+      const deptLabel = (x: string) => (x === "kitchen" ? "Kitchen" : "Drink / Coffee");
+
+      const sheet: any[] = rows.map(r => ({
+        "Ingredient": r.name,
+        "Department": deptLabel(r.department),
+        "Category": r.category ?? "",
+        "Unit": r.unit,
+        ...(admin ? { "Cost per unit (Rs.)": r.isComposite ? "from components" : (r.costPerUnit ?? "missing") } : {}),
+        "Current stock": r.currentStock,
+        "Minimum stock": r.minStockLevel ?? "",
+        "Stock status": r.status,
+        ...(admin ? { "Inventory value (Rs.)": r.inventoryValue ?? "" } : {}),
+        "Used, last 30 days": r.used30,
+        "Used, all time": r.usedAll,
+        ...(admin ? { "Usage cost, last 30 days (Rs.)": r.usageCost30 ?? "" } : {}),
+        "Used in menu items": r.usedInMenu,
+        "Component of (sauces etc.)": r.usedInIngredients,
+        "Calories per unit": r.caloriesPerUnit ?? "",
+      }));
+      if (admin) {
+        sheet.push({});
+        sheet.push({ "Ingredient": "TOTAL INVENTORY VALUE", "Inventory value (Rs.)": Math.round(rows.reduce((s, r) => s + (r.inventoryValue ?? 0), 0) * 100) / 100 });
+      }
+
+      const groups = new Map<string, { dept: string; cat: string; items: number; low: number; out: number; value: number }>();
+      for (const r of rows) {
+        const cat = r.category ?? "(uncategorised)";
+        const key = `${r.department}|${cat}`;
+        const g = groups.get(key) ?? { dept: deptLabel(r.department), cat, items: 0, low: 0, out: 0, value: 0 };
+        g.items++;
+        if (r.status === "Low Stock") g.low++;
+        if (r.status === "Out of Stock") g.out++;
+        g.value += r.inventoryValue ?? 0;
+        groups.set(key, g);
+      }
+      const summary = Array.from(groups.values()).map(g => ({
+        "Department": g.dept, "Category": g.cat, "Ingredients": g.items, "Low stock": g.low, "Out of stock": g.out,
+        ...(admin ? { "Inventory value (Rs.)": Math.round(g.value * 100) / 100 } : {}),
+      }));
+
+      const ws1 = XLSX.utils.json_to_sheet(sheet);
+      ws1["!cols"] = Object.keys(sheet[0] ?? {}).map(k => ({ wch: Math.max(12, Math.min(40, k.length + 4)) }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws1, "Ingredients");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), "By Category");
+      XLSX.writeFile(wb, `ingredients-${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+      toast({ title: `Exported ${rows.length} ingredients` });
+    } catch { toast({ title: "Failed to export", variant: "destructive" }); }
+    finally { setIngExporting(false); }
+  };
+
   const runUsageExport = async (fmt: "excel" | "csv" | "pdf") => {
     const fromD = new Date(`${usageDate}T${usageFrom}:00`);
     const toD = new Date(`${usageDate}T${usageTo}:00`);
@@ -763,7 +821,10 @@ export default function Inventory() {
     <div className="p-6 max-w-6xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-serif font-bold">Inventory</h1>
-        <Button variant="outline" onClick={() => setUsageDialog(true)}>Daily Usage Report</Button>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" onClick={exportAllIngredients} disabled={ingExporting}>{ingExporting ? "Exporting…" : "Export All Ingredients"}</Button>
+          <Button variant="outline" onClick={() => setUsageDialog(true)}>Daily Usage Report</Button>
+        </div>
       </div>
 
       {lowStockItems.length > 0 && (

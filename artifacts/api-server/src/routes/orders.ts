@@ -105,7 +105,7 @@ async function getOrderWithItems(orderId: number) {
 
   const corrections = await db.select().from(orderCorrectionsTable).where(eq(orderCorrectionsTable.originalOrderId, orderId)).orderBy(desc(orderCorrectionsTable.createdAt));
   const kotCancellations = await db.select().from(orderKotCancellationsTable).where(eq(orderKotCancellationsTable.orderId, orderId)).orderBy(orderKotCancellationsTable.cancelledAt);
-  return { ...order, items, corrections, kotCancellations };
+  return { ...order, items: order.isNc ? items.map((i: any) => ({ ...i, ncCost: i.unitCost != null ? Math.round(parseFloat(String(i.unitCost)) * i.quantity * 100) / 100 : null, ncCostComplete: !!i.costComplete })) : items, corrections, kotCancellations };
 }
 
 router.get("/orders", authenticate, async (req, res): Promise<void> => {
@@ -183,7 +183,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
       const corrections = await db.select().from(orderCorrectionsTable).where(eq(orderCorrectionsTable.originalOrderId, order.id)).orderBy(desc(orderCorrectionsTable.createdAt));
       const kotCancellations = await db.select().from(orderKotCancellationsTable).where(eq(orderKotCancellationsTable.orderId, order.id)).orderBy(orderKotCancellationsTable.cancelledAt);
 
-      return { ...order, items, corrections, kotCancellations };
+      return { ...order, items: order.isNc ? items.map((i: any) => ({ ...i, ncCost: i.unitCost != null ? Math.round(parseFloat(String(i.unitCost)) * i.quantity * 100) / 100 : null, ncCostComplete: !!i.costComplete })) : items, corrections, kotCancellations };
     })
   );
 
@@ -228,6 +228,14 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
   // ever collected — but still get a real invoice number for the audit
   // trail, since it's a legitimate bill (hotel comp / owner use), just at
   // zero collected revenue.
+  // NC bills are recorded at the ACTUAL INGREDIENT COST of what was given away, not the selling price
+  let ncCostTotal = 0;
+  if (isNc) {
+    for (const it of resolvedItems) {
+      const f = await itemCostFields(it.menuItemId);
+      ncCostTotal += parseFloat(f.unitCost ?? "0") * it.quantity;
+    }
+  }
   const ncInvoiceNumber = isNc ? await getNextInvoiceNumber() : undefined;
 
   // ── One bill per table: join the table's open unpaid bill as a new KOT ──
@@ -252,7 +260,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
     loyaltyCustomerId: openBill.loyaltyCustomerId ?? loyaltyCustomerId ?? null,
   }).where(eq(ordersTable.id, openBill.id)).returning() : await db.insert(ordersTable).values({
     tableId: tableId ?? null,
-    totalAmount: String(finalTotal),
+    totalAmount: isNc ? String(Math.round(ncCostTotal * 100) / 100) : String(finalTotal),
     paymentMethod: isNc ? "nc" : (paymentMethod ?? "cash"),
     paymentStatus: isNc ? "paid" : "pending",
     orderStatus: "pending",
@@ -507,7 +515,7 @@ router.get("/profit/daily", authenticate, requireAdmin, async (req, res): Promis
   let revenueAll = 0, revenue = 0, cost = 0, ncCost = 0, costedOrders = 0, uncostedOrders = 0, uncostedRevenue = 0;
   for (const o of dayOrders) {
     const its = byOrder.get(o.id) ?? [];
-    const net = o.isNc ? 0 : Math.max(0, parseFloat(String(o.totalAmount)) - parseFloat(String(o.vatAmount ?? 0)) - parseFloat(String(o.cardSurcharge ?? 0)));
+    const net = o.isNc ? 0 : Math.max(0, parseFloat(String(o.totalAmount)) - parseFloat(String(o.vatAmount ?? 0)));
     revenueAll += net;
     const complete = its.length > 0 && its.every(i => i.costComplete);
     if (!complete) { uncostedOrders++; uncostedRevenue += net; continue; }

@@ -9,6 +9,8 @@ type KotItem = {
   kotAt?: string | null;
   kotNote?: string | null;
   kotBy?: string | null;
+  ncCost?: number | null;
+  ncCostComplete?: boolean;
 };
 
 export type KotOrder = {
@@ -43,7 +45,7 @@ export function buildKotHtml(order: KotOrder, opts: { kotNumber?: number; showPr
   const by = first?.kotBy ?? order.createdBy;
   const label = totalBatches > 1 || kotNo > 1 ? `KOT #${kotNo}` : "KOT";
   const tableLabel = order.tableNumber ? (order.tableName || `Table ${order.tableNumber}`) : "TAKEAWAY";
-  const batchTotal = items.reduce((s, i) => s + parseFloat(String(i.subtotal)), 0);
+  const batchTotal = order.isNc ? items.reduce((s, i) => s + (i.ncCost ?? 0), 0) : items.reduce((s, i) => s + parseFloat(String(i.subtotal)), 0);
   const logo = `${window.location.origin}/LHC_logo.png`;
 
   const row = (l: string, r: string, extra = "") =>
@@ -51,7 +53,7 @@ export function buildKotHtml(order: KotOrder, opts: { kotNumber?: number; showPr
 
   const itemsHtml = items.map(i => `
     <div style="margin-bottom:4px;">
-      ${row(`<b>${i.quantity}× ${esc(i.menuItemName ?? "")}</b>`, showPrices ? `Rs. ${parseFloat(String(i.subtotal)).toFixed(0)}` : "")}
+      ${row(`<b>${i.quantity}× ${esc(i.menuItemName ?? "")}</b>`, showPrices ? (order.isNc ? (i.ncCost != null ? `Rs. ${i.ncCost.toFixed(2)}` : "-") : `Rs. ${parseFloat(String(i.subtotal)).toFixed(0)}`) : "")}
       ${i.notes ? `<p style="margin:0 0 0 14px;font-size:11px;font-style:italic;">↳ ${esc(i.notes)}</p>` : ""}
     </div>`).join("");
 
@@ -72,8 +74,9 @@ export function buildKotHtml(order: KotOrder, opts: { kotNumber?: number; showPr
       ${order.loyaltyCustomerName ? `<p style="margin:2px 0;">Customer: ${esc(order.loyaltyCustomerName)}</p>` : ""}
       ${order.isNc ? `<p style="margin:2px 0;font-weight:bold;">Issued To: ${esc(order.ncPersonName)}</p>${order.ncReason ? `<p style="margin:2px 0;">Reason: ${esc(order.ncReason)}</p>` : ""}` : ""}
       <div style="border-top:1px dashed #000;border-bottom:1px dashed #000;padding:8px 0;margin:8px 0;">${itemsHtml}</div>
-      ${showPrices ? row(totalBatches > 1 ? "KOT TOTAL" : (order.isNc ? "VALUE (NOT COLLECTED)" : "TOTAL"), `Rs. ${batchTotal.toFixed(0)}`, "font-weight:bold;font-size:14px;") : ""}
+      ${showPrices ? row(totalBatches > 1 ? "KOT TOTAL" : (order.isNc ? "COST VALUE (NOT CHARGED)" : "TOTAL"), `Rs. ${batchTotal.toFixed(order.isNc ? 2 : 0)}`, "font-weight:bold;font-size:14px;") : ""}
       ${showPrices && totalBatches > 1 && order.totalAmount != null ? row("Bill so far", `Rs. ${parseFloat(String(order.totalAmount)).toFixed(0)}`, "font-size:11px;margin-top:2px;") : ""}
+      ${order.isNc && items.some(i => i.ncCostComplete === false) ? '<p style="margin:6px 0 0;font-size:10px;">* Some ingredient costs are not set, so this cost value is incomplete.</p>' : ""}
       ${note ? `<p style="margin:8px 0 0;font-size:11px;">Note: ${esc(note)}</p>` : ""}
       ${order.isNc ? `<div style="margin-top:26px;padding-top:14px;border-top:1px solid #000;display:flex;justify-content:space-between;font-size:11px;"><div style="width:45%;"><div style="border-bottom:1px solid #000;height:26px;"></div><p style="margin:4px 0 0;">Authorized By (Staff)</p></div><div style="width:45%;"><div style="border-bottom:1px solid #000;height:26px;"></div><p style="margin:4px 0 0;">Received By (Signature)</p></div></div>` : ""}
       <p style="text-align:center;margin:14px 0 0;font-size:11px;">Thank you for visiting LHC!</p>

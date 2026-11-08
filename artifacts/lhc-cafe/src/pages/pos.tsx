@@ -429,7 +429,7 @@ export default function POS() {
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="cash">Cash</TabsTrigger>
                 <TabsTrigger value="nabil_qr">Nabil QR</TabsTrigger>
-                <TabsTrigger value="esewa">Card</TabsTrigger>
+                <TabsTrigger value="card">Card</TabsTrigger>
               </TabsList>
               <TabsContent value="nabil_qr" className="mt-1">
                 <div className="flex justify-center p-2 bg-white rounded-md border">

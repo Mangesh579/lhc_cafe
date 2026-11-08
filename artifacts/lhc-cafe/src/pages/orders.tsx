@@ -100,7 +100,7 @@ export default function Orders() {
 
   const openPaymentModal = (order: any) => {
     setPaymentModalOrder(order);
-    setPaymentMethod(order.paymentMethod ?? "cash");
+    setPaymentMethod(order.paymentMethod === "esewa" ? "card" : (order.paymentMethod ?? "cash"));
     setDiscount("");
     setDiscountComment("");
     setBillType("pan");
@@ -260,9 +260,9 @@ export default function Orders() {
         <p style="font-weight:bold;">Issued To: ${order.ncPersonName}</p>
         ${order.ncReason ? `<p>Reason: ${order.ncReason}</p>` : ""}
         <div style="border-top:1px dashed #999;border-bottom:1px dashed #999;padding:8px 0;margin:8px 0;">
-          ${order.items?.map((i: any) => `<div style="display:flex;justify-content:space-between;"><span>${i.quantity}× ${i.menuItemName}</span><span>Rs. ${parseFloat(i.subtotal).toFixed(0)}</span></div>`).join("")}
+          ${order.items?.map((i: any) => `<div style="display:flex;justify-content:space-between;"><span>${i.quantity}× ${i.menuItemName}</span><span>${i.ncCost != null ? "Rs. " + Number(i.ncCost).toFixed(2) : "-"}</span></div>`).join("")}
         </div>
-        <div style="display:flex;justify-content:space-between;font-weight:bold;"><span>VALUE (NOT COLLECTED)</span><span>Rs. ${parseFloat(order.totalAmount).toFixed(0)}</span></div>
+        <div style="display:flex;justify-content:space-between;font-weight:bold;"><span>COST VALUE (NOT CHARGED)</span><span>Rs. ${parseFloat(order.totalAmount).toFixed(2)}</span></div>
         <div style="margin-top:28px;padding-top:16px;border-top:1px solid #999;display:flex;justify-content:space-between;font-size:11px;">
           <div style="width:45%;"><div style="border-bottom:1px solid #1a1a1a;height:28px;"></div><p style="margin-top:4px;">Authorized By (Staff)</p></div>
           <div style="width:45%;"><div style="border-bottom:1px solid #1a1a1a;height:28px;"></div><p style="margin-top:4px;">Received By (Signature)</p></div>
