@@ -54,3 +54,4 @@ Thumbs.db
 .env.*.local
 artifacts/*/.env
 attached_assets/
+artifacts/api-server/uploads/
