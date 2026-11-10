@@ -16,7 +16,7 @@ export function shiftMonth(ym: string, delta: number) {
   return ymOf(new Date(y, m - 1 + delta, 1));
 }
 
-export type Settings = { allocationMethod: "per_dish" | "by_sales"; expectedMonthlyDishes: number | null; includeOneTime: boolean };
+export type Settings = { allocationMethod: "per_dish" | "by_sales"; expectedMonthlyDishes: number | null; includeOneTime: boolean; volumeBasis: "auto" | "month" | "manual"; volumeMonth: string | null };
 type Bucket = { salary: number; electricity: number; other: number };
 
 export type MonthRates = {
@@ -48,6 +48,8 @@ export async function loadCostingContext(): Promise<CostingContext> {
     allocationMethod: s?.allocationMethod === "by_sales" ? "by_sales" : "per_dish",
     expectedMonthlyDishes: s?.expectedMonthlyDishes ?? null,
     includeOneTime: s?.includeOneTime ?? true,
+    volumeBasis: s?.volumeBasis === "month" || s?.volumeBasis === "manual" ? (s.volumeBasis as "month" | "manual") : "auto",
+    volumeMonth: s?.volumeMonth ?? null,
   };
 
   const resRows = await db.select().from(operatingResourcesTable).orderBy(operatingResourcesTable.sortOrder, operatingResourcesTable.id);
@@ -116,10 +118,13 @@ export function monthRates(ctx: CostingContext, ym: string): MonthRates {
   let expectedDishes: number | null = null, expectedSales: number | null = null, volumeSource = "none";
   if (!isOpen && own && own.dishes > 0) { expectedDishes = own.dishes; expectedSales = own.value; volumeSource = "actual dishes sold that month"; }
   else {
-    if (ctx.settings.expectedMonthlyDishes && ctx.settings.expectedMonthlyDishes > 0) { expectedDishes = ctx.settings.expectedMonthlyDishes; volumeSource = "your expected dishes setting"; }
+    const chosen = ctx.settings.volumeBasis === "month" && ctx.settings.volumeMonth ? ctx.volume.get(ctx.settings.volumeMonth) : undefined;
+    if (chosen && chosen.dishes > 0) { expectedDishes = chosen.dishes; expectedSales = chosen.value; volumeSource = `dishes sold in ${ctx.settings.volumeMonth}`; }
+    else if (ctx.settings.volumeBasis === "manual" && ctx.settings.expectedMonthlyDishes && ctx.settings.expectedMonthlyDishes > 0) { expectedDishes = ctx.settings.expectedMonthlyDishes; volumeSource = "the number you entered"; }
     else if (prevVols.length) { expectedDishes = avg(v => v.dishes); volumeSource = `average of the previous ${prevVols.length} month${prevVols.length === 1 ? "" : "s"}`; }
     else if (own && own.dishes > 0) { expectedDishes = own.dishes; volumeSource = "dishes sold so far this month"; }
-    if (prevVols.length) expectedSales = avg(v => v.value);
+    if (chosen && chosen.dishes > 0) { /* sales already taken from the chosen month */ }
+    else if (prevVols.length) expectedSales = avg(v => v.value);
     else if (own && own.value > 0) expectedSales = own.value;
     if (!expectedSales && expectedDishes && own && own.dishes > 0) expectedSales = (own.value / own.dishes) * expectedDishes;
   }

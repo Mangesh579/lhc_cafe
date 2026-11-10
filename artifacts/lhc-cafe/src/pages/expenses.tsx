@@ -15,6 +15,7 @@ import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import { DIRECT_CATEGORIES, INDIRECT_CATEGORIES, PAYMENT_METHODS, apiJson, uploadReceipt, openReceipt } from "@/lib/expenseApi";
 import OperatingCosts from "@/components/OperatingCosts";
+import ProfitLoss from "@/components/ProfitLoss";
 
 const money = (n: number) => `Rs. ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const methodLabel = (v: string) => PAYMENT_METHODS.find(m => m.value === v)?.label ?? v;
@@ -197,6 +198,7 @@ export default function Expenses() {
         <TabsList>
           <TabsTrigger value="records">Records</TabsTrigger>
           <TabsTrigger value="summary">Summary</TabsTrigger>
+          <TabsTrigger value="pnl">Profit &amp; Loss</TabsTrigger>
           <TabsTrigger value="operating">Operating costs</TabsTrigger>
         </TabsList>
 
@@ -331,7 +333,11 @@ export default function Expenses() {
             </CardContent>
           </Card>
         </TabsContent>
-      <TabsContent value="operating" className="mt-4">
+      <TabsContent value="pnl" className="mt-4">
+          <ProfitLoss ym={ym} />
+        </TabsContent>
+
+        <TabsContent value="operating" className="mt-4">
           <OperatingCosts ym={ym} />
         </TabsContent>
       </Tabs>

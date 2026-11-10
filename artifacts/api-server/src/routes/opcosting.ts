@@ -1,10 +1,11 @@
 import { Router } from "express";
 import type { Response } from "express";
-import { db, operatingResourcesTable, operatingProfilesTable, operatingProfileUsageTable, costingSettingsTable, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, expensesTable } from "@workspace/db";
+import { db, operatingResourcesTable, operatingProfilesTable, operatingProfileUsageTable, costingSettingsTable, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, expensesTable, wasteLogsTable, inventoryItemsTable } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { authenticate, requireAdminOrAccountant, type AuthRequest } from "../middlewares/auth";
-import { loadCostingContext, ratesFor, itemOperating, evaluateOrder, currentYm, ymOf } from "../lib/opcosting";
+import { loadCostingContext, ratesFor, itemOperating, evaluateOrder, currentYm, ymOf, shiftMonth } from "../lib/opcosting";
 import { menuItemCosting } from "../lib/costing";
+import { expandUsage } from "../lib/ingredientUsage";
 
 const router = Router();
 
@@ -55,7 +56,13 @@ router.put("/costing/settings", authenticate, requireAdminOrAccountant, async (r
   const b = req.body ?? {};
   const method = b.allocationMethod === "by_sales" ? "by_sales" : "per_dish";
   const dishes = numOrNull(b.expectedMonthlyDishes);
-  const values = { allocationMethod: method, expectedMonthlyDishes: dishes != null && dishes > 0 ? Math.round(dishes) : null, includeOneTime: b.includeOneTime !== false };
+  const values = {
+    allocationMethod: method,
+    expectedMonthlyDishes: dishes != null && dishes > 0 ? Math.round(dishes) : null,
+    includeOneTime: b.includeOneTime !== false,
+    volumeBasis: ["auto", "month", "manual"].includes(b.volumeBasis) ? b.volumeBasis : "auto",
+    volumeMonth: isYm(b.volumeMonth) ? b.volumeMonth : null,
+  };
   const updated = await db.update(costingSettingsTable).set(values).where(eq(costingSettingsTable.id, 1)).returning();
   if (updated.length === 0) await db.insert(costingSettingsTable).values({ id: 1, ...values });
   res.json({ success: true });
@@ -237,6 +244,144 @@ router.get("/profit/net-daily", authenticate, requireAdminOrAccountant, async (r
     net: { ...n, marginPct: n.revenue > 0 ? (n.profit / n.revenue) * 100 : null },
     ncCost,
     overhead: { available: rates.available, estimatedBuckets: rates.estimatedBuckets, volumeSource: rates.volumeSource },
+  });
+});
+
+// ── Monthly profit & loss (accounting view) ──
+// Sales - recipe cost of dishes sold - complimentary (NC) food - ACTUAL indirect expenses. Each counted once.
+// Direct purchases are only a memo line: the recipes already carry the ingredient cost of what was sold.
+async function computePnl(ym: string) {
+  const { from, to, fromStr, toStr } = monthDates(ym);
+  const { orders, byOrder } = await paidOrdersWithItems(from, to);
+
+  let sales = 0, cogs = 0, ncCost = 0, dishes = 0, ncDishes = 0, incomplete = 0;
+  for (const o of orders) {
+    const items = byOrder.get(o.id) ?? [];
+    let cost = 0, qty = 0, ok = items.length > 0;
+    for (const i of items) {
+      cost += parseFloat(String(i.unitCost ?? 0)) * i.quantity;
+      qty += i.quantity;
+      if (!(i.unitCost != null && i.costComplete)) ok = false;
+    }
+    if (!ok) incomplete++;
+    if (o.isNc) { ncCost += cost; ncDishes += qty; }
+    else {
+      sales += Math.max(0, parseFloat(String(o.totalAmount)) - parseFloat(String(o.vatAmount ?? 0)));
+      cogs += cost; dishes += qty;
+    }
+  }
+
+  const ex = await db.select().from(expensesTable).where(and(
+    eq(expensesTable.status, "active"),
+    sql`${expensesTable.expenseDate} >= ${fromStr}`,
+    sql`${expensesTable.expenseDate} <= ${toStr}`,
+  ));
+  const byCat = new Map<string, number>();
+  let overhead = 0, direct = 0;
+  for (const e of ex) {
+    const a = parseFloat(String(e.amount));
+    if (e.type === "indirect") { overhead += a; byCat.set(e.category, (byCat.get(e.category) ?? 0) + a); }
+    else direct += a;
+  }
+
+  const grossBefore = sales - cogs;
+  // Recorded waste and spoilage: manual Waste Log entries only.
+  // Automatic prep waste (tied to an order) is already inside the recipe cost.
+  const wasteRows = await db.select().from(wasteLogsTable).where(and(
+    sql`${wasteLogsTable.orderId} IS NULL`,
+    sql`${wasteLogsTable.createdAt} >= ${from}`,
+    sql`${wasteLogsTable.createdAt} <= ${to}`,
+  ));
+  const leafCosts = new Map<number, number | null>();
+  const leafCost = async (id: number): Promise<number | null> => {
+    if (!leafCosts.has(id)) {
+      const [r] = await db.select({ c: inventoryItemsTable.costPerUnit }).from(inventoryItemsTable).where(eq(inventoryItemsTable.id, id));
+      leafCosts.set(id, r?.c == null ? null : parseFloat(String(r.c)));
+    }
+    return leafCosts.get(id) ?? null;
+  };
+  let wasteCost = 0, equipmentLoss = 0, wasteUnvalued = 0;
+  const wasteByReason = new Map<string, number>();
+  for (const w of wasteRows) {
+    const qty = parseFloat(String(w.quantity));
+    let value = parseFloat(String(w.wasteValue ?? 0));
+    if (w.equipmentItemId) { equipmentLoss += value; continue; }
+    if (!(value > 0)) {
+      value = 0;
+      if (w.inventoryItemId) {
+        let ok = true;
+        for (const leaf of await expandUsage(w.inventoryItemId, qty)) {
+          const c = await leafCost(leaf.inventoryItemId);
+          if (c == null) ok = false; else value += c * leaf.quantity;
+        }
+        if (!ok) wasteUnvalued++;
+      } else if (w.menuItemId) {
+        const mc = await menuItemCosting(w.menuItemId);
+        value = mc.totalCost * qty;
+        if (!mc.complete) wasteUnvalued++;
+      } else wasteUnvalued++;
+    }
+    wasteCost += value;
+    const key = (w.reason ?? "Other").trim() || "Other";
+    wasteByReason.set(key, (wasteByReason.get(key) ?? 0) + value);
+  }
+
+  const grossAfter = grossBefore - ncCost - wasteCost;
+  const net = grossAfter - overhead;
+  return {
+    month: ym, orders: orders.length, incompleteOrders: incomplete, dishesSold: dishes, ncDishes,
+    sales: round2(sales), cogs: round2(cogs), grossBefore: round2(grossBefore),
+    ncCost: round2(ncCost), grossAfter: round2(grossAfter),
+    wasteCost: round2(wasteCost), wasteEntries: wasteRows.filter(w => !w.equipmentItemId).length, wasteUnvalued, equipmentLoss: round2(equipmentLoss),
+    wasteByReason: Array.from(wasteByReason.entries()).map(([reason, total]) => ({ reason, total: round2(total) })).sort((a, b) => b.total - a.total).slice(0, 6),
+    overhead: round2(overhead),
+    overheadByCategory: Array.from(byCat.entries()).map(([category, total]) => ({ category, total: round2(total) })).sort((a, b) => b.total - a.total),
+    netProfit: round2(net),
+    grossMarginPct: sales > 0 ? (grossBefore / sales) * 100 : null,
+    marginAfterNcPct: sales > 0 ? (grossAfter / sales) * 100 : null,
+    netMarginPct: sales > 0 ? (net / sales) * 100 : null,
+    directPurchases: round2(direct),
+  };
+}
+
+router.get("/costing/pnl", authenticate, requireAdminOrAccountant, async (req, res): Promise<void> => {
+  res.json(await computePnl(monthOf(req.query.month)));
+});
+
+router.get("/costing/pnl-year", authenticate, requireAdminOrAccountant, async (req, res): Promise<void> => {
+  const year = parseInt(String(req.query.year ?? ""), 10) || new Date().getFullYear();
+  const months = [];
+  for (let m = 1; m <= 12; m++) months.push(await computePnl(`${year}-${String(m).padStart(2, "0")}`));
+  res.json({ year, months });
+});
+
+// ── Break-even: monthly overhead / gross margin ──
+router.get("/costing/break-even", authenticate, requireAdminOrAccountant, async (req, res): Promise<void> => {
+  const ym = monthOf(req.query.month);
+  const cur = await computePnl(ym);
+  const past: Awaited<ReturnType<typeof computePnl>>[] = [];
+  for (let k = 1; k <= 3; k++) {
+    const p = await computePnl(shiftMonth(ym, -k));
+    if (p.sales > 0) past.push(p);
+  }
+  const pSales = past.reduce((s, p) => s + p.sales, 0);
+  const pGross = past.reduce((s, p) => s + p.grossAfter, 0);
+  const pDishes = past.reduce((s, p) => s + p.dishesSold, 0);
+  const [y, m] = ym.split("-").map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const isCurrent = ym === currentYm();
+  res.json({
+    month: ym,
+    overhead: cur.overhead,
+    overheadByCategory: cur.overheadByCategory,
+    thisMonth: { sales: cur.sales, marginPct: cur.marginAfterNcPct, dishes: cur.dishesSold, avgDishPrice: cur.dishesSold > 0 ? cur.sales / cur.dishesSold : null },
+    last3: past.length ? {
+      months: past.length,
+      avgOverhead: round2(past.reduce((s, p) => s + p.overhead, 0) / past.length),
+      marginPct: pSales > 0 ? (pGross / pSales) * 100 : null,
+      avgDishPrice: pDishes > 0 ? pSales / pDishes : null,
+    } : null,
+    daysInMonth, dayOfMonth: isCurrent ? new Date().getDate() : daysInMonth, isCurrent,
   });
 });
 

@@ -26,4 +26,6 @@ export const costingSettingsTable = pgTable("costing_settings", {
   allocationMethod: text("allocation_method").notNull().default("per_dish"),
   expectedMonthlyDishes: integer("expected_monthly_dishes"),
   includeOneTime: boolean("include_one_time").notNull().default(true),
+  volumeBasis: text("volume_basis").notNull().default("auto"),
+  volumeMonth: text("volume_month"),
 });

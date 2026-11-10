@@ -41,7 +41,7 @@ export default function OperatingCosts({ ym }: { ym: string }) {
         name: p.name,
         usage: Object.fromEntries(c.resources.map((x: any) => { const u = p.usage.find((q: any) => q.resourceId === x.id); return [x.id, u ? String(u.quantity) : ""]; })),
       }])));
-      setSettingsDraft({ allocationMethod: c.settings.allocationMethod, expectedMonthlyDishes: c.settings.expectedMonthlyDishes != null ? String(c.settings.expectedMonthlyDishes) : "", includeOneTime: c.settings.includeOneTime });
+      setSettingsDraft({ allocationMethod: c.settings.allocationMethod, expectedMonthlyDishes: c.settings.expectedMonthlyDishes != null ? String(c.settings.expectedMonthlyDishes) : "", includeOneTime: c.settings.includeOneTime, volumeBasis: c.settings.volumeBasis ?? "auto", volumeMonth: c.settings.volumeMonth ?? "" });
     } catch { toast({ title: "Failed to load operating costs", variant: "destructive" }); }
     finally { setLoading(false); }
   }, [ym]);
@@ -55,7 +55,7 @@ export default function OperatingCosts({ ym }: { ym: string }) {
   const saveProfile = async (id: number) => { const d = profDraft[id]; try { await apiJson(`/costing/profiles/${id}`, "PATCH", { name: d.name, usage: Object.entries(d.usage).map(([rid, q]) => ({ resourceId: Number(rid), quantity: parseFloat(q) || 0 })) }); toast({ title: "Profile saved" }); load(); } catch (e: any) { fail(e, "Couldn't save"); } };
   const addProfile = async () => { if (!newProf.trim()) return; try { await apiJson("/costing/profiles", "POST", { name: newProf.trim(), usage: [] }); setNewProf(""); load(); } catch (e: any) { fail(e, "Couldn't add"); } };
   const removeProfile = async (p: any) => { if (!confirm(`Delete "${p.name}"? Dishes using it become unassigned.`)) return; try { await apiJson(`/costing/profiles/${p.id}`, "DELETE"); load(); } catch (e: any) { fail(e, "Couldn't delete"); } };
-  const saveSettings = async () => { try { await apiJson("/costing/settings", "PUT", { allocationMethod: settingsDraft.allocationMethod, expectedMonthlyDishes: settingsDraft.expectedMonthlyDishes === "" ? null : parseFloat(settingsDraft.expectedMonthlyDishes), includeOneTime: settingsDraft.includeOneTime }); toast({ title: "Settings saved" }); load(); } catch (e: any) { fail(e, "Couldn't save"); } };
+  const saveSettings = async () => { try { await apiJson("/costing/settings", "PUT", { allocationMethod: settingsDraft.allocationMethod, expectedMonthlyDishes: settingsDraft.expectedMonthlyDishes === "" ? null : parseFloat(settingsDraft.expectedMonthlyDishes), includeOneTime: settingsDraft.includeOneTime, volumeBasis: settingsDraft.volumeBasis, volumeMonth: settingsDraft.volumeMonth || null }); toast({ title: "Settings saved" }); load(); } catch (e: any) { fail(e, "Couldn't save"); } };
   const assign = async (ids: number[], profileId: string) => { try { await apiJson("/costing/assign-profile", "PUT", { menuItemIds: ids, profileId: profileId === "" ? null : parseInt(profileId) }); load(); } catch (e: any) { fail(e, "Couldn't assign"); } };
 
   const shown = useMemo(() => {
@@ -144,7 +144,19 @@ export default function OperatingCosts({ ym }: { ym: string }) {
                   <option value="by_sales">In proportion to the dish's selling price</option>
                 </select>
               </label>
-              <label className="space-y-1"><span className="text-xs text-muted-foreground block">Expected dishes per month (blank = use history)</span>
+              <label className="space-y-1"><span className="text-xs text-muted-foreground block">Dishes for the current month come from</span>
+                <select className={SELECT} value={settingsDraft.volumeBasis} onChange={e => setSettingsDraft({ ...settingsDraft, volumeBasis: e.target.value })}>
+                  <option value="auto">Automatic: average of the last 3 months</option>
+                  <option value="month">A specific month's total</option>
+                  <option value="manual">A number I enter</option>
+                </select>
+              </label>
+              {settingsDraft.volumeBasis === "month" && (
+                <label className="space-y-1"><span className="text-xs text-muted-foreground block">Month</span>
+                  <Input type="month" className="h-9 w-40" value={settingsDraft.volumeMonth} onChange={e => setSettingsDraft({ ...settingsDraft, volumeMonth: e.target.value })} />
+                </label>
+              )}
+              <label className="space-y-1" style={{ display: settingsDraft.volumeBasis === "manual" ? "block" : "none" }}><span className="text-xs text-muted-foreground block">Expected dishes per month</span>
                 <Input type="number" className="h-9 w-40" value={settingsDraft.expectedMonthlyDishes} onChange={e => setSettingsDraft({ ...settingsDraft, expectedMonthlyDishes: e.target.value })} />
               </label>
               <label className="flex items-center gap-2 mt-5"><input type="checkbox" checked={settingsDraft.includeOneTime} onChange={e => setSettingsDraft({ ...settingsDraft, includeOneTime: e.target.checked })} /> Include one-time expenses</label>
@@ -157,6 +169,13 @@ export default function OperatingCosts({ ym }: { ym: string }) {
           <div className="px-4 pb-4 text-sm space-y-1">
             <p className="font-medium">Overhead pool for {ym}: {money(rates.pool.total)}</p>
             <p className="text-muted-foreground">Salaries {money(rates.pool.salary)} · Electricity {money(rates.pool.electricity)} · Other {money(rates.pool.other)}</p>
+            {rates.available && (
+              <p className="text-xs bg-muted/40 rounded px-3 py-2">
+                {rates.method === "per_dish"
+                  ? <>How it works: {money(rates.pool.total)} ÷ {Math.round(rates.expectedDishes).toLocaleString()} dishes = <strong>{money(rates.pool.total / rates.expectedDishes)} per dish</strong>. Every dish sold carries that amount. Bills linked to gas, oil, water or soap are not in this pool.</>
+                  : <>How it works: {money(rates.pool.total)} ÷ {money(rates.expectedSales)} expected sales = <strong>{((rates.pool.total / rates.expectedSales) * 100).toFixed(1)}%</strong> of each dish's selling price. A Rs. 800 dish carries {money(800 * rates.pool.total / rates.expectedSales)}, a Rs. 100 dish {money(100 * rates.pool.total / rates.expectedSales)}.</>}
+              </p>
+            )}
             {rates.estimatedBuckets.length > 0 && <p className="text-xs text-amber-700">Using last month's amount for: {rates.estimatedBuckets.join(", ")} (not entered yet this month).</p>}
             {rates.available ? (
               <p>{rates.method === "per_dish"
