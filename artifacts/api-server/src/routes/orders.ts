@@ -590,7 +590,24 @@ router.patch("/orders/:id/customer", authenticate, async (req: any, res): Promis
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) { res.status(404).json({ error: "Order not found" }); return; }
   if (order.paymentStatus !== "pending") { res.status(400).json({ error: "Only unpaid orders can change customer." }); return; }
-  if (order.accountBill) { res.status(400).json({ error: "This is a monthly account bill. Its customer can't be changed." }); return; }
+  if (order.accountBill) {
+    const role = req.user?.role as string | undefined;
+    if (!["admin", "supervisor"].includes(role ?? "")) { res.status(403).json({ error: "Only the admin or a supervisor can change the customer on a monthly account bill." }); return; }
+    const [newCustomer] = await db.select().from(accountCustomersTable).where(eq(accountCustomersTable.id, customerId));
+    if (!newCustomer) { res.status(404).json({ error: "Customer not found" }); return; }
+    if (!newCustomer.paysMonthly) { res.status(400).json({ error: "That customer is not a monthly account yet. Mark them as a monthly account first." }); return; }
+    if (newCustomer.id === order.loyaltyCustomerId) { res.status(400).json({ error: "This bill already belongs to that customer." }); return; }
+    let movedInto = null as number | null;
+    await db.transaction(async (tx) => {
+      const [target] = await tx.select().from(ordersTable)
+        .where(and(eq(ordersTable.loyaltyCustomerId, newCustomer.id), eq(ordersTable.accountBill, true), eq(ordersTable.paymentStatus, "pending"), sql`${ordersTable.orderStatus} <> 'cancelled'`, sql`${ordersTable.id} <> ${id}`))
+        .orderBy(desc(ordersTable.createdAt)).limit(1);
+      if (target) { movedInto = target.id; await mergeOrderInto(tx, order, target, req.user?.username ?? "staff", null, "customer changed", true); }
+      else await tx.update(ordersTable).set({ loyaltyCustomerId: newCustomer.id }).where(eq(ordersTable.id, id));
+    });
+    res.json({ ...(await getOrderWithItems(movedInto ?? id)), mergedInto: movedInto, accountOpened: false });
+    return;
+  }
   const [customer] = await db.select().from(accountCustomersTable).where(eq(accountCustomersTable.id, customerId));
   if (!customer) { res.status(404).json({ error: "Customer not found" }); return; }
   const username = req.user?.username ?? "staff";
@@ -619,9 +636,20 @@ router.patch("/orders/:id/customer", authenticate, async (req: any, res): Promis
       return;
     }
     mergedInto = target.id;
-    await mergeOrderInto(tx, order, target, username, tableLabel, "customer added");
+    await mergeOrderInto(tx, order, target, username, tableLabel, "customer added", order.orderStatus !== "pending");
   });
   res.json({ ...(await getOrderWithItems(mergedInto ?? id)), mergedInto, accountOpened: mergedInto === null });
+});
+
+// Tiny endpoint for the notification chime: pending orders and their latest KOT number
+router.get("/orders-signal", authenticate, async (_req, res): Promise<void> => {
+  const rows = await db
+    .select({ id: ordersTable.id, kot: sql<number>`COALESCE(MAX(${orderItemsTable.kotNumber}), 1)` })
+    .from(ordersTable)
+    .leftJoin(orderItemsTable, eq(orderItemsTable.orderId, ordersTable.id))
+    .where(eq(ordersTable.orderStatus, "pending"))
+    .groupBy(ordersTable.id);
+  res.json(rows);
 });
 
 // ── Cancel one KOT (admin, unpaid bills only) ──

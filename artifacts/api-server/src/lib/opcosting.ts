@@ -42,7 +42,15 @@ export type CostingContext = {
   ratesCache: Map<string, MonthRates>;
 };
 
+let costingCache: { at: number; ctx: CostingContext } | null = null;
 export async function loadCostingContext(): Promise<CostingContext> {
+  if (costingCache && Date.now() - costingCache.at < 15000) return { ...costingCache.ctx, ratesCache: new Map() };
+  const ctx = await loadCostingContextFresh();
+  costingCache = { at: Date.now(), ctx };
+  return { ...ctx, ratesCache: new Map() };
+}
+
+async function loadCostingContextFresh(): Promise<CostingContext> {
   const [s] = await db.select().from(costingSettingsTable).where(eq(costingSettingsTable.id, 1));
   const settings: Settings = {
     allocationMethod: s?.allocationMethod === "by_sales" ? "by_sales" : "per_dish",

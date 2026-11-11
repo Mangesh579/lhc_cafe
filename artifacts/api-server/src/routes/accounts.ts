@@ -2,10 +2,42 @@ import { Router } from "express";
 import { db, loyaltyCustomersTable, ordersTable, orderItemsTable } from "@workspace/db";
 import { eq, and, or, ilike, sql, inArray } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
+import { cafeTablesTable as accTablesTable } from "@workspace/db";
+import { mergeOrderInto } from "../lib/mergeOrders";
 
 const router = Router();
 const canView = (role?: string) => role === "admin" || role === "supervisor" || role === "head_barista" || role === "accountant";
 const canEdit = (role?: string) => role === "admin" || role === "supervisor" || role === "head_barista";
+
+// When a customer becomes a monthly account, their separate open bills are merged into ONE account bill
+async function adoptOpenOrders(customerId: number, username: string): Promise<{ orders: number; billId: number | null }> {
+  const open = await db.select().from(ordersTable).where(and(
+    eq(ordersTable.loyaltyCustomerId, customerId), eq(ordersTable.accountBill, false), eq(ordersTable.isNc, false),
+    eq(ordersTable.paymentStatus, "pending"), sql`${ordersTable.orderStatus} <> 'cancelled'`,
+  )).orderBy(ordersTable.createdAt);
+  if (open.length === 0) return { orders: 0, billId: null };
+
+  const labelOf = async (tableId: number | null) => {
+    if (!tableId) return "TAKEAWAY";
+    const [tb] = await db.select().from(accTablesTable).where(eq(accTablesTable.id, tableId));
+    return tb ? (tb.name || `Table ${tb.tableNumber}`) : "TAKEAWAY";
+  };
+  const [first, ...rest] = open;
+  const firstLabel = await labelOf(first.tableId);
+  const restLabels = await Promise.all(rest.map(r => labelOf(r.tableId)));
+
+  await db.transaction(async (tx) => {
+    await tx.update(orderItemsTable)
+      .set({ kotTable: firstLabel, kotAt: sql`COALESCE(${orderItemsTable.kotAt}, ${first.createdAt})` })
+      .where(and(eq(orderItemsTable.orderId, first.id), sql`${orderItemsTable.kotTable} IS NULL`));
+    await tx.update(ordersTable).set({ accountBill: true, tableId: null }).where(eq(ordersTable.id, first.id));
+    for (let i = 0; i < rest.length; i++) {
+      const [target] = await tx.select().from(ordersTable).where(eq(ordersTable.id, first.id));
+      await mergeOrderInto(tx, rest[i], target, username, restLabels[i], "monthly account set up", true);
+    }
+  });
+  return { orders: open.length, billId: first.id };
+}
 
 // Monthly-account customers with their open balance
 router.get("/accounts", authenticate, async (req: AuthRequest, res): Promise<void> => {
@@ -56,7 +88,9 @@ router.patch("/accounts/:id", authenticate, async (req: AuthRequest, res): Promi
     if (open) { res.status(400).json({ error: `This customer still has an open account bill (#${open.id}). Pay or cancel it first.` }); return; }
   }
   await db.update(loyaltyCustomersTable).set({ paysMonthly: value }).where(eq(loyaltyCustomersTable.id, id));
-  res.json({ success: true });
+  let adopted: { orders: number; billId: number | null } = { orders: 0, billId: null };
+  if (value) adopted = await adoptOpenOrders(id, req.user?.username ?? "staff");
+  res.json({ success: true, orders: adopted.orders, billId: adopted.billId });
 });
 
 export default router;

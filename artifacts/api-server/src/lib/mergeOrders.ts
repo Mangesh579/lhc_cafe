@@ -2,7 +2,7 @@ import { ordersTable, orderItemsTable, wasteLogsTable, orderKotCancellationsTabl
 import { eq, sql } from "drizzle-orm";
 
 // Moves every item of `source` onto `target` as new KOTs, then marks `source` cancelled ("merged").
-export async function mergeOrderInto(tx: any, source: any, target: any, username: string, sourceTableLabel: string | null, why: string) {
+export async function mergeOrderInto(tx: any, source: any, target: any, username: string, sourceTableLabel: string | null, why: string, keepStatus = false) {
   const [mk] = await tx.select({ m: sql<number>`COALESCE(MAX(${orderItemsTable.kotNumber}), 0)` }).from(orderItemsTable).where(eq(orderItemsTable.orderId, target.id));
   const [ck] = await tx.select({ m: sql<number>`COALESCE(MAX(${orderKotCancellationsTable.kotNumber}), 0)` }).from(orderKotCancellationsTable).where(eq(orderKotCancellationsTable.orderId, target.id));
   const offset = Math.max(Number(mk?.m ?? 0), Number(ck?.m ?? 0));
@@ -33,7 +33,7 @@ export async function mergeOrderInto(tx: any, source: any, target: any, username
     totalAmount: String(parseFloat(String(target.totalAmount)) + parseFloat(String(source.totalAmount))),
     discountAmount: String(parseFloat(String(target.discountAmount ?? 0)) + parseFloat(String(source.discountAmount ?? 0))),
     notes: [target.notes, source.notes].filter(Boolean).join(" | ") || null,
-    orderStatus: "pending",
+    ...(keepStatus ? {} : { orderStatus: "pending" }),
     loyaltyCustomerId: target.loyaltyCustomerId ?? source.loyaltyCustomerId ?? null,
   }).where(eq(ordersTable.id, target.id));
   await tx.update(ordersTable).set({

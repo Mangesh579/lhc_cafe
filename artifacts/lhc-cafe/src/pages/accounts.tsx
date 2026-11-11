@@ -40,7 +40,8 @@ export default function Accounts() {
 
   const setMonthly = async (id: number, value: boolean) => {
     try {
-      await apiJson(`/accounts/${id}`, "PATCH", { paysMonthly: value });
+      const d: any = await apiJson(`/accounts/${id}`, "PATCH", { paysMonthly: value });
+      if (value) toast({ title: "Monthly account on", description: d?.orders > 1 ? `${d.orders} open orders were merged into bill #${d.billId}.` : d?.orders === 1 ? `Their open order is now the account bill #${d.billId}.` : "Their next orders will go on one bill." });
       setResults(prev => prev.map(r => r.id === id ? { ...r, paysMonthly: value } : r));
       load();
     } catch (e: any) { toast({ title: "Couldn't update", description: e?.error, variant: "destructive" }); }

@@ -245,18 +245,23 @@ export default function Orders() {
   const [custResults, setCustResults] = useState<any[]>([]);
   const [custPick, setCustPick] = useState<any | null>(null);
   const [custSaving, setCustSaving] = useState(false);
+  const [custLoading, setCustLoading] = useState(false);
 
   const searchCustomers = async (q: string) => {
+    const seq = ((window as any).__custSeq = ((window as any).__custSeq ?? 0) + 1);
+    setCustLoading(true);
     try {
       const r = await fetch(`${API_BASE}/api/accounts/customers?search=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
-      setCustResults(r.ok ? await r.json() : []);
-    } catch { setCustResults([]); }
+      const list = r.ok ? await r.json() : [];
+      if (seq === (window as any).__custSeq) { setCustResults(list); setCustLoading(false); }
+    } catch { if (seq === (window as any).__custSeq) { setCustResults([]); setCustLoading(false); } }
   };
-  const openCustDialog = (order: any) => { setCustDialog({ order }); setCustQuery(""); setCustPick(null); searchCustomers(""); };
+  const openCustDialog = (order: any) => { setCustDialog({ order }); setCustQuery(""); setCustPick(null); setCustMakeMonthly(false); searchCustomers(""); };
   const saveCustomer = async () => {
     if (!custDialog || !custPick) return;
     setCustSaving(true);
     try {
+      if (custMakeMonthly && !custPick.paysMonthly) { const ok = await markMonthly(custPick.id); if (!ok) return; }
       const r = await fetch(`${API_BASE}/api/orders/${custDialog.order.id}/customer`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
@@ -273,6 +278,28 @@ export default function Orders() {
       setCustDialog(null);
     } catch { toast({ title: "Failed to set the customer", variant: "destructive" }); }
     finally { setCustSaving(false); }
+  };
+
+  const [custMakeMonthly, setCustMakeMonthly] = useState(false);
+  const canMarkMonthly = ["admin", "supervisor", "head_barista"].includes(String((user as any)?.role ?? ""));
+  const markMonthly = async (customerId: number): Promise<any | null> => {
+    const r = await fetch(`${API_BASE}/api/accounts/${customerId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+      body: JSON.stringify({ paysMonthly: true }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { toast({ title: "Couldn't make it a monthly account", description: d?.error, variant: "destructive" }); return null; }
+    return d;
+  };
+  const makeMonthly = async (order: any) => {
+    if (!confirm(`Make ${order.loyaltyCustomerName ?? "this customer"} a monthly account?\n\nTheir open orders will be merged into one bill, and their future orders will join it.`)) return;
+    try {
+      const d = await markMonthly(order.loyaltyCustomerId);
+      if (!d) return;
+      queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
+      toast({ title: `${order.loyaltyCustomerName ?? "Customer"} is now a monthly account`, description: d.orders > 1 ? `${d.orders} open orders were merged into bill #${d.billId}.` : "Their next orders will join one bill." });
+    } catch { toast({ title: "Failed to update", variant: "destructive" }); }
   };
 
   const printKot = (order: any, kotNumber?: number) => {
@@ -551,7 +578,12 @@ export default function Orders() {
                       Change table
                     </Button>
                   )}
-                  {isPaymentPending && !(order as any).accountBill && (
+                  {isPaymentPending && !(order as any).accountBill && (order as any).loyaltyCustomerId && canMarkMonthly && (
+                    <Button size="sm" variant="outline" onClick={() => makeMonthly(order)} className="gap-1.5 text-xs h-8 px-4 border-green-300 text-green-800">
+                      Make {(order as any).loyaltyCustomerName ?? "customer"} a monthly account
+                    </Button>
+                  )}
+                  {isPaymentPending && (!(order as any).accountBill || canMarkMonthly) && (
                     <Button size="sm" variant="outline" onClick={() => openCustDialog(order)} className="gap-1.5 text-xs h-8 px-4">
                       {(order as any).loyaltyCustomerId ? "Change customer" : "Add customer"}
                     </Button>
@@ -908,15 +940,20 @@ export default function Orders() {
       <Dialog open={!!custDialog} onOpenChange={(o) => !o && setCustDialog(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>{custDialog?.order?.loyaltyCustomerId ? "Change customer" : "Add customer"}: Order #{custDialog?.order?.id}</DialogTitle></DialogHeader>
+          {custDialog?.order?.accountBill && (
+            <p className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-md px-3 py-2">
+              This is {custDialog.order.loyaltyCustomerName ?? "the customer"}'s monthly account bill. Choose another monthly-account customer to move the whole bill to them.
+            </p>
+          )}
           <div className="space-y-3 py-2">
             <input
               autoFocus value={custQuery}
-              onChange={e => { setCustQuery(e.target.value); searchCustomers(e.target.value); }}
+              onChange={e => { const v = e.target.value; setCustQuery(v); clearTimeout((window as any).__custT); (window as any).__custT = setTimeout(() => searchCustomers(v), 250); }}
               placeholder="Search a loyalty customer by name or phone…"
               className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
             />
             <div className="max-h-56 overflow-y-auto border rounded-md divide-y">
-              {custResults.length === 0 && <p className="p-3 text-sm text-muted-foreground">No customers found.</p>}
+              {custResults.length === 0 && <p className="p-3 text-sm text-muted-foreground">{custLoading ? "Searching…" : "No customers found."}</p>}
               {custResults.map((c: any) => (
                 <button key={c.id} type="button" onClick={() => setCustPick(c)} className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${custPick?.id === c.id ? "bg-muted font-medium" : ""}`}>
                   {c.name} <span className="text-xs text-muted-foreground">{c.phone}</span>
@@ -924,6 +961,12 @@ export default function Orders() {
                 </button>
               ))}
             </div>
+            {custPick && !custPick.paysMonthly && canMarkMonthly && (
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input type="checkbox" className="mt-1" checked={custMakeMonthly} onChange={e => setCustMakeMonthly(e.target.checked)} />
+                <span>Make {custPick.name} a <strong>monthly account</strong> too (pays once a month). All their orders then go on one bill.</span>
+              </label>
+            )}
             {custPick?.paysMonthly && (
               <p className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-md px-3 py-2">
                 {custPick.name} pays monthly. This order will be added to their one open account bill as a new KOT, or become that bill if they have none open.

@@ -45,10 +45,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   // Poll orders for new pending ones, regardless of which page is open
   const pollOrders = async () => {
     try {
-      const r = await fetch(`${API_BASE}/api/orders`, { headers: { Authorization: `Bearer ${token}` } });
+      const r = await fetch(`${API_BASE}/api/orders-signal`, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) return;
       const orders = await r.json();
-      const currentKots = new Map<number, number>(orders.filter((o: any) => o.orderStatus === "pending").map((o: any) => [o.id as number, Math.max(1, ...(o.items ?? []).map((i: any) => i.kotNumber ?? 1))] as [number, number]));
+      const currentKots = new Map<number, number>((orders as any[]).map((o: any) => [Number(o.id), Number(o.kot)] as [number, number]));
       if (knownOrderKots.current !== null) {
         const hasNew = [...currentKots].some(([id, kot]) => (knownOrderKots.current!.get(id) ?? 0) < kot);
         if (hasNew) enqueueSound(NEW_ORDER_SOUND_URL);
