@@ -4,6 +4,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { authenticate, requireAdmin, type AuthRequest } from "../middlewares/auth";
 import { menuItemCosting } from "../lib/costing";
 import { menuItemOperating } from "../lib/opcosting";
+import { menuCategoriesTable as gapCategoriesTable, recipesTable as gapRecipesTable } from "@workspace/db";
 import type { Response } from "express";
 
 const router = Router();
@@ -202,6 +203,16 @@ router.get("/menu-changelog", authenticate, async (_req, res): Promise<void> => 
 });
 
 // ─── Recipes ──────────────────────────────────────────────────────────────────
+
+router.get("/menu-gaps/no-ingredients", authenticate, async (_req, res): Promise<void> => {
+  const items = await db
+    .select({ id: menuItemsTable.id, name: menuItemsTable.name, price: menuItemsTable.price, categoryName: gapCategoriesTable.name })
+    .from(menuItemsTable)
+    .leftJoin(gapCategoriesTable, eq(menuItemsTable.categoryId, gapCategoriesTable.id))
+    .orderBy(gapCategoriesTable.displayOrder, menuItemsTable.name);
+  const withRecipe = new Set((await db.select({ id: gapRecipesTable.menuItemId }).from(gapRecipesTable)).map(r => r.id));
+  res.json(items.filter(i => !withRecipe.has(i.id)).map(i => ({ ...i, price: parseFloat(String(i.price)) })));
+});
 
 router.get("/menu-items/:id/costing", authenticate, requireAdmin, async (req, res): Promise<void> => {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);

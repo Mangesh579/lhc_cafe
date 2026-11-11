@@ -22,6 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Edit2, Trash2, ChefHat, FolderPlus, BookOpen, RefreshCw, Coffee, Search, X, Copy } from "lucide-react";
 import { format } from "date-fns";
+import MenuGapsBanner from "@/components/MenuGapsBanner";
 
 const API = (path: string) => fetch(`/api${path}`, { headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
@@ -506,6 +507,7 @@ export default function Menu() {
         <Button onClick={() => setItemDialog({ open: true })} className="gap-2"><Plus className="w-4 h-4" /> Add Item</Button>
       </div>
 
+      <MenuGapsBanner />
       <Tabs defaultValue="items" onValueChange={(v) => v === "changelog" && loadChangelog()}>
         <TabsList>
           <TabsTrigger value="items">Menu Items</TabsTrigger>

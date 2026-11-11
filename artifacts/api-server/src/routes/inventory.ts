@@ -7,6 +7,7 @@ import { authenticate, requireAdmin, canWriteDepartment, type AuthRequest } from
 import { hideCosts } from "../middlewares/hideCosts";
 import expensesRouter from "./expenses";
 import opcostingRouter from "./opcosting";
+import accountsRouter from "./accounts";
 import type { Response } from "express";
 
 const router = Router();
@@ -184,6 +185,22 @@ router.get("/inventory/usage-map", authenticate, async (_req, res): Promise<void
     map[row.inventoryItemId].push({ id: row.menuItemId, name: row.menuItemName, isAvailable: row.isAvailable });
   }
   res.json(map);
+});
+
+router.get("/inventory/unlinked", authenticate, async (_req, res): Promise<void> => {
+  const items = await db.select({ id: inventoryItemsTable.id }).from(inventoryItemsTable);
+  const recipeRows = await db.select({ id: recipesTable.inventoryItemId }).from(recipesTable);
+  const compRows = await db.select({ parent: ingredientComponentsTable.parentItemId, child: ingredientComponentsTable.childItemId }).from(ingredientComponentsTable);
+  const children = new Map<number, number[]>();
+  for (const c of compRows) children.set(c.parent, [...(children.get(c.parent) ?? []), c.child]);
+  const used = new Set<number>();
+  const visit = (id: number) => {
+    if (used.has(id)) return;
+    used.add(id);
+    for (const ch of children.get(id) ?? []) visit(ch);
+  };
+  for (const r of recipeRows) visit(r.id);
+  res.json({ ids: items.map(i => i.id).filter(id => !used.has(id)) });
 });
 
 router.get("/inventory/export-data", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
@@ -535,5 +552,6 @@ router.put("/inventory/:id/components", authenticate, async (req: AuthRequest, r
 
 router.use(expensesRouter);
 router.use(opcostingRouter);
+router.use(accountsRouter);
 
 export default router;

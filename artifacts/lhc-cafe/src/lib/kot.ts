@@ -11,6 +11,7 @@ type KotItem = {
   kotBy?: string | null;
   ncCost?: number | null;
   ncCostComplete?: boolean;
+  kotTable?: string | null;
 };
 
 export type KotOrder = {
@@ -27,6 +28,7 @@ export type KotOrder = {
   isNc?: boolean | null;
   ncPersonName?: string | null;
   ncReason?: string | null;
+  accountBill?: boolean | null;
   items?: KotItem[];
 };
 
@@ -44,7 +46,7 @@ export function buildKotHtml(order: KotOrder, opts: { kotNumber?: number; showPr
   const note = kotAt ? first?.kotNote : (totalBatches <= 1 ? order.notes : null);
   const by = first?.kotBy ?? order.createdBy;
   const label = totalBatches > 1 || kotNo > 1 ? `KOT #${kotNo}` : "KOT";
-  const tableLabel = order.tableNumber ? (order.tableName || `Table ${order.tableNumber}`) : "TAKEAWAY";
+  const tableLabel = first?.kotTable ?? (order.tableNumber ? (order.tableName || `Table ${order.tableNumber}`) : "TAKEAWAY");
   const batchTotal = order.isNc ? items.reduce((s, i) => s + (i.ncCost ?? 0), 0) : items.reduce((s, i) => s + parseFloat(String(i.subtotal)), 0);
   const logo = `${window.location.origin}/LHC_logo.png`;
 
@@ -71,7 +73,7 @@ export function buildKotHtml(order: KotOrder, opts: { kotNumber?: number; showPr
       ${order.invoiceNumber ? `<p style="margin:2px 0;font-weight:bold;">Invoice No: ${esc(order.invoiceNumber)}</p>` : ""}
       <p style="margin:2px 0;">${when.toLocaleString()}</p>
       ${by ? `<p style="margin:2px 0;">Staff: ${esc(by)}</p>` : ""}
-      ${order.loyaltyCustomerName ? `<p style="margin:2px 0;">Customer: ${esc(order.loyaltyCustomerName)}</p>` : ""}
+      ${order.loyaltyCustomerName ? `<p style="margin:2px 0;">Customer: ${esc(order.loyaltyCustomerName)}${order.accountBill ? " (monthly account)" : ""}</p>` : ""}
       ${order.isNc ? `<p style="margin:2px 0;font-weight:bold;">Issued To: ${esc(order.ncPersonName)}</p>${order.ncReason ? `<p style="margin:2px 0;">Reason: ${esc(order.ncReason)}</p>` : ""}` : ""}
       <div style="border-top:1px dashed #000;border-bottom:1px dashed #000;padding:8px 0;margin:8px 0;">${itemsHtml}</div>
       ${showPrices ? row(totalBatches > 1 ? "KOT TOTAL" : (order.isNc ? "COST VALUE (NOT CHARGED)" : "TOTAL"), `Rs. ${batchTotal.toFixed(order.isNc ? 2 : 0)}`, "font-weight:bold;font-size:14px;") : ""}

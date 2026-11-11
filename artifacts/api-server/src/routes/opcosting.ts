@@ -3,7 +3,7 @@ import type { Response } from "express";
 import { db, operatingResourcesTable, operatingProfilesTable, operatingProfileUsageTable, costingSettingsTable, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, expensesTable, wasteLogsTable, inventoryItemsTable } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { authenticate, requireAdminOrAccountant, type AuthRequest } from "../middlewares/auth";
-import { loadCostingContext, ratesFor, itemOperating, evaluateOrder, currentYm, ymOf, shiftMonth } from "../lib/opcosting";
+import { loadCostingContext, ratesFor, itemOperating, evaluateOrder, currentYm, ymOf, shiftMonth, reportEntries } from "../lib/opcosting";
 import { menuItemCosting } from "../lib/costing";
 import { expandUsage } from "../lib/ingredientUsage";
 
@@ -22,7 +22,21 @@ function monthDates(ym: string) {
   return { from: new Date(y, m - 1, 1, 0, 0, 0, 0), to: new Date(y, m, 0, 23, 59, 59, 999), fromStr: `${ym}-01`, toStr: `${ym}-${String(last).padStart(2, "0")}` };
 }
 
+// Each report entry acts as one "sale" with its own date and revenue: a normal order is one sale,
+// a monthly-account bill is one sale per KOT (on the day it was ordered).
 async function paidOrdersWithItems(from: Date, to: Date) {
+  const entries = await reportEntries(from, to);
+  const orders: any[] = [];
+  const byOrder = new Map<number, any[]>();
+  entries.forEach((e, idx) => {
+    const pid = idx + 1;
+    orders.push({ ...e.order, id: pid, totalAmount: String(e.revenue), vatAmount: "0", createdAt: e.date, backdatedAt: null, _unpaid: !e.paid });
+    byOrder.set(pid, e.items);
+  });
+  return { orders, byOrder };
+}
+
+async function paidOrdersWithItemsByOrderDate(from: Date, to: Date) {
   const orders = await db.select().from(ordersTable).where(and(
     eq(ordersTable.paymentStatus, "paid"),
     sql`COALESCE(${ordersTable.backdatedAt}, ${ordersTable.createdAt}) >= ${from}`,
@@ -345,7 +359,12 @@ async function computePnl(ym: string) {
 }
 
 router.get("/costing/pnl", authenticate, requireAdminOrAccountant, async (req, res): Promise<void> => {
-  res.json(await computePnl(monthOf(req.query.month)));
+  const ym = monthOf(req.query.month);
+  const pnl = await computePnl(ym);
+  const { from, to } = monthDates(ym);
+  const { orders } = await paidOrdersWithItems(from, to);
+  const unpaidAccountSales = round2(orders.filter((o: any) => o._unpaid).reduce((s: number, o: any) => s + parseFloat(String(o.totalAmount)), 0));
+  res.json({ ...pnl, unpaidAccountSales });
 });
 
 router.get("/costing/pnl-year", authenticate, requireAdminOrAccountant, async (req, res): Promise<void> => {

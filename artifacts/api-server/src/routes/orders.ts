@@ -6,6 +6,8 @@ import { applyPrepWaste } from "../lib/prepWaste";
 import { claimOrderRequest, completeOrderRequest } from "../lib/idempotency";
 import { itemCostFields } from "../lib/costing";
 import { attachOperatingCosts } from "../lib/opcosting";
+import { mergeOrderInto } from "../lib/mergeOrders";
+import { loyaltyCustomersTable as accountCustomersTable } from "@workspace/db";
 import { hideCosts } from "../middlewares/hideCosts";
 import { expandRecipeLines } from "../lib/ingredientUsage";
 const NepaliDateLib = require("nepali-date-converter");
@@ -68,6 +70,7 @@ async function getOrderWithItems(orderId: number) {
       nonTaxableAmount: ordersTable.nonTaxableAmount,
       invoiceNumber: ordersTable.invoiceNumber,
       isNc: ordersTable.isNc,
+      accountBill: ordersTable.accountBill,
       ncPersonName: ordersTable.ncPersonName,
       ncReason: ordersTable.ncReason,
       createdBy: ordersTable.createdBy,
@@ -96,6 +99,7 @@ async function getOrderWithItems(orderId: number) {
       kotAt: orderItemsTable.kotAt,
       kotNote: orderItemsTable.kotNote,
       kotBy: orderItemsTable.kotBy,
+      kotTable: orderItemsTable.kotTable,
       unitCost: orderItemsTable.unitCost,
       costComplete: orderItemsTable.costComplete,
       costEstimated: orderItemsTable.costEstimated,
@@ -144,6 +148,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
       nonTaxableAmount: ordersTable.nonTaxableAmount,
       invoiceNumber: ordersTable.invoiceNumber,
       isNc: ordersTable.isNc,
+      accountBill: ordersTable.accountBill,
       ncPersonName: ordersTable.ncPersonName,
       ncReason: ordersTable.ncReason,
       createdBy: ordersTable.createdBy,
@@ -173,6 +178,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
           kotAt: orderItemsTable.kotAt,
           kotNote: orderItemsTable.kotNote,
           kotBy: orderItemsTable.kotBy,
+          kotTable: orderItemsTable.kotTable,
           unitCost: orderItemsTable.unitCost,
           costComplete: orderItemsTable.costComplete,
           costEstimated: orderItemsTable.costEstimated,
@@ -243,7 +249,25 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
 
   // ── One bill per table: join the table's open unpaid bill as a new KOT ──
   let openBill: typeof ordersTable.$inferSelect | undefined;
-  if (tableId && !isNc && !backdatedAt) {
+  // ── Monthly-account customers: every order goes on their ONE open account bill, whatever the table ──
+  let accountCustomerId: number | null = null;
+  let accountTableLabel: string | null = null;
+  if (loyaltyCustomerId && !isNc) {
+    const [acc] = await db.select().from(accountCustomersTable).where(eq(accountCustomersTable.id, Number(loyaltyCustomerId)));
+    if (acc?.paysMonthly) {
+      accountCustomerId = acc.id;
+      accountTableLabel = "TAKEAWAY";
+      if (tableId) {
+        const [tb] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, tableId));
+        if (tb) accountTableLabel = tb.name || `Table ${tb.tableNumber}`;
+      }
+      [openBill] = await db.select().from(ordersTable)
+        .where(and(eq(ordersTable.loyaltyCustomerId, acc.id), eq(ordersTable.accountBill, true), eq(ordersTable.paymentStatus, "pending"), sql`${ordersTable.orderStatus} <> 'cancelled'`))
+        .orderBy(desc(ordersTable.createdAt)).limit(1);
+    }
+  }
+  if (backdatedAt && !openBill) { accountCustomerId = null; accountTableLabel = null; } // a missed order only joins an OPEN account bill
+  if (!accountCustomerId && tableId && !isNc && !backdatedAt) {
     [openBill] = await db.select().from(ordersTable)
       .where(and(eq(ordersTable.tableId, tableId), eq(ordersTable.paymentStatus, "pending"), eq(ordersTable.isNc, false), sql`${ordersTable.orderStatus} <> 'cancelled'`))
       .orderBy(desc(ordersTable.createdAt)).limit(1);
@@ -261,9 +285,12 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
     notes: [openBill.notes, notes].filter(Boolean).join(" | ") || null,
     orderStatus: "pending",
     loyaltyCustomerId: openBill.loyaltyCustomerId ?? loyaltyCustomerId ?? null,
+    ...(backdatedAt ? { orderStatus: openBill.orderStatus } : {}),
+    ...(backdatedAt && new Date(backdatedAt) < new Date(openBill.createdAt) ? { createdAt: new Date(backdatedAt) } : {}),
   }).where(eq(ordersTable.id, openBill.id)).returning() : await db.insert(ordersTable).values({
     tableId: tableId ?? null,
     totalAmount: isNc ? String(Math.round(ncCostTotal * 100) / 100) : String(finalTotal),
+    accountBill: !!accountCustomerId,
     paymentMethod: isNc ? "nc" : (paymentMethod ?? "cash"),
     paymentStatus: isNc ? "paid" : "pending",
     orderStatus: "pending",
@@ -279,7 +306,7 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
   }).returning();
 
   for (const item of resolvedItems) {
-    await db.insert(orderItemsTable).values({ orderId: order.id, menuItemId: item.menuItemId, quantity: item.quantity, unitPrice: String(item.unitPrice), subtotal: String(item.subtotal), notes: item.notes ?? null, kotNumber: kotNo, kotAt: new Date(), kotNote: notes ?? null, kotBy: (req as any).user?.username ?? null, ...(await itemCostFields(item.menuItemId)) });
+    await db.insert(orderItemsTable).values({ orderId: order.id, menuItemId: item.menuItemId, quantity: item.quantity, unitPrice: String(item.unitPrice), subtotal: String(item.subtotal), notes: item.notes ?? null, kotNumber: kotNo, kotAt: backdatedAt ? new Date(backdatedAt) : new Date(), kotNote: notes ?? null, kotBy: (req as any).user?.username ?? null, kotTable: accountCustomerId ? accountTableLabel : null, ...(await itemCostFields(item.menuItemId)) });
   }
 
   for (const item of resolvedItems) {
@@ -299,7 +326,12 @@ router.post("/orders", authenticate, async (req, res): Promise<void> => {
   await applyPrepWaste(order.id, resolvedItems, kotNo > 1 ? `Order #${order.id} (KOT ${kotNo})` : `Order #${order.id}`, (req as any).user?.username ?? "system", kotNo);
   const result = await getOrderWithItems(order.id);
   if (requestId) await completeOrderRequest(requestId, order.id, kotNo, !!openBill);
-  res.status(201).json(result ? { ...result, kotNumber: kotNo, merged: !!openBill } : result);
+  let finalResult: any = result;
+  if (accountCustomerId && !openBill) {
+    await db.update(ordersTable).set({ tableId: null }).where(eq(ordersTable.id, order.id));
+    finalResult = await getOrderWithItems(order.id);
+  }
+  res.status(201).json(finalResult ? { ...finalResult, kotNumber: kotNo, merged: !!openBill } : finalResult);
 });
 
 router.get("/orders/:id", authenticate, async (req, res): Promise<void> => {
@@ -550,6 +582,48 @@ router.post("/profit/recalculate", authenticate, requireAdmin, async (_req, res)
   res.json({ checked: pending.length, updated, stillIncomplete });
 });
 
+// ── Add or change the customer on an unpaid order. A monthly-account customer's order joins their one open bill. ──
+router.patch("/orders/:id/customer", authenticate, async (req: any, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  const customerId = Number(req.body?.loyaltyCustomerId);
+  if (!Number.isInteger(customerId) || customerId <= 0) { res.status(400).json({ error: "Choose a customer." }); return; }
+  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+  if (order.paymentStatus !== "pending") { res.status(400).json({ error: "Only unpaid orders can change customer." }); return; }
+  if (order.accountBill) { res.status(400).json({ error: "This is a monthly account bill. Its customer can't be changed." }); return; }
+  const [customer] = await db.select().from(accountCustomersTable).where(eq(accountCustomersTable.id, customerId));
+  if (!customer) { res.status(404).json({ error: "Customer not found" }); return; }
+  const username = req.user?.username ?? "staff";
+
+  if (!customer.paysMonthly || order.isNc) {
+    await db.update(ordersTable).set({ loyaltyCustomerId: customer.id }).where(eq(ordersTable.id, id));
+    res.json({ ...(await getOrderWithItems(id)), mergedInto: null, accountOpened: false });
+    return;
+  }
+
+  let tableLabel = "TAKEAWAY";
+  if (order.tableId) {
+    const [tb] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, order.tableId));
+    if (tb) tableLabel = tb.name || `Table ${tb.tableNumber}`;
+  }
+
+  let mergedInto = null as number | null;
+  await db.transaction(async (tx) => {
+    const [target] = await tx.select().from(ordersTable)
+      .where(and(eq(ordersTable.loyaltyCustomerId, customer.id), eq(ordersTable.accountBill, true), eq(ordersTable.paymentStatus, "pending"), sql`${ordersTable.orderStatus} <> 'cancelled'`, sql`${ordersTable.id} <> ${id}`))
+      .orderBy(desc(ordersTable.createdAt)).limit(1);
+    if (!target) {
+      // no open account bill yet: this order becomes it
+      await tx.update(orderItemsTable).set({ kotTable: tableLabel, kotAt: sql`COALESCE(${orderItemsTable.kotAt}, ${order.createdAt})` }).where(and(eq(orderItemsTable.orderId, id), sql`${orderItemsTable.kotTable} IS NULL`));
+      await tx.update(ordersTable).set({ loyaltyCustomerId: customer.id, accountBill: true, tableId: null }).where(eq(ordersTable.id, id));
+      return;
+    }
+    mergedInto = target.id;
+    await mergeOrderInto(tx, order, target, username, tableLabel, "customer added");
+  });
+  res.json({ ...(await getOrderWithItems(mergedInto ?? id)), mergedInto, accountOpened: mergedInto === null });
+});
+
 // ── Cancel one KOT (admin, unpaid bills only) ──
 router.post("/orders/:id/kots/:kot/cancel", authenticate, requireAdmin, async (req: any, res): Promise<void> => {
   const id = parseId(req.params.id);
@@ -612,6 +686,7 @@ router.patch("/orders/:id/table", authenticate, async (req: any, res): Promise<v
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) { res.status(404).json({ error: "Order not found" }); return; }
   if (order.paymentStatus !== "pending") { res.status(400).json({ error: "Only unpaid orders can be moved to another table." }); return; }
+  if (order.accountBill) { res.status(400).json({ error: "This is a monthly account bill. It belongs to the customer, not to a table." }); return; }
   if ((order.tableId ?? null) === newTableId) { res.status(400).json({ error: "The order is already on that table." }); return; }
   if (newTableId !== null) {
     const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, newTableId));
@@ -729,6 +804,7 @@ router.get("/order-corrections", authenticate, requireAdmin, async (_req, res): 
       orderTotal: ordersTable.totalAmount,
       invoiceNumber: ordersTable.invoiceNumber,
       isNc: ordersTable.isNc,
+      accountBill: ordersTable.accountBill,
       ncPersonName: ordersTable.ncPersonName,
       ncReason: ordersTable.ncReason,
     })

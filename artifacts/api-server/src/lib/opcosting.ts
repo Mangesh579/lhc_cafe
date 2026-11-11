@@ -1,5 +1,5 @@
 import { db, ordersTable, orderItemsTable, menuItemsTable, expensesTable, operatingResourcesTable, operatingProfilesTable, operatingProfileUsageTable, costingSettingsTable } from "@workspace/db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 
 export const SALARY_CATEGORY = "Employee salaries and wages";
 export const ELECTRICITY_CATEGORY = "Electricity";
@@ -67,7 +67,7 @@ export async function loadCostingContext(): Promise<CostingContext> {
   const ex = await db.select().from(expensesTable).where(and(eq(expensesTable.status, "active"), eq(expensesTable.type, "indirect")));
   const indirect = ex.map(e => ({ expenseDate: e.expenseDate, category: e.category, amount: parseFloat(String(e.amount)), isRecurring: e.isRecurring }));
 
-  const monthExpr = sql`to_char(COALESCE(${ordersTable.backdatedAt}, ${ordersTable.createdAt}), 'YYYY-MM')`;
+  const monthExpr = sql`to_char(CASE WHEN ${ordersTable.accountBill} = true AND ${ordersTable.backdatedAt} IS NULL AND ${orderItemsTable.kotAt} IS NOT NULL THEN ${orderItemsTable.kotAt} ELSE COALESCE(${ordersTable.backdatedAt}, ${ordersTable.createdAt}) END, 'YYYY-MM')`;
   const volRows = await db
     .select({
       ym: sql<string>`${monthExpr}`,
@@ -76,7 +76,7 @@ export async function loadCostingContext(): Promise<CostingContext> {
     })
     .from(orderItemsTable)
     .innerJoin(ordersTable, eq(orderItemsTable.orderId, ordersTable.id))
-    .where(eq(ordersTable.paymentStatus, "paid"))
+    .where(sql`(${ordersTable.paymentStatus} = 'paid' OR (${ordersTable.accountBill} = true AND ${ordersTable.paymentStatus} = 'pending' AND ${ordersTable.orderStatus} <> 'cancelled'))`)
     .groupBy(monthExpr);
   const volume: CostingContext["volume"] = new Map();
   for (const v of volRows) volume.set(String(v.ym), { dishes: Number(v.dishes), value: Number(v.value) });
@@ -139,6 +139,58 @@ export function monthRates(ctx: CostingContext, ym: string): MonthRates {
     pct = { salary: pool.salary / expectedSales, electricity: pool.electricity / expectedSales, other: pool.other / expectedSales };
   }
   return { ym, method: ctx.settings.allocationMethod, available, expectedDishes, expectedSales, volumeSource, pool: { ...pool, total }, estimatedBuckets, perDish, pct };
+}
+
+// ── Reports count a monthly-account bill per KOT, on the day each KOT was ordered ──
+// true: sales on monthly accounts count when ordered, even before the customer pays. false: only once paid.
+export const INCLUDE_UNPAID_ACCOUNTS = true;
+
+export type ReportEntry = { order: any; items: any[]; date: Date; revenue: number; paid: boolean };
+
+export function itemReportDate(order: any, item: any): Date {
+  if (order.backdatedAt) return new Date(order.backdatedAt);
+  if (order.accountBill && item?.kotAt) return new Date(item.kotAt);
+  return new Date(order.createdAt);
+}
+
+// A normal order is one entry. An account bill is one entry per KOT; its net revenue (after discount, without VAT)
+// is shared between the KOTs by the value of their items.
+export function orderEntries(order: any, items: any[]): ReportEntry[] {
+  const total = parseFloat(String(order.totalAmount ?? 0));
+  const vat = parseFloat(String(order.vatAmount ?? 0));
+  const net = order.isNc ? 0 : Math.max(0, total - vat);
+  const paid = order.paymentStatus === "paid";
+  if (!order.accountBill || order.backdatedAt) {
+    return [{ order, items, date: new Date(order.backdatedAt ?? order.createdAt), revenue: net, paid }];
+  }
+  const groups = new Map<number, any[]>();
+  for (const it of items) { const k = it.kotNumber ?? 1; groups.set(k, [...(groups.get(k) ?? []), it]); }
+  const value = (list: any[]) => list.reduce((s, i) => s + parseFloat(String(i.subtotal ?? 0)), 0);
+  const all = value(items);
+  return Array.from(groups.entries()).sort((a, b) => a[0] - b[0]).map(([, list]) => ({
+    order, items: list, date: itemReportDate(order, list[0]),
+    revenue: all > 0 ? net * (value(list) / all) : 0, paid,
+  }));
+}
+
+export async function reportEntries(from: Date, to: Date, opts: { accountOnly?: boolean } = {}): Promise<ReportEntry[]> {
+  const normalPart = opts.accountOnly
+    ? sql`false`
+    : sql`(${ordersTable.accountBill} = false AND ${ordersTable.paymentStatus} = 'paid' AND COALESCE(${ordersTable.backdatedAt}, ${ordersTable.createdAt}) >= ${from} AND COALESCE(${ordersTable.backdatedAt}, ${ordersTable.createdAt}) <= ${to})`;
+  const accountStatus = INCLUDE_UNPAID_ACCOUNTS
+    ? sql`(${ordersTable.paymentStatus} = 'paid' OR (${ordersTable.paymentStatus} = 'pending' AND ${ordersTable.orderStatus} <> 'cancelled'))`
+    : sql`${ordersTable.paymentStatus} = 'paid'`;
+  const accountPart = sql`(${ordersTable.accountBill} = true AND ${ordersTable.backdatedAt} IS NULL AND ${accountStatus} AND ${ordersTable.id} IN (SELECT ${orderItemsTable.orderId} FROM ${orderItemsTable} WHERE ${orderItemsTable.kotAt} >= ${from} AND ${orderItemsTable.kotAt} <= ${to}))`;
+
+  const orders = await db.select().from(ordersTable).where(sql`(${normalPart} OR ${accountPart})`);
+  const ids = orders.map(o => o.id);
+  const items = ids.length ? await db.select().from(orderItemsTable).where(inArray(orderItemsTable.orderId, ids)) : [];
+  const byOrder = new Map<number, any[]>();
+  for (const it of items) byOrder.set(it.orderId, [...(byOrder.get(it.orderId) ?? []), it]);
+
+  const out: ReportEntry[] = [];
+  for (const o of orders) for (const e of orderEntries(o, byOrder.get(o.id) ?? [])) if (e.date >= from && e.date <= to) out.push(e);
+  return out;
 }
 
 export function ratesFor(ctx: CostingContext, ym: string): MonthRates {
@@ -210,6 +262,6 @@ export async function attachOperatingCosts(orders: any[]) {
   const ctx = await loadCostingContext();
   for (const o of orders) {
     const rates = ratesFor(ctx, ymOf(o.backdatedAt ?? o.createdAt));
-    for (const i of o.items ?? []) i.opCost = itemOperating(ctx, i.menuItemId, parseFloat(String(i.unitPrice ?? 0)), rates);
+    for (const i of o.items ?? []) i.opCost = itemOperating(ctx, i.menuItemId, parseFloat(String(i.unitPrice ?? 0)), o.accountBill && !o.backdatedAt && i.kotAt ? ratesFor(ctx, ymOf(i.kotAt)) : rates);
   }
 }

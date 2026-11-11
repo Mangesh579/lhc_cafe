@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, numeric, timestamp, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, numeric, timestamp, unique, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -12,6 +12,7 @@ export const loyaltyCustomersTable = pgTable("loyalty_customers", {
   totalSpent: numeric("total_spent", { precision: 10, scale: 2 }).notNull().default("0"),
   loopNumber: integer("loop_number").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  paysMonthly: boolean("pays_monthly").notNull().default(false),
 });
 
 export const loyaltyRedemptionsTable = pgTable("loyalty_redemptions", {

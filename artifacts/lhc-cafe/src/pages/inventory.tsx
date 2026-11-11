@@ -756,6 +756,14 @@ export default function Inventory() {
   const [compMap, setCompMap] = useState<Record<number, any[]>>({});
   const [ingredientSearch, setIngredientSearch] = useState("");
   const [ingredientCategory, setIngredientCategory] = useState("all");
+  const [unlinkedIds, setUnlinkedIds] = useState<Set<number>>(new Set());
+  const [onlyUnlinked, setOnlyUnlinked] = useState(false);
+  const loadUnlinked = () => { APIJSON("/inventory/unlinked").then((d: any) => setUnlinkedIds(new Set<number>(d.ids ?? []))).catch(() => {}); };
+  useEffect(() => {
+    loadUnlinked();
+    window.addEventListener("focus", loadUnlinked);
+    return () => window.removeEventListener("focus", loadUnlinked);
+  }, []);
   const [adjustItem, setAdjustItem] = useState<any>(null);
   const [adjustQty, setAdjustQty] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
@@ -881,7 +889,7 @@ export default function Inventory() {
 
   const categoriesOf = (dept: Dept) => Array.from(new Set((inventory as any[]).filter(i => i.department === dept && i.category).map(i => String(i.category)))).sort((a, b) => a.localeCompare(b));
   const deptCategories = categoriesOf(ingredientDept);
-  const filteredInventory = (inventory as any[]).filter(i => (ingredientCategory === "all" || (ingredientCategory === "none" ? !i.category : i.category === ingredientCategory)) &&
+  const filteredInventory = (inventory as any[]).filter(i => (ingredientCategory === "all" || (ingredientCategory === "none" ? !i.category : i.category === ingredientCategory)) && (!onlyUnlinked || unlinkedIds.has(i.id)) &&
     i.department === ingredientDept &&
     (!ingredientSearch.trim() || i.name.toLowerCase().includes(ingredientSearch.toLowerCase()))
   );
@@ -965,6 +973,16 @@ export default function Inventory() {
         {/* ── Ingredients Tab ─────────────────────────────────────────────── */}
         <TabsContent value="ingredients" className="space-y-4 mt-4">
           <DeptToggle value={ingredientDept} onChange={(d) => { setIngredientDept(d); setIngredientCategory("all"); }} />
+          {(() => {
+            const n = (inventory as any[]).filter(i => i.department === ingredientDept && unlinkedIds.has(i.id)).length;
+            return n > 0 || onlyUnlinked ? (
+              <div className="flex items-center gap-2 flex-wrap text-sm bg-amber-50 text-amber-900 border border-amber-200 rounded-md px-3 py-2">
+                <span>{n} ingredient{n === 1 ? "" : "s"} here {n === 1 ? "is" : "are"} not used in any dish.</span>
+                <Button size="sm" variant={onlyUnlinked ? "default" : "outline"} className="h-7" onClick={() => setOnlyUnlinked(v => !v)}>{onlyUnlinked ? "Show all" : "Show only these"}</Button>
+                <Button size="sm" variant="ghost" className="h-7" onClick={loadUnlinked}>Refresh</Button>
+              </div>
+            ) : null;
+          })()}
           {deptCategories.length > 0 && (
             <div className="flex gap-2 flex-wrap">
               <Button size="sm" variant={ingredientCategory === "all" ? "default" : "outline"} className="rounded-full h-8" onClick={() => setIngredientCategory("all")}>All</Button>
@@ -1019,6 +1037,7 @@ export default function Inventory() {
                         <td className="px-5 py-3">
                           <div className="font-medium">{item.name}</div>
                           {item.category && <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground mt-0.5">{item.category}</span>}
+                          {unlinkedIds.has(item.id) && <div className="text-[10px] text-amber-700">Not used in any dish</div>}
                           {role === "admin" && (
                             (compMap[item.id] ?? []).length > 0
                               ? <div className="text-[10px] text-muted-foreground">Cost from components</div>

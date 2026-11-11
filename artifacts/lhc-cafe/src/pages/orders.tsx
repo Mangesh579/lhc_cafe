@@ -240,6 +240,41 @@ export default function Orders() {
     } catch { toast({ title: "Failed to cancel KOT", variant: "destructive" }); }
   };
 
+  const [custDialog, setCustDialog] = useState<{ order: any } | null>(null);
+  const [custQuery, setCustQuery] = useState("");
+  const [custResults, setCustResults] = useState<any[]>([]);
+  const [custPick, setCustPick] = useState<any | null>(null);
+  const [custSaving, setCustSaving] = useState(false);
+
+  const searchCustomers = async (q: string) => {
+    try {
+      const r = await fetch(`${API_BASE}/api/accounts/customers?search=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      setCustResults(r.ok ? await r.json() : []);
+    } catch { setCustResults([]); }
+  };
+  const openCustDialog = (order: any) => { setCustDialog({ order }); setCustQuery(""); setCustPick(null); searchCustomers(""); };
+  const saveCustomer = async () => {
+    if (!custDialog || !custPick) return;
+    setCustSaving(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/orders/${custDialog.order.id}/customer`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+        body: JSON.stringify({ loyaltyCustomerId: custPick.id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast({ title: "Couldn't set the customer", description: d?.error, variant: "destructive" }); return; }
+      queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
+      toast(d.mergedInto
+        ? { title: `Added to ${custPick.name}'s monthly account`, description: `Merged into bill #${d.mergedInto} as new KOTs.` }
+        : d.accountOpened
+          ? { title: `${custPick.name}'s monthly account opened`, description: "Their next orders will be added to this bill." }
+          : { title: "Customer added" });
+      setCustDialog(null);
+    } catch { toast({ title: "Failed to set the customer", variant: "destructive" }); }
+    finally { setCustSaving(false); }
+  };
+
   const printKot = (order: any, kotNumber?: number) => {
     printReceiptHtml(buildKotHtml(order, { kotNumber }));
   };
@@ -337,7 +372,7 @@ export default function Orders() {
           <p style="font-size:11px;margin:2px 0;">PAN/VAT No: 194139113</p>
           <p style="font-size:11px;font-weight:bold;margin-top:4px;display:inline-block;border:2px solid #1a1a1a;padding:2px 8px;">${isVat ? "TAX INVOICE (VAT)" : "BILL"}</p>
         </div>
-        <p style="text-align:center;margin:6px 0;"><span style="display:inline-block;border:2px solid #000;padding:2px 12px;font-weight:bold;font-size:15px;">${o.tableNumber ? esc(o.tableName || `Table ${o.tableNumber}`) : "TAKEAWAY"}</span></p>
+        <p style="text-align:center;margin:6px 0;"><span style="display:inline-block;border:2px solid #000;padding:2px 12px;font-weight:bold;font-size:15px;">${o.accountBill ? esc("ACCOUNT: " + (o.loyaltyCustomerName ?? "")) : o.tableNumber ? esc(o.tableName || `Table ${o.tableNumber}`) : "TAKEAWAY"}</span></p>
         <p style="margin:2px 0;">Order #${o.id}</p>
         ${o.invoiceNumber ? `<p style="margin:2px 0;font-weight:bold;">Invoice No: ${o.invoiceNumber}</p>` : ""}
         <p style="margin:2px 0;">${new Date().toLocaleString()}</p>
@@ -454,7 +489,7 @@ export default function Orders() {
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 mb-1">
                       <span className="font-semibold text-sm">
-                        {order.tableNumber ? ((order as any).tableName || `Table ${order.tableNumber}`) : 'Takeaway'}
+                        {(order as any).accountBill ? `Account: ${(order as any).loyaltyCustomerName ?? "customer"}` : order.tableNumber ? ((order as any).tableName || `Table ${order.tableNumber}`) : 'Takeaway'}
                       </span>
                       <Badge variant="secondary" className={`text-xs ${statusColors[order.orderStatus]}`}>
                         {order.orderStatus.toUpperCase()}
@@ -512,9 +547,21 @@ export default function Orders() {
                     </Button>
                   )}
                   {isPaymentPending && (
-                    <Button size="sm" variant="outline" onClick={() => openTableDialog(order)} className="gap-1.5 text-xs h-8 px-4">
+                    <Button size="sm" variant="outline" onClick={() => openTableDialog(order)} className="gap-1.5 text-xs h-8 px-4" style={{ display: (order as any).accountBill ? "none" : undefined }}>
                       Change table
                     </Button>
+                  )}
+                  {isPaymentPending && !(order as any).accountBill && (
+                    <Button size="sm" variant="outline" onClick={() => openCustDialog(order)} className="gap-1.5 text-xs h-8 px-4">
+                      {(order as any).loyaltyCustomerId ? "Change customer" : "Add customer"}
+                    </Button>
+                  )}
+                  {(order as any).accountBill && (
+                    (() => {
+                      const days = Math.floor((Date.now() - new Date(order.createdAt).getTime()) / 86400000);
+                      const tone = days >= 30 ? "bg-red-100 text-red-800" : days >= 25 ? "bg-amber-100 text-amber-800" : "bg-green-100 text-green-800";
+                      return <span className={`text-[11px] px-2 py-1 rounded-full font-medium ${tone}`}>Monthly account{(order as any).loyaltyCustomerName ? `: ${(order as any).loyaltyCustomerName}` : ""} · open {days} day{days === 1 ? "" : "s"}{days >= 30 ? " · payment due" : ""}</span>;
+                    })()
                   )}
                   <Button size="sm" variant="outline" onClick={() => printKot(order)} className="gap-1.5 text-xs h-8 px-4">
                     <Printer className="w-3 h-3" /> Print KOT
@@ -858,6 +905,38 @@ export default function Orders() {
           </div>
         </div>
       )}
+      <Dialog open={!!custDialog} onOpenChange={(o) => !o && setCustDialog(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>{custDialog?.order?.loyaltyCustomerId ? "Change customer" : "Add customer"}: Order #{custDialog?.order?.id}</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <input
+              autoFocus value={custQuery}
+              onChange={e => { setCustQuery(e.target.value); searchCustomers(e.target.value); }}
+              placeholder="Search a loyalty customer by name or phone…"
+              className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+            />
+            <div className="max-h-56 overflow-y-auto border rounded-md divide-y">
+              {custResults.length === 0 && <p className="p-3 text-sm text-muted-foreground">No customers found.</p>}
+              {custResults.map((c: any) => (
+                <button key={c.id} type="button" onClick={() => setCustPick(c)} className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${custPick?.id === c.id ? "bg-muted font-medium" : ""}`}>
+                  {c.name} <span className="text-xs text-muted-foreground">{c.phone}</span>
+                  {c.paysMonthly && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-800">Monthly account</span>}
+                </button>
+              ))}
+            </div>
+            {custPick?.paysMonthly && (
+              <p className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-md px-3 py-2">
+                {custPick.name} pays monthly. This order will be added to their one open account bill as a new KOT, or become that bill if they have none open.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCustDialog(null)}>Cancel</Button>
+            <Button onClick={saveCustomer} disabled={!custPick || custSaving}>{custSaving ? "Saving…" : "Save"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!tableDialog} onOpenChange={(o) => !o && setTableDialog(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader><DialogTitle>Change table — Order #{tableDialog?.order?.id}</DialogTitle></DialogHeader>

@@ -333,7 +333,7 @@ export default function OrderLog() {
     const rows = ordersToExport.map(o => [
       o.id,
       new Date((o as any).backdatedAt ?? o.createdAt).toLocaleString(),
-      o.tableNumber ? ((o as any).tableName || `Table ${o.tableNumber}`) : "Takeaway",
+      (o as any).accountBill ? `Account: ${(o as any).loyaltyCustomerName ?? ""}` : o.tableNumber ? ((o as any).tableName || `Table ${o.tableNumber}`) : "Takeaway",
       (o as any).createdBy ?? "",
       (o as any).loyaltyCustomerName ?? "",
       o.orderStatus,
@@ -366,7 +366,7 @@ export default function OrderLog() {
     const rows = ordersToExport.map(o => ({
       "Order ID": o.id,
       "Date": new Date((o as any).backdatedAt ?? o.createdAt).toLocaleString(),
-      "Table": o.tableNumber ? ((o as any).tableName || `Table ${o.tableNumber}`) : "Takeaway",
+      "Table": (o as any).accountBill ? `Account: ${(o as any).loyaltyCustomerName ?? ""}` : o.tableNumber ? ((o as any).tableName || `Table ${o.tableNumber}`) : "Takeaway",
       "Staff": (o as any).createdBy ?? "",
       "Customer": (o as any).loyaltyCustomerName ?? "",
       "Status": o.orderStatus,
@@ -430,7 +430,7 @@ export default function OrderLog() {
       body: ordersToExport.map(o => [
         o.id,
         new Date((o as any).backdatedAt ?? o.createdAt).toLocaleDateString(),
-        o.tableNumber ? ((o as any).tableName || `Table ${o.tableNumber}`) : "Takeaway",
+        (o as any).accountBill ? `Account: ${(o as any).loyaltyCustomerName ?? ""}` : o.tableNumber ? ((o as any).tableName || `Table ${o.tableNumber}`) : "Takeaway",
         (o as any).createdBy ?? "",
         (o as any).loyaltyCustomerName ?? "",
         o.orderStatus,
@@ -490,7 +490,7 @@ export default function OrderLog() {
             <p style="font-size:11px;">PAN/VAT No: 194139113</p>
             <p style="font-size:11px;font-weight:bold;margin-top:4px;display:inline-block;border:2px solid #1a1a1a;padding:2px 8px;">NOT CHARGEABLE — REPRINT</p>
           </div>
-          <p style="text-align:center;margin:6px 0;"><span style="display:inline-block;border:2px solid #000;padding:2px 12px;font-weight:bold;font-size:15px;">${order.tableNumber ? (order.tableName || `Table ${order.tableNumber}`) : "TAKEAWAY"}</span></p>
+          <p style="text-align:center;margin:6px 0;"><span style="display:inline-block;border:2px solid #000;padding:2px 12px;font-weight:bold;font-size:15px;">${(order as any).accountBill ? "ACCOUNT: " + ((order as any).loyaltyCustomerName ?? "") : order.tableNumber ? (order.tableName || `Table ${order.tableNumber}`) : "TAKEAWAY"}</span></p>
           <p>Order #${order.id}</p>
           ${(order as any).invoiceNumber ? `<p style="font-weight:bold;">Invoice No: ${(order as any).invoiceNumber}</p>` : ""}
           <p>${new Date().toLocaleString()} (reprinted)</p>
@@ -513,7 +513,7 @@ export default function OrderLog() {
             <p style="font-size:11px;">PAN/VAT No: 194139113</p>
             ${billTypeToUse === "vat" ? '<p style="font-size:11px;font-weight:bold;">TAX INVOICE (VAT) — REPRINT</p>' : '<p style="font-size:11px;">REPRINT</p>'}
           </div>
-          <p style="text-align:center;margin:6px 0;"><span style="display:inline-block;border:2px solid #000;padding:2px 12px;font-weight:bold;font-size:15px;">${order.tableNumber ? (order.tableName || `Table ${order.tableNumber}`) : "TAKEAWAY"}</span></p>
+          <p style="text-align:center;margin:6px 0;"><span style="display:inline-block;border:2px solid #000;padding:2px 12px;font-weight:bold;font-size:15px;">${(order as any).accountBill ? "ACCOUNT: " + ((order as any).loyaltyCustomerName ?? "") : order.tableNumber ? (order.tableName || `Table ${order.tableNumber}`) : "TAKEAWAY"}</span></p>
           <p>Order #${order.id}</p>
           ${(order as any).invoiceNumber ? `<p style="font-weight:bold;">Invoice No: ${(order as any).invoiceNumber}</p>` : ""}
           <p>${new Date().toLocaleString()} (reprinted)</p>
@@ -883,7 +883,7 @@ export default function OrderLog() {
                     {(order as any).backdatedAt && <span className="ml-1.5 text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded text-xs">backdated</span>}
                   </p>
                   <p className="text-sm mt-1">
-                    {order.tableNumber ? ((order as any).tableName || `Table ${order.tableNumber}`) : 'Takeaway'}
+                    {(order as any).accountBill ? `Account: ${(order as any).loyaltyCustomerName ?? "customer"}` : order.tableNumber ? ((order as any).tableName || `Table ${order.tableNumber}`) : 'Takeaway'}
                     {order.loyaltyCustomerName && <span className="text-muted-foreground ml-2 text-xs">{order.loyaltyCustomerName}</span>}
                   </p>
                   {(order as any).createdBy && (
@@ -909,6 +909,7 @@ export default function OrderLog() {
                       {item.notes && <p className="text-xs text-amber-600 italic ml-4 mt-0.5">↳ {item.notes}</p>}
                     </div>
                   ))}
+                {(order as any).accountBill && <p className="text-xs text-green-700 mt-1">Monthly account bill{(order as any).loyaltyCustomerName ? ` for ${(order as any).loyaltyCustomerName}` : ""}: all their orders were added as KOTs.</p>}
                 {canSeeProfit && <ProfitBreakdown order={order} />}
                 {(order as any).kotCancellations?.length > 0 && (
                   <div className="space-y-0.5 mt-1">
@@ -983,7 +984,7 @@ export default function OrderLog() {
                       </td>
                       <td className="px-4 py-3">
                         <span className="block font-medium">
-                          {order.tableNumber ? ((order as any).tableName || `Table ${order.tableNumber}`) : 'Takeaway'}
+                          {(order as any).accountBill ? `Account: ${(order as any).loyaltyCustomerName ?? "customer"}` : order.tableNumber ? ((order as any).tableName || `Table ${order.tableNumber}`) : 'Takeaway'}
                         </span>
                         {(order as any).createdBy && (
                           <span className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
@@ -1047,6 +1048,7 @@ export default function OrderLog() {
                                 {item.notes && <p className="text-xs text-amber-600 italic ml-4 mt-0.5">↳ {item.notes}</p>}
                               </div>
                             ))}
+                            {(order as any).accountBill && <p className="text-xs text-green-700 mt-1">Monthly account bill{(order as any).loyaltyCustomerName ? ` for ${(order as any).loyaltyCustomerName}` : ""}: all their orders were added as KOTs.</p>}
                             {canSeeProfit && <ProfitBreakdown order={order} />}
                             {(order as any).kotCancellations?.length > 0 && (
                               <div className="space-y-0.5 mt-1">

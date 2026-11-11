@@ -114,6 +114,7 @@ export default function ProfitLoss({ ym }: { ym: string }) {
           <Line label="NET PROFIT" value={pnl.netProfit} bold tone={pnl.netProfit >= 0 ? "green" : "red"} hint={pnl.netMarginPct != null ? `${pnl.netMarginPct.toFixed(1)}% of sales` : undefined} />
 
           <div className="mt-4 text-xs text-muted-foreground space-y-1 border-t pt-3">
+            {pnl.unpaidAccountSales > 0 && <p>Sales on monthly accounts not yet paid: <strong className="text-foreground">{money(pnl.unpaidAccountSales)}</strong>. They count as sales in the month they were ordered.</p>}
             <p>Direct purchases this month: <strong className="text-foreground">{money(pnl.directPurchases)}</strong>. These are not deducted again, because the recipe cost above already covers the ingredients of what you sold. Money spent on stock that is still on the shelf shows up in your cash, not in profit.</p>
             <p>Every indirect expense is deducted here once, from the actual bills. The per-dish overhead share in Operating costs is a separate estimate and is never added on top of this.</p>
             {pnl.equipmentLoss > 0 && <p>Equipment breakage logged this month: <strong className="text-foreground">{money(pnl.equipmentLoss)}</strong>. Not deducted here, because equipment purchases are not part of this profit either. If you record new equipment as an expense, keep breakage out of the P&amp;L.</p>}

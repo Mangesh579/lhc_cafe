@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, ordersTable, menuItemsTable, inventoryItemsTable, loyaltyCustomersTable, orderItemsTable } from "@workspace/db";
 import { eq, gte, lte, and, sql, desc, count, sum } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth";
+import { accountSalesInRange } from "../lib/accountSales";
 
 const router = Router();
 
@@ -21,7 +22,7 @@ router.get("/dashboard/stats", authenticate, async (_req, res): Promise<void> =>
       orderCount: sql<number>`COUNT(*)`,
     })
     .from(ordersTable)
-    .where(and(gte(ordersTable.createdAt, today), lte(ordersTable.createdAt, todayEnd), eq(ordersTable.orderStatus, "completed"), eq(ordersTable.isNc, false)));
+    .where(and(gte(ordersTable.createdAt, today), lte(ordersTable.createdAt, todayEnd), eq(ordersTable.orderStatus, "completed"), eq(ordersTable.isNc, false), eq(ordersTable.accountBill, false)));
 
   const [pendingCount] = await db
     .select({ count: sql<number>`COUNT(*)` })
@@ -31,7 +32,7 @@ router.get("/dashboard/stats", authenticate, async (_req, res): Promise<void> =>
   const [weekStats] = await db
     .select({ total: sql<number>`COALESCE(SUM(CAST(${ordersTable.totalAmount} AS NUMERIC)), 0)` })
     .from(ordersTable)
-    .where(and(gte(ordersTable.createdAt, weekStart), eq(ordersTable.orderStatus, "completed"), eq(ordersTable.isNc, false)));
+    .where(and(gte(ordersTable.createdAt, weekStart), eq(ordersTable.orderStatus, "completed"), eq(ordersTable.isNc, false), eq(ordersTable.accountBill, false)));
 
   const [menuCount] = await db.select({ count: sql<number>`COUNT(*)` }).from(menuItemsTable);
 
@@ -43,9 +44,11 @@ router.get("/dashboard/stats", authenticate, async (_req, res): Promise<void> =>
     return parseFloat(String(i.currentStock)) < parseFloat(String(i.minStockLevel));
   }).length;
 
-  const todaySales = Number(todayStats?.totalSales ?? 0);
-  const todayOrders = Number(todayStats?.orderCount ?? 0);
-  const weekSales = Number(weekStats?.total ?? 0);
+  const acctToday = await accountSalesInRange(today, todayEnd);
+  const acctWeek = await accountSalesInRange(weekStart, todayEnd);
+  const todaySales = Number(todayStats?.totalSales ?? 0) + acctToday.sales;
+  const todayOrders = Number(todayStats?.orderCount ?? 0) + acctToday.kots;
+  const weekSales = Number(weekStats?.total ?? 0) + acctWeek.sales;
 
   res.json({
     todaySales,
@@ -99,11 +102,12 @@ router.get("/dashboard/sales-by-day", authenticate, async (req, res): Promise<vo
         orderCount: sql<number>`COUNT(*)`,
       })
       .from(ordersTable)
-      .where(and(gte(ordersTable.createdAt, date), lte(ordersTable.createdAt, dateEnd), eq(ordersTable.orderStatus, "completed"), eq(ordersTable.isNc, false)));
+      .where(and(gte(ordersTable.createdAt, date), lte(ordersTable.createdAt, dateEnd), eq(ordersTable.orderStatus, "completed"), eq(ordersTable.isNc, false), eq(ordersTable.accountBill, false)));
+    const acct = await accountSalesInRange(date, dateEnd);
     results.push({
       date: date.toISOString().split("T")[0],
-      sales: Number(stats?.total ?? 0),
-      orders: Number(stats?.orderCount ?? 0),
+      sales: Number(stats?.total ?? 0) + acct.sales,
+      orders: Number(stats?.orderCount ?? 0) + acct.kots,
     });
   }
   res.json(results);
