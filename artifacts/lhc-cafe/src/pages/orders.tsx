@@ -355,7 +355,7 @@ export default function Orders() {
     const additionalDiscAmt = alreadyDiscounted * (pct / 100);
     const final = alreadyDiscounted - additionalDiscAmt;
     const isVat = billType === "vat";
-    const payLabel = paymentMethod === "cash" ? "Cash" : paymentMethod === "card" ? "Card" : "Nabil QR";
+    const payLabel = paymentMethod === "cash" ? "Cash" : paymentMethod === "card" ? "Card" : "QR Payment";
 
     const row = (l: string, r: string, extra = "") =>
       `<div style="display:flex;justify-content:space-between;${extra}"><span>${l}</span><span>${r}</span></div>`;
@@ -800,11 +800,11 @@ export default function Orders() {
               <Tabs value={paymentMethod} onValueChange={setPaymentMethod}>
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="cash">Cash</TabsTrigger>
-                  <TabsTrigger value="nabil_qr">Nabil QR</TabsTrigger>
+                  <TabsTrigger value="nabil_qr">QR Payment</TabsTrigger>
                   <TabsTrigger value="card">Card</TabsTrigger>
                 </TabsList>
                 <TabsContent value="nabil_qr" className="mt-2 flex justify-center p-4 bg-white rounded-md border">
-                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=NabilBankLHCCafe" alt="Nabil QR" className="w-40 h-40" />
+                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=NabilBankLHCCafe" alt="QR Payment" className="w-40 h-40" />
                 </TabsContent>
               </Tabs>
             </div>
@@ -884,7 +884,7 @@ export default function Orders() {
               <p>{new Date().toLocaleString()}</p>
               {paymentModalOrder.notes && <p>Notes: {paymentModalOrder.notes}</p>}
               {(paymentModalOrder as any).createdBy && <p>Staff: {(paymentModalOrder as any).createdBy}</p>}
-              <p>Payment: {paymentMethod === 'cash' ? 'Cash' : paymentMethod === 'card' ? 'Card' : paymentMethod === 'nabil_qr' ? 'Nabil QR' : 'Nabil QR'}</p>
+              <p>Payment: {paymentMethod === 'cash' ? 'Cash' : paymentMethod === 'card' ? 'Card' : paymentMethod === 'nabil_qr' ? 'QR Payment' : 'QR Payment'}</p>
               {otherPartyName && <p>Billed To: {otherPartyName}</p>}
               {otherPartyPan && <p>PAN: {otherPartyPan}</p>}
             </div>

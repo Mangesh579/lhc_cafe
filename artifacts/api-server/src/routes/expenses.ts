@@ -6,6 +6,7 @@ import { randomUUID } from "crypto";
 import { db, expensesTable, expenseAttachmentsTable, expenseChangesTable, inventoryItemsTable, inventoryLogsTable, ingredientComponentsTable } from "@workspace/db";
 import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
 import { authenticate, requireAdminOrAccountant, type AuthRequest } from "../middlewares/auth";
+import { isDrawerClosed } from "../lib/ledgerData";
 
 const router = Router();
 
@@ -140,11 +141,13 @@ router.post("/expenses", authenticate, requireAdminOrAccountant, async (req: Aut
   if (!clean(b.category, 80)) { res.status(400).json({ error: "A category is required." }); return; }
   if (!(amount > 0)) { res.status(400).json({ error: "Enter an amount above 0." }); return; }
   if (!isDate(b.expenseDate)) { res.status(400).json({ error: "A valid date is required." }); return; }
+  if (b.paymentMethod === "cash" && b.paidFromDrawer && await isDrawerClosed(b.expenseDate)) { res.status(400).json({ error: "That day's cash drawer is already closed." }); return; }
   const user = req.user?.username ?? "user";
   const [row] = await db.insert(expensesTable).values({
     expenseDate: b.expenseDate, type: b.type, category: clean(b.category, 80)!, subcategory: clean(b.subcategory, 80),
     description: clean(b.description, 500), vendor: clean(b.vendor, 120), amount: String(round2(amount)),
     paymentMethod: METHODS.includes(b.paymentMethod) ? b.paymentMethod : "cash",
+    paidFromDrawer: b.paymentMethod === "cash" && !!b.paidFromDrawer,
     isRecurring: !!b.isRecurring, frequency: b.isRecurring ? (FREQUENCIES.includes(b.frequency) ? b.frequency : "monthly") : null,
     createdBy: user,
   }).returning();
@@ -202,6 +205,7 @@ router.post("/expenses/:id/void", authenticate, requireAdminOrAccountant, async 
   const [ex] = await db.select().from(expensesTable).where(eq(expensesTable.id, id));
   if (!ex) { res.status(404).json({ error: "Expense not found" }); return; }
   if (ex.status === "void") { res.status(400).json({ error: "This expense is already voided." }); return; }
+  if ((ex as any).paidFromDrawer && await isDrawerClosed(ex.expenseDate)) { res.status(400).json({ error: "This was paid from the cash drawer and that day is closed. Ask the admin to reopen the day first." }); return; }
   const user = req.user?.username ?? "user";
 
   let done = false as boolean;

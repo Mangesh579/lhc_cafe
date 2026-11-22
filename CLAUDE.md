@@ -1,0 +1,40 @@
+# Cafe Nexus: project guide (read first)
+
+Cafe management system for LHC Cafe & Barista School (Sulimha Durbar, Patan, Nepal). Owner/developer: Mangesh.
+
+## Stack and layout
+- TypeScript pnpm monorepo. Frontend: artifacts/lhc-cafe (React, Wouter, shadcn/ui, React Query), deployed to Vercel from GitHub main.
+- Backend: artifacts/api-server (Express, built with esbuild to dist/index.mjs). Database: PostgreSQL through Drizzle (lib/db/src/schema/*.ts). Generated API client: lib/api-client-react.
+- Many frontend files define their own API_BASE = import.meta.env.VITE_API_BASE and call fetch with the Bearer token from localStorage "lhc_token".
+- Roles: admin, supervisor, staff, head_chef, head_barista, accountant. The auth context's role type is narrow, so compare with `(user?.role as string | undefined)`.
+
+## Production
+- Server PC (Windows + WSL2 Ubuntu) at /mnt/e/lhc_cafe. API runs under PM2 (cafe-nexus-api), env in artifacts/api-server/.env. PostgreSQL is local, database `cafenexus`. Cloudflare Tunnel exposes https://api.sulimhadurbar.com. Nightly backups go to Google Drive.
+- Deploy: push to GitHub, then on the server run /mnt/e/lhc_cafe/deploy.sh (git pull, pnpm install, build api-server, pm2 restart).
+- Migrations are NOT automatic. Write each as db/migrations/NNN_name.sql (idempotent, IF NOT EXISTS). The owner runs it on the server after a backup. Never run SQL against production yourself.
+- The dev machine is remote and has no direct DB access.
+
+## Rules
+- Money is NUMERIC (strings in Drizzle). Times are stored in UTC; the cafe runs on Nepal time (UTC+5:45). The fiscal year is Nepali (BS), invoice numbers look like 2082/83-00001.
+- IRD compliance: paid invoices are immutable. No DELETE routes for orders or invoices. Cancelling a paid bill creates a credit note. Void with a reason instead of deleting, and keep audit trails.
+- Costs and profit are visible to admin and accountant only (hideCosts middleware strips cost fields).
+- Secrets only in .env, never in code.
+- After every change: typecheck and build both artifacts.
+
+## Accountant's decisions
+- One invoice per sale and per purchase. No merged monthly bills. Credit sales get their own invoice at the visit and post to the customer's receivable.
+- No service charge. No customer surcharge on cards. One cash drawer.
+- Sales posting and purchase posting happen the next day (review screens that post a day's data to the ledger, then lock it).
+- QR has no fee. Card machines deduct fees: Nabil POS 2.75%, HBL POS 3.00-3.25% (range; the actual deduction is entered at settlement).
+- Staff: 5 people, no SSF, TDS only. Barista school course fees must be in the system.
+- Voucher types: JV (journal), PJ (purchase journal and payment voucher, one shared sequence), RV (receipt), CV (contra); prefixes editable.
+- TDS: configurable table, rates left for the accountant. CBMS: build CBMS-ready fields and an outbox now; do not sync until IRD approval.
+
+## Roadmap, in order
+1. Cash drawer, payment-mode ledgers, rename "Nabil QR" to "QR Payment" (spec in docs/specs/).
+2. Payment modes Cash, QR Payment, Card-Nabil, Card-HBL, Credit; split payment (order_payments); credit sales and customer receipts; retire the monthly-account merge.
+3. Settlements of QR and card to the bank, with the bank charge.
+4. Suppliers, purchase bills (supplier invoice no., PAN, VAT), supplier ledgers, payments, returns, supplier on each ingredient, price history.
+5. Chart of accounts, vouchers, next-day Sales/Purchase/Consumption posting, trial balance, balance sheet, day book, period lock.
+6. VAT (output/input, registers, monthly summary, credit-note register) and TDS.
+7. Barista school course fees. 8. Payroll. 9. CBMS-ready fields and outbox.

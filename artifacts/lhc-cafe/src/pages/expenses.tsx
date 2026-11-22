@@ -20,7 +20,7 @@ import ProfitLoss from "@/components/ProfitLoss";
 const money = (n: number) => `Rs. ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const methodLabel = (v: string) => PAYMENT_METHODS.find(m => m.value === v)?.label ?? v;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const EMPTY = { type: "indirect", category: INDIRECT_CATEGORIES[0], subcategory: "", expenseDate: "", amount: "", paymentMethod: "cash", vendor: "", description: "", isRecurring: false, frequency: "monthly" };
+const EMPTY = { type: "indirect", category: INDIRECT_CATEGORIES[0], subcategory: "", expenseDate: "", amount: "", paymentMethod: "cash", vendor: "", description: "", isRecurring: false, frequency: "monthly", paidFromDrawer: false };
 
 export default function Expenses() {
   const { user } = useAuth();
@@ -373,6 +373,12 @@ export default function Expenses() {
                 </Select>
               </div>
               <div className="space-y-1"><Label>Paid to / vendor</Label><Input value={form.vendor} onChange={e => setForm({ ...form, vendor: e.target.value })} /></div>
+              {form.paymentMethod === "cash" && !editing && (
+                <label className="col-span-2 flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" checked={!!form.paidFromDrawer} onChange={e => setForm({ ...form, paidFromDrawer: e.target.checked })} />
+                  Paid from the cash drawer (reduces that day's drawer cash)
+                </label>
+              )}
             </div>
             <div className="space-y-1"><Label>Description</Label><Textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="resize-none h-16" /></div>
 

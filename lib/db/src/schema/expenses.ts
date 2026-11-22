@@ -11,6 +11,7 @@ export const expensesTable = pgTable("expenses", {
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"),
   isRecurring: boolean("is_recurring").notNull().default(false),
+  paidFromDrawer: boolean("paid_from_drawer").notNull().default(false),
   frequency: text("frequency"),
   inventoryItemId: integer("inventory_item_id"),
   purchaseQuantity: numeric("purchase_quantity", { precision: 12, scale: 4 }),

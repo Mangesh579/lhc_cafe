@@ -366,6 +366,7 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   const { paymentMethod, paymentStatus, loyaltyCustomerId, vatAmount, billType, finalTotal, otherPartyName, otherPartyPan, nonTaxableAmount, isNc, ncPersonName, ncReason } = req.body;
   const updateData: Record<string, unknown> = {};
   if (isNc !== undefined) updateData.isNc = isNc;
+  if (paymentStatus === "paid") updateData.paidAt = new Date();
   if (ncPersonName !== undefined) updateData.ncPersonName = ncPersonName || null;
   if (ncReason !== undefined) updateData.ncReason = ncReason || null;
   if (paymentMethod) updateData.paymentMethod = paymentMethod;

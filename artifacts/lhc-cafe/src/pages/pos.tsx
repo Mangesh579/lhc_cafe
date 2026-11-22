@@ -428,12 +428,12 @@ export default function POS() {
             <Tabs value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as OrderInputPaymentMethod)} className="mt-1">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="cash">Cash</TabsTrigger>
-                <TabsTrigger value="nabil_qr">Nabil QR</TabsTrigger>
+                <TabsTrigger value="nabil_qr">QR Payment</TabsTrigger>
                 <TabsTrigger value="card">Card</TabsTrigger>
               </TabsList>
               <TabsContent value="nabil_qr" className="mt-1">
                 <div className="flex justify-center p-2 bg-white rounded-md border">
-                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=NabilBankLHCCafe" alt="Nabil QR" className="w-24 h-24" />
+                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=NabilBankLHCCafe" alt="QR Payment" className="w-24 h-24" />
                 </div>
               </TabsContent>
             </Tabs>
@@ -534,7 +534,7 @@ export default function POS() {
                     {lastOrderDetails.ncReason && <p>Reason: {lastOrderDetails.ncReason}</p>}
                   </>
                 ) : (
-                  <p>Payment: {lastOrderDetails.paymentMethod === 'cash' ? 'Cash' : lastOrderDetails.paymentMethod === 'card' ? 'Card' : 'Nabil QR'}</p>
+                  <p>Payment: {lastOrderDetails.paymentMethod === 'cash' ? 'Cash' : lastOrderDetails.paymentMethod === 'card' ? 'Card' : 'QR Payment'}</p>
                 )}
               </div>
               <div className="border-t border-b border-dashed border-gray-400 py-2 mb-3 space-y-1">

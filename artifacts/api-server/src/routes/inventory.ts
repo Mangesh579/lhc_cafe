@@ -8,6 +8,8 @@ import { hideCosts } from "../middlewares/hideCosts";
 import expensesRouter from "./expenses";
 import opcostingRouter from "./opcosting";
 import accountsRouter from "./accounts";
+import cashRouter from "./cash";
+import ledgersRouter from "./ledgers";
 import type { Response } from "express";
 
 const router = Router();
@@ -553,5 +555,7 @@ router.put("/inventory/:id/components", authenticate, async (req: AuthRequest, r
 router.use(expensesRouter);
 router.use(opcostingRouter);
 router.use(accountsRouter);
+router.use(cashRouter);
+router.use(ledgersRouter);
 
 export default router;

@@ -24,6 +24,7 @@ export const ordersTable = pgTable("orders", {
   isNc: boolean("is_nc").notNull().default(false),
   ncPersonName: text("nc_person_name"),
   ncReason: text("nc_reason"),
+  paidAt: timestamp("paid_at"),
   accountBill: boolean("account_bill").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
