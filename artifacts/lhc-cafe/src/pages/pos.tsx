@@ -26,6 +26,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FloatingSelect } from "@/components/FloatingSelect";
 import { buildKotHtml, printReceiptHtml } from "@/lib/kot";
+import { PAY_MODES, modeLabel } from "@/lib/payments";
 
 
 interface CartItem extends MenuItem {
@@ -78,7 +79,8 @@ export default function POS() {
   const [phone, setPhone] = useState("");
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
   const [orderNotes, setOrderNotes] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<OrderInputPaymentMethod>("cash");
+  // The mode the guest intends to pay with. Money is taken (and split, or put on credit) in the Pay dialog in Active Orders.
+  const [paymentMethod, setPaymentMethod] = useState<string>("cash");
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
   const [lastOrderDetails, setLastOrderDetails] = useState<any>(null);
   const [infoItemId, setInfoItemId] = useState<number | null>(null);
@@ -425,11 +427,11 @@ export default function POS() {
         {!isNc && (
           <div>
             <Label className="text-xs font-semibold text-muted-foreground uppercase">Payment</Label>
-            <Tabs value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as OrderInputPaymentMethod)} className="mt-1">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="cash">Cash</TabsTrigger>
-                <TabsTrigger value="nabil_qr">QR Payment</TabsTrigger>
-                <TabsTrigger value="card">Card</TabsTrigger>
+            <Tabs value={paymentMethod} onValueChange={setPaymentMethod} className="mt-1">
+              <TabsList className="grid w-full grid-cols-4">
+                {PAY_MODES.filter(m => m.value !== "credit").map(m => (
+                  <TabsTrigger key={m.value} value={m.value} className="text-xs px-1">{m.short}</TabsTrigger>
+                ))}
               </TabsList>
               <TabsContent value="nabil_qr" className="mt-1">
                 <div className="flex justify-center p-2 bg-white rounded-md border">
@@ -437,6 +439,7 @@ export default function POS() {
                 </div>
               </TabsContent>
             </Tabs>
+            <p className="text-[11px] text-muted-foreground mt-1">Split payments and credit are chosen when the bill is paid in Active Orders.</p>
           </div>
         )}
 
@@ -534,7 +537,7 @@ export default function POS() {
                     {lastOrderDetails.ncReason && <p>Reason: {lastOrderDetails.ncReason}</p>}
                   </>
                 ) : (
-                  <p>Payment: {lastOrderDetails.paymentMethod === 'cash' ? 'Cash' : lastOrderDetails.paymentMethod === 'card' ? 'Card' : 'QR Payment'}</p>
+                  <p>Payment: {modeLabel(lastOrderDetails.paymentMethod)}</p>
                 )}
               </div>
               <div className="border-t border-b border-dashed border-gray-400 py-2 mb-3 space-y-1">

@@ -21,6 +21,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useNotifications } from "@/contexts/notifications";
 import { useAuth } from "@/contexts/auth";
 import { buildKotHtml, printReceiptHtml, wrapReceipt } from "@/lib/kot";
+import { PAY_MODES, modeLabel, round2, rs, paymentSummary } from "@/lib/payments";
 
 const POLL_INTERVAL = 5_000;
 
@@ -29,6 +30,16 @@ export default function Orders() {
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const [paymentModalOrder, setPaymentModalOrder] = useState<any>(null);
   const [paymentMethod, setPaymentMethod] = useState<string>("cash");
+  // Split payment: several parts that must add up to the bill
+  const [splitOn, setSplitOn] = useState(false);
+  const [splitRows, setSplitRows] = useState<{ mode: string; amount: string; reference: string }[]>([]);
+  const [payReference, setPayReference] = useState("");
+  // Credit: needs a loyalty customer; shows their balance and limit
+  const [creditCustomer, setCreditCustomer] = useState<{ id: number; name: string } | null>(null);
+  const [creditInfo, setCreditInfo] = useState<any | null>(null);
+  const [creditQuery, setCreditQuery] = useState("");
+  const [creditResults, setCreditResults] = useState<any[]>([]);
+  const [paying, setPaying] = useState(false);
   const [discount, setDiscount] = useState<string>("");
   const [discountComment, setDiscountComment] = useState<string>("");
   const [billType, setBillType] = useState<"pan" | "vat">("pan");
@@ -100,7 +111,10 @@ export default function Orders() {
 
   const openPaymentModal = (order: any) => {
     setPaymentModalOrder(order);
-    setPaymentMethod(order.paymentMethod === "esewa" ? "card" : (order.paymentMethod ?? "cash"));
+    setPaymentMethod(PAY_MODES.some(m => m.value === order.paymentMethod && m.value !== "credit") ? order.paymentMethod : "cash");
+    setSplitOn(false); setSplitRows([]); setPayReference("");
+    setCreditCustomer(order.loyaltyCustomerId ? { id: order.loyaltyCustomerId, name: order.loyaltyCustomerName ?? `Customer #${order.loyaltyCustomerId}` } : null);
+    setCreditInfo(null); setCreditQuery(""); setCreditResults([]);
     setDiscount("");
     setDiscountComment("");
     setBillType("pan");
@@ -145,51 +159,106 @@ export default function Orders() {
     }
   };
 
-  const handlePayment = async () => {
-    if (!paymentModalOrder) return;
+  // The bill as it will be recorded: staff discount applied, VAT added for a VAT bill
+  const computeBill = () => {
+    const o = paymentModalOrder;
+    const discountValue = parseFloat(discount) || 0;
+    const base = parseFloat(String(o?.totalAmount ?? 0));
+    const alreadyDiscounted = base - base * (discountValue / 100);
+    if (billType !== "vat") return { discountValue, total: round2(alreadyDiscounted), vatAmount: undefined as number | undefined, finalTotal: undefined as number | undefined };
+    const nonTaxable = Math.min(parseFloat(nonTaxableAmount) || 0, alreadyDiscounted);
+    const vat = round2((alreadyDiscounted - nonTaxable) * 0.13);
+    const grand = round2(alreadyDiscounted + vat);
+    return { discountValue, total: grand, vatAmount: vat, finalTotal: grand };
+  };
+
+  // The parts that will be sent: one part for the whole bill, or the split rows
+  const paymentParts = (): { mode: string; amount: number; reference?: string }[] => {
+    const { total } = computeBill();
+    if (!splitOn) return [{ mode: paymentMethod, amount: total, reference: payReference.trim() || undefined }];
+    return splitRows.map(r => ({ mode: r.mode, amount: round2(parseFloat(r.amount) || 0), reference: r.reference.trim() || undefined })).filter(r => r.amount > 0);
+  };
+  const usesCredit = splitOn ? splitRows.some(r => r.mode === "credit" && (parseFloat(r.amount) || 0) > 0) : paymentMethod === "credit";
+  const creditPartAmount = paymentModalOrder ? round2(paymentParts().filter(p => p.mode === "credit").reduce((s, p) => s + p.amount, 0)) : 0;
+  const creditLimitNote = (() => {
+    if (!creditInfo || creditInfo.creditLimit == null) return null;
+    const after = round2(creditInfo.balance + creditPartAmount);
+    return after > creditInfo.creditLimit ? `This takes ${creditInfo.name}'s balance to ${rs(after)}, over their credit limit of ${rs(creditInfo.creditLimit)}.` : null;
+  })();
+
+  useEffect(() => {
+    if (!creditCustomer || !usesCredit) { setCreditInfo(null); return; }
+    let live = true;
+    fetch(`${API_BASE}/api/receivables/customers/${creditCustomer.id}/summary`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } })
+      .then(r => r.ok ? r.json() : null).then(d => { if (live) setCreditInfo(d); }).catch(() => {});
+    return () => { live = false; };
+  }, [creditCustomer?.id, usesCredit]);
+
+  const searchCreditCustomers = async (q: string) => {
     try {
-      const discountValue = parseFloat(discount) || 0;
+      const r = await fetch(`${API_BASE}/api/accounts/customers?search=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } });
+      setCreditResults(r.ok ? await r.json() : []);
+    } catch { setCreditResults([]); }
+  };
+
+  const startSplit = () => {
+    const { total } = computeBill();
+    setSplitOn(true);
+    setSplitRows([{ mode: paymentMethod, amount: String(total), reference: payReference }, { mode: paymentMethod === "cash" ? "nabil_qr" : "cash", amount: "", reference: "" }]);
+  };
+
+  const handlePayment = async () => {
+    if (!paymentModalOrder || paying) return;
+    const { discountValue, total, vatAmount, finalTotal } = computeBill();
+    const parts = paymentParts();
+    const sum = round2(parts.reduce((s, p) => s + p.amount, 0));
+    if (parts.length === 0 || Math.abs(sum - total) >= 0.005) {
+      toast({ title: "The payments don't match the bill", description: `They add up to ${rs(sum)}; the bill is ${rs(total)}.`, variant: "destructive" });
+      return;
+    }
+    if (parts.some(p => p.mode === "credit")) {
+      if (!creditCustomer) { toast({ title: "Choose the customer", description: "Credit needs a customer from the loyalty list.", variant: "destructive" }); return; }
+      if (creditLimitNote && !confirm(`${creditLimitNote}\n\nRecord this credit sale anyway?`)) return;
+    }
+    setPaying(true);
+    try {
       if (discountValue > 0) {
-        await fetch(`${API_BASE}/api/orders/${paymentModalOrder.id}/discount`, {
+        const dr = await fetch(`${API_BASE}/api/orders/${paymentModalOrder.id}/discount`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
           body: JSON.stringify({ discountPercent: discountValue, comment: discountComment }),
         });
+        if (!dr.ok) { const d = await dr.json().catch(() => ({})); throw new Error(d?.error ?? "The discount was not saved."); }
       }
 
-      // Compute VAT if a VAT bill is selected — the recorded totalAmount
-      // will include VAT, so Order Log / reports reflect what was actually collected.
-      let vatAmount: number | undefined;
-      let recordedFinalTotal: number | undefined;
-      if (billType === "vat") {
-        const alreadyDiscounted = parseFloat(String(paymentModalOrder?.totalAmount ?? 0)) - (parseFloat(String(paymentModalOrder?.totalAmount ?? 0)) * (discountValue / 100));
-        const nonTaxable = Math.min(parseFloat(nonTaxableAmount) || 0, alreadyDiscounted);
-        const taxable = alreadyDiscounted - nonTaxable;
-        vatAmount = taxable * 0.13;
-        recordedFinalTotal = alreadyDiscounted + vatAmount;
-      }
-
-      await fetch(`${API_BASE}/api/orders/${paymentModalOrder.id}/payment`, {
+      // For a VAT bill the recorded total includes VAT, so Order Log and reports show what was actually charged.
+      const r = await fetch(`${API_BASE}/api/orders/${paymentModalOrder.id}/payment`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
         body: JSON.stringify({
           paymentStatus: "paid",
-          paymentMethod,
-          loyaltyCustomerId: paymentModalOrder.loyaltyCustomerId,
+          payments: parts,
+          loyaltyCustomerId: creditCustomer?.id ?? paymentModalOrder.loyaltyCustomerId,
           billType,
           vatAmount,
-          finalTotal: recordedFinalTotal,
+          finalTotal,
           otherPartyName: otherPartyName || undefined,
           otherPartyPan: otherPartyPan || undefined,
           nonTaxableAmount: billType === "vat" ? (parseFloat(nonTaxableAmount) || 0) : undefined,
         }),
       });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error ?? "The payment was not recorded.");
       queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
-      toast({ title: "Payment recorded" });
+      const credit = (d.creditAmount ?? 0) > 0;
+      toast({
+        title: credit ? `Credit invoice ${d.invoiceNumber ?? ""} recorded` : "Payment recorded",
+        description: [credit ? `${rs(d.creditAmount)} added to ${creditCustomer?.name ?? "the customer"}'s balance.` : null, d.creditWarning].filter(Boolean).join(" ") || undefined,
+      });
       setPaymentModalOrder(null);
     } catch (err: any) {
-      toast({ title: "Failed to record payment", description: err?.data?.error, variant: "destructive" });
-    }
+      toast({ title: "Failed to record payment", description: err?.message, variant: "destructive" });
+    } finally { setPaying(false); }
   };
 
   const [tableDialog, setTableDialog] = useState<{ order: any } | null>(null);
@@ -355,7 +424,11 @@ export default function Orders() {
     const additionalDiscAmt = alreadyDiscounted * (pct / 100);
     const final = alreadyDiscounted - additionalDiscAmt;
     const isVat = billType === "vat";
-    const payLabel = paymentMethod === "cash" ? "Cash" : paymentMethod === "card" ? "Card" : "QR Payment";
+    const parts = paymentParts();
+    const payLabel = parts.length > 1
+      ? parts.map(p => `${modeLabel(p.mode)} Rs. ${p.amount.toFixed(2)}`).join(" + ")
+      : modeLabel(parts[0]?.mode ?? paymentMethod);
+    const creditDue = parts.filter(p => p.mode === "credit").reduce((s, p) => s + p.amount, 0);
 
     const row = (l: string, r: string, extra = "") =>
       `<div style="display:flex;justify-content:space-between;${extra}"><span>${l}</span><span>${r}</span></div>`;
@@ -404,7 +477,8 @@ export default function Orders() {
         ${o.invoiceNumber ? `<p style="margin:2px 0;font-weight:bold;">Invoice No: ${o.invoiceNumber}</p>` : ""}
         <p style="margin:2px 0;">${new Date().toLocaleString()}</p>
         ${o.createdBy ? `<p style="margin:2px 0;">Staff: ${esc(o.createdBy)}</p>` : ""}
-        <p style="margin:2px 0;">Payment: ${payLabel}</p>
+        <p style="margin:2px 0;">Payment: ${esc(payLabel)}</p>
+        ${creditDue > 0 ? `<p style="margin:2px 0;font-weight:bold;">CREDIT: Rs. ${creditDue.toFixed(2)} due from ${esc(creditCustomer?.name ?? o.loyaltyCustomerName ?? "")}</p>` : ""}
         ${o.loyaltyCustomerName ? `<p style="margin:2px 0;">Customer: ${esc(o.loyaltyCustomerName)}</p>` : ""}
         ${otherPartyName ? `<p style="margin:2px 0;font-weight:bold;">Billed To: ${esc(otherPartyName)}</p>` : ""}
         ${otherPartyPan ? `<p style="margin:2px 0;">PAN: ${esc(otherPartyPan)}</p>` : ""}
@@ -769,7 +843,7 @@ export default function Orders() {
                     {additionalDiscAmt > 0 && (
                       <p className="text-sm line-through text-muted-foreground">Rs. {alreadyDiscounted.toFixed(0)}</p>
                     )}
-                    <p className="text-4xl font-bold text-primary">Rs. {final.toFixed(0)}</p>
+                    <p className="text-4xl font-bold text-primary">Rs. {Number.isInteger(round2(final)) ? final.toFixed(0) : final.toFixed(2)}</p>
                     {additionalDiscAmt > 0 && (
                       <p className="text-sm text-green-600 font-medium">Staff discount: {pct}% (−Rs. {additionalDiscAmt.toFixed(0)})</p>
                     )}
@@ -796,17 +870,94 @@ export default function Orders() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-semibold text-muted-foreground uppercase">Payment Method</Label>
-              <Tabs value={paymentMethod} onValueChange={setPaymentMethod}>
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="cash">Cash</TabsTrigger>
-                  <TabsTrigger value="nabil_qr">QR Payment</TabsTrigger>
-                  <TabsTrigger value="card">Card</TabsTrigger>
-                </TabsList>
-                <TabsContent value="nabil_qr" className="mt-2 flex justify-center p-4 bg-white rounded-md border">
-                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=NabilBankLHCCafe" alt="QR Payment" className="w-40 h-40" />
-                </TabsContent>
-              </Tabs>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase">Payment</Label>
+                {!splitOn
+                  ? <button type="button" className="text-xs text-primary underline" onClick={startSplit}>Split payment</button>
+                  : <button type="button" className="text-xs text-primary underline" onClick={() => { setSplitOn(false); setSplitRows([]); }}>One payment</button>}
+              </div>
+              {!splitOn && (
+                <>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                    {PAY_MODES.map(m => (
+                      <Button key={m.value} type="button" size="sm" variant={paymentMethod === m.value ? "default" : "outline"} className="h-9 px-1 text-xs" onClick={() => setPaymentMethod(m.value)}>
+                        {m.short}
+                      </Button>
+                    ))}
+                  </div>
+                  {paymentMethod === "nabil_qr" && (
+                    <div className="flex justify-center p-3 bg-white rounded-md border">
+                      <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=NabilBankLHCCafe" alt="QR Payment" className="w-36 h-36" />
+                    </div>
+                  )}
+                  {paymentMethod !== "cash" && paymentMethod !== "credit" && (
+                    <Input placeholder="Reference (optional): transaction or slip no." value={payReference} onChange={e => setPayReference(e.target.value)} className="h-8 text-sm" />
+                  )}
+                </>
+              )}
+              {splitOn && (() => {
+                const { total } = computeBill();
+                const entered = round2(splitRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0));
+                const left = round2(total - entered);
+                return (
+                  <div className="space-y-2">
+                    {splitRows.map((row, i) => (
+                      <div key={i} className="flex gap-1.5 items-center">
+                        <select className="h-8 rounded-md border border-input bg-background px-1.5 text-xs w-36 shrink-0" value={row.mode}
+                          onChange={e => setSplitRows(rows => rows.map((r, j) => j === i ? { ...r, mode: e.target.value } : r))}>
+                          {PAY_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                        </select>
+                        <Input type="number" min="0" step="0.01" placeholder="Amount" value={row.amount} className="h-8 text-sm w-24"
+                          onChange={e => setSplitRows(rows => rows.map((r, j) => j === i ? { ...r, amount: e.target.value } : r))} />
+                        <Input placeholder="Ref." value={row.reference} className="h-8 text-xs flex-1 min-w-0"
+                          onChange={e => setSplitRows(rows => rows.map((r, j) => j === i ? { ...r, reference: e.target.value } : r))} />
+                        {left > 0 && <Button type="button" size="sm" variant="ghost" className="h-8 px-1.5 text-xs" title="Put the rest here"
+                          onClick={() => setSplitRows(rows => rows.map((r, j) => j === i ? { ...r, amount: String(round2((parseFloat(r.amount) || 0) + left)) } : r))}>+rest</Button>}
+                        {splitRows.length > 1 && <Button type="button" size="sm" variant="ghost" className="h-8 px-1.5 text-destructive" onClick={() => setSplitRows(rows => rows.filter((_, j) => j !== i))}>×</Button>}
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between text-xs">
+                      {splitRows.length < 5
+                        ? <button type="button" className="text-primary underline" onClick={() => setSplitRows(rows => [...rows, { mode: "cash", amount: left > 0 ? String(left) : "", reference: "" }])}>+ Add a part</button>
+                        : <span />}
+                      <span className={Math.abs(left) < 0.005 ? "text-green-700 font-medium" : "text-red-600 font-medium"}>
+                        {Math.abs(left) < 0.005 ? `Adds up to ${rs(total)}` : left > 0 ? `${rs(left)} still to enter` : `${rs(-left)} too much`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+              {usesCredit && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-2.5 space-y-2 text-sm">
+                  <p className="text-xs text-amber-900">Credit: the bill gets its invoice now, leaves Active Orders and goes on the customer's balance.</p>
+                  {creditCustomer ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{creditCustomer.name}</span>
+                      <button type="button" className="text-xs text-primary underline" onClick={() => { setCreditCustomer(null); searchCreditCustomers(""); }}>Change</button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <Input autoFocus placeholder="Search a loyalty customer by name or phone…" value={creditQuery} className="h-8 text-sm bg-white"
+                        onChange={e => { const v = e.target.value; setCreditQuery(v); clearTimeout((window as any).__credT); (window as any).__credT = setTimeout(() => searchCreditCustomers(v), 250); }} />
+                      <div className="max-h-32 overflow-y-auto bg-white border rounded-md divide-y">
+                        {creditResults.length === 0 && <p className="p-2 text-xs text-muted-foreground">Type to search the loyalty list.</p>}
+                        {creditResults.map((c: any) => (
+                          <button key={c.id} type="button" className="w-full text-left px-2 py-1.5 text-sm hover:bg-muted" onClick={() => setCreditCustomer({ id: c.id, name: c.name })}>
+                            {c.name} <span className="text-xs text-muted-foreground">{c.phone}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {creditInfo && (
+                    <p className="text-xs text-amber-900">
+                      Balance now {rs(creditInfo.balance)}{creditInfo.creditLimit != null ? ` · limit ${rs(creditInfo.creditLimit)}` : " · no limit set"}
+                      {creditInfo.overdue > 0 ? ` · ${rs(creditInfo.overdue)} overdue` : ""}
+                    </p>
+                  )}
+                  {creditLimitNote && <p className="text-xs font-semibold text-red-700">{creditLimitNote}</p>}
+                </div>
+              )}
             </div>
 
             <div className="space-y-2 border-t pt-4">
@@ -862,7 +1013,7 @@ export default function Orders() {
             }} className="gap-2" disabled={!paymentModalOrder}>
               <Printer className="w-4 h-4" /> Print Bill
             </Button>
-            <Button onClick={handlePayment} disabled={updatePayment.isPending}>Mark Paid</Button>
+            <Button onClick={handlePayment} disabled={paying || (usesCredit && !creditCustomer)}>{paying ? "Saving…" : usesCredit ? "Record Credit Sale" : "Mark Paid"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -884,7 +1035,7 @@ export default function Orders() {
               <p>{new Date().toLocaleString()}</p>
               {paymentModalOrder.notes && <p>Notes: {paymentModalOrder.notes}</p>}
               {(paymentModalOrder as any).createdBy && <p>Staff: {(paymentModalOrder as any).createdBy}</p>}
-              <p>Payment: {paymentMethod === 'cash' ? 'Cash' : paymentMethod === 'card' ? 'Card' : paymentMethod === 'nabil_qr' ? 'QR Payment' : 'QR Payment'}</p>
+              <p>Payment: {splitOn ? "Split" : modeLabel(paymentMethod)}</p>
               {otherPartyName && <p>Billed To: {otherPartyName}</p>}
               {otherPartyPan && <p>PAN: {otherPartyPan}</p>}
             </div>

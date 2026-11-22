@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable, wasteLogsTable, orderKotCancellationsTable } from "@workspace/db";
+import { db, orderPaymentsTable, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable, wasteLogsTable, orderKotCancellationsTable } from "@workspace/db";
 import { eq, and, gte, lte, desc, sql, inArray } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth";
 import { applyPrepWaste } from "../lib/prepWaste";
@@ -10,36 +10,39 @@ import { mergeOrderInto } from "../lib/mergeOrders";
 import { loyaltyCustomersTable as accountCustomersTable } from "@workspace/db";
 import { hideCosts } from "../middlewares/hideCosts";
 import { expandRecipeLines } from "../lib/ingredientUsage";
-const NepaliDateLib = require("nepali-date-converter");
-const NepaliDate: any = NepaliDateLib.default ?? NepaliDateLib;
+import { nextInvoiceNumber } from "../lib/fiscal";
+import { validateSplit, partsFor, summaryMethod, creditAmountOf, round2, PAYMENT_MODES, MODE_LABEL } from "../lib/payments";
+import { allocatedByOrder, customerBalances } from "../lib/receivables";
+import { creditLimitWarning } from "../lib/receivableRules";
 
 const router = Router();
 router.use(hideCosts);
 
-// Nepal's fiscal year runs Shrawan 1 (~mid-July) to Ashadh end (~mid-July next year).
-// BS months: 1=Baisakh...4=Shrawan...12=Chaitra. FY label format: "2082/83".
-async function getNextInvoiceNumber(): Promise<string> {
-  console.log("NepaliDate diagnostic:", typeof NepaliDate, typeof NepaliDateLib, Object.keys(NepaliDateLib ?? {}), Object.keys(NepaliDateLib?.default ?? {}));
-  const nowBS = new NepaliDate(new Date());
-  const bsYear = nowBS.getYear();
-  const bsMonth = nowBS.getMonth() + 1; // 1-indexed
+// Invoice numbers like 2082/83-00001 (Nepali fiscal year). Atomic: see lib/fiscal.ts.
+async function getNextInvoiceNumber(ex?: Parameters<typeof nextInvoiceNumber>[0]): Promise<string> {
+  return nextInvoiceNumber(ex);
+}
 
-  // If we're in Baisakh–Ashadh (months 1-3), we're still in the fiscal year that started last Shrawan.
-  const fiscalStartYear = bsMonth >= 4 ? bsYear : bsYear - 1;
-  const fiscalLabel = `${fiscalStartYear}/${String((fiscalStartYear + 1) % 100).padStart(2, "0")}`;
-
-  const [existing] = await db.select().from(invoiceSequencesTable).where(eq(invoiceSequencesTable.fiscalYear, fiscalLabel));
-
-  let nextNum: number;
-  if (existing) {
-    nextNum = existing.lastNumber + 1;
-    await db.update(invoiceSequencesTable).set({ lastNumber: nextNum }).where(eq(invoiceSequencesTable.fiscalYear, fiscalLabel));
-  } else {
-    nextNum = 1;
-    await db.insert(invoiceSequencesTable).values({ fiscalYear: fiscalLabel, lastNumber: 1 });
+// Payment parts and credit outstanding for a list of orders (orders with no rows fall back to payment_method)
+async function paymentInfo(orders: { id: number; totalAmount: unknown; paymentMethod: string | null; paymentStatus: string; isNc: boolean }[]) {
+  const ids = orders.map(o => o.id);
+  const rows = ids.length ? await db.select().from(orderPaymentsTable).where(inArray(orderPaymentsTable.orderId, ids)).orderBy(orderPaymentsTable.id) : [];
+  const byOrder = new Map<number, typeof rows>();
+  for (const r of rows) byOrder.set(r.orderId, [...(byOrder.get(r.orderId) ?? []), r]);
+  const settled = orders.filter(o => o.paymentStatus === "paid" && !o.isNc);
+  const creditIds = settled.filter(o => creditAmountOf(partsFor(o, byOrder.get(o.id))) > 0).map(o => o.id);
+  const alloc = await allocatedByOrder(creditIds);
+  const info = new Map<number, { payments: { mode: string; label: string; amount: number; reference: string | null }[]; creditAmount: number; creditPaid: number; creditOutstanding: number }>();
+  for (const o of orders) {
+    const parts = o.paymentStatus === "paid" && !o.isNc ? partsFor(o, byOrder.get(o.id)) : [];
+    const creditAmount = creditAmountOf(parts);
+    const creditPaid = alloc.get(o.id) ?? 0;
+    info.set(o.id, {
+      payments: parts.map(p => ({ mode: p.mode, label: MODE_LABEL[p.mode] ?? p.mode, amount: p.amount, reference: p.reference ?? null })),
+      creditAmount, creditPaid, creditOutstanding: round2(Math.max(0, creditAmount - creditPaid)),
+    });
   }
-
-  return `${fiscalLabel}-${String(nextNum).padStart(5, "0")}`;
+  return info;
 }
 
 function parseId(raw: string | string[]): number {
@@ -76,6 +79,7 @@ async function getOrderWithItems(orderId: number) {
       createdBy: ordersTable.createdBy,
       notes: ordersTable.notes,
       backdatedAt: ordersTable.backdatedAt,
+      paidAt: ordersTable.paidAt,
       createdAt: ordersTable.createdAt,
       updatedAt: ordersTable.updatedAt,
     })
@@ -110,7 +114,8 @@ async function getOrderWithItems(orderId: number) {
 
   const corrections = await db.select().from(orderCorrectionsTable).where(eq(orderCorrectionsTable.originalOrderId, orderId)).orderBy(desc(orderCorrectionsTable.createdAt));
   const kotCancellations = await db.select().from(orderKotCancellationsTable).where(eq(orderKotCancellationsTable.orderId, orderId)).orderBy(orderKotCancellationsTable.cancelledAt);
-  return { ...order, items: order.isNc ? items.map((i: any) => ({ ...i, ncCost: i.unitCost != null ? Math.round(parseFloat(String(i.unitCost)) * i.quantity * 100) / 100 : null, ncCostComplete: !!i.costComplete })) : items, corrections, kotCancellations };
+  const pay = (await paymentInfo([order])).get(order.id);
+  return { ...order, ...pay, items: order.isNc ? items.map((i: any) => ({ ...i, ncCost: i.unitCost != null ? Math.round(parseFloat(String(i.unitCost)) * i.quantity * 100) / 100 : null, ncCostComplete: !!i.costComplete })) : items, corrections, kotCancellations };
 }
 
 router.get("/orders", authenticate, async (req, res): Promise<void> => {
@@ -154,6 +159,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
       createdBy: ordersTable.createdBy,
       notes: ordersTable.notes,
       backdatedAt: ordersTable.backdatedAt,
+      paidAt: ordersTable.paidAt,
       createdAt: ordersTable.createdAt,
       updatedAt: ordersTable.updatedAt,
     })
@@ -163,6 +169,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(sql`COALESCE(${ordersTable.backdatedAt}, ${ordersTable.createdAt})`));
 
+  const payInfo = await paymentInfo(ordersList);
   const ordersWithItems = await Promise.all(
     ordersList.map(async (order) => {
       const items = await db
@@ -190,7 +197,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
       const corrections = await db.select().from(orderCorrectionsTable).where(eq(orderCorrectionsTable.originalOrderId, order.id)).orderBy(desc(orderCorrectionsTable.createdAt));
       const kotCancellations = await db.select().from(orderKotCancellationsTable).where(eq(orderKotCancellationsTable.orderId, order.id)).orderBy(orderKotCancellationsTable.cancelledAt);
 
-      return { ...order, items: order.isNc ? items.map((i: any) => ({ ...i, ncCost: i.unitCost != null ? Math.round(parseFloat(String(i.unitCost)) * i.quantity * 100) / 100 : null, ncCostComplete: !!i.costComplete })) : items, corrections, kotCancellations };
+      return { ...order, ...payInfo.get(order.id), items: order.isNc ? items.map((i: any) => ({ ...i, ncCost: i.unitCost != null ? Math.round(parseFloat(String(i.unitCost)) * i.quantity * 100) / 100 : null, ncCostComplete: !!i.costComplete })) : items, corrections, kotCancellations };
     })
   );
 
@@ -360,13 +367,17 @@ router.patch("/orders/:id/status", authenticate, async (req, res): Promise<void>
   res.json(result);
 });
 
+// Settle a bill. Body: paymentStatus "paid" and either
+//   payments: [{ mode, amount, reference? }]  (split; the parts must add up to the bill), or
+//   paymentMethod: one mode for the whole bill (older screens).
+// Modes: cash, nabil_qr (QR Payment), card_nabil, card_hbl, credit. Credit needs a loyalty customer;
+// the bill gets its invoice number now, leaves Active Orders and goes on the customer's receivable.
 router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void> => {
   try {
   const id = parseId(req.params.id);
-  const { paymentMethod, paymentStatus, loyaltyCustomerId, vatAmount, billType, finalTotal, otherPartyName, otherPartyPan, nonTaxableAmount, isNc, ncPersonName, ncReason } = req.body;
+  const { paymentMethod, paymentStatus, loyaltyCustomerId, vatAmount, billType, finalTotal, otherPartyName, otherPartyPan, nonTaxableAmount, isNc, ncPersonName, ncReason, payments } = req.body;
   const updateData: Record<string, unknown> = {};
   if (isNc !== undefined) updateData.isNc = isNc;
-  if (paymentStatus === "paid") updateData.paidAt = new Date();
   if (ncPersonName !== undefined) updateData.ncPersonName = ncPersonName || null;
   if (ncReason !== undefined) updateData.ncReason = ncReason || null;
   if (paymentMethod) updateData.paymentMethod = paymentMethod;
@@ -378,45 +389,98 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   if (otherPartyPan !== undefined) updateData.otherPartyPan = otherPartyPan || null;
   if (nonTaxableAmount !== undefined) updateData.nonTaxableAmount = String(nonTaxableAmount);
 
-  if (paymentStatus === "paid") {
-    const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
-    if (order) {
-      // Already paid (double press or retry): return it as is, so points and totals are never counted twice
-      if (order.paymentStatus === "paid") {
-        res.json(await getOrderWithItems(id));
-        return;
-      }
-      // Only assign an invoice number once — reprints/edits must never get a new one
-      if (!order.invoiceNumber) {
-        updateData.invoiceNumber = await getNextInvoiceNumber();
-      }
-      const customerId = loyaltyCustomerId ?? order.loyaltyCustomerId;
-      if (customerId) {
-        const points = Math.floor(parseFloat(String(order.totalAmount)) / 10);
-        updateData.loyaltyPointsEarned = points;
-        updateData.loyaltyCustomerId = customerId;
-        const [customer] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, customerId));
-        if (customer) {
-          await db.update(loyaltyCustomersTable).set({
-            totalPoints: customer.totalPoints + points,
-            totalOrders: customer.totalOrders + 1,
-            totalSpent: String(parseFloat(String(customer.totalSpent)) + parseFloat(String(order.totalAmount))),
-          }).where(eq(loyaltyCustomersTable.id, customerId));
-        }
-      }
+  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
 
-      // Clear table session and mark table unoccupied so next guest gets a fresh start
-      if (order.tableId) {
-        await db.delete(tableSessionsTable).where(eq(tableSessionsTable.tableId, order.tableId));
-        // await db.update(cafeTablesTable).set({ isOccupied: false }).where(eq(cafeTablesTable.id, order.tableId));
-      }
-    }
+  if (paymentStatus !== "paid") {
+    if (order.paymentStatus === "paid") { res.status(400).json({ error: "This order is already paid. Use a correction instead of editing it directly." }); return; }
+    await db.update(ordersTable).set(updateData).where(eq(ordersTable.id, id));
+    res.json(await getOrderWithItems(id));
+    return;
   }
 
-  await db.update(ordersTable).set(updateData).where(eq(ordersTable.id, id));
+  // Already paid (double press or retry): return it as is, so points and totals are never counted twice
+  if (order.paymentStatus === "paid") { res.json(await getOrderWithItems(id)); return; }
+  if (order.paymentStatus === "cancelled") { res.status(400).json({ error: "This order was cancelled." }); return; }
+
+  const billTotal = round2(parseFloat(String(finalTotal !== undefined ? finalTotal : order.totalAmount)));
+  const customerId: number | null = loyaltyCustomerId ? Number(loyaltyCustomerId) : order.loyaltyCustomerId;
+  const nc = isNc !== undefined ? !!isNc : order.isNc;
+
+  // Work out the payment parts
+  let parts: { mode: string; amount: number; reference?: string | null }[] = [];
+  let writeRows = true;
+  if (nc) {
+    writeRows = false; // NC bills are never money received
+  } else if (Array.isArray(payments)) {
+    const v = validateSplit(payments, billTotal, { hasCustomer: !!customerId });
+    if ("error" in v) { res.status(400).json({ error: v.error }); return; }
+    parts = v.parts;
+  } else {
+    const single = String(paymentMethod ?? order.paymentMethod ?? "cash");
+    if ((PAYMENT_MODES as readonly string[]).includes(single)) {
+      const v = validateSplit([{ mode: single, amount: billTotal }], billTotal, { hasCustomer: !!customerId });
+      if ("error" in v) { res.status(400).json({ error: v.error }); return; }
+      parts = v.parts;
+    } else {
+      // A legacy value from an older screen (card, esewa): keep it on the order only; readers fall back to it
+      writeRows = false;
+      updateData.paymentMethod = single;
+    }
+  }
+  const creditPart = creditAmountOf(parts);
+
+  let creditWarning: string | null = null;
+  if (creditPart > 0) {
+    const [cust] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, customerId!));
+    if (!cust) { res.status(400).json({ error: "Credit needs a customer from the loyalty list." }); return; }
+    const [bal] = await customerBalances(cust.id);
+    creditWarning = creditLimitWarning(cust.creditLimit != null ? parseFloat(String(cust.creditLimit)) : null, bal?.balance ?? 0, creditPart);
+  }
+
+  const paidAt = new Date();
+  const username = (req as any).user?.username ?? null;
+  let alreadyPaid = false;
+  await db.transaction(async (tx) => {
+    // Lock the bill: a second press waits here, then sees it paid
+    const locked = await tx.execute(sql`SELECT payment_status FROM orders WHERE id = ${id} FOR UPDATE`);
+    const status = ((locked as any).rows ?? locked)[0]?.payment_status;
+    if (status === "paid") { alreadyPaid = true; return; }
+
+    const set: Record<string, unknown> = { ...updateData, paymentStatus: "paid", paidAt };
+    if (writeRows) set.paymentMethod = summaryMethod(parts);
+    if (customerId) set.loyaltyCustomerId = customerId;
+    if (creditPart > 0) set.orderStatus = "completed"; // a credit bill leaves Active Orders
+    // Only assign an invoice number once — reprints/edits must never get a new one
+    if (!order.invoiceNumber) set.invoiceNumber = await getNextInvoiceNumber(tx);
+
+    if (customerId) {
+      const points = Math.floor(parseFloat(String(order.totalAmount)) / 10);
+      set.loyaltyPointsEarned = points;
+      const [customer] = await tx.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, customerId));
+      if (customer) {
+        await tx.update(loyaltyCustomersTable).set({
+          totalPoints: customer.totalPoints + points,
+          totalOrders: customer.totalOrders + 1,
+          totalSpent: String(parseFloat(String(customer.totalSpent)) + parseFloat(String(order.totalAmount))),
+        }).where(eq(loyaltyCustomersTable.id, customerId));
+      }
+    }
+
+    // Clear table session so the next guest gets a fresh start
+    if (order.tableId) await tx.delete(tableSessionsTable).where(eq(tableSessionsTable.tableId, order.tableId));
+
+    await tx.update(ordersTable).set(set).where(eq(ordersTable.id, id));
+    if (writeRows) {
+      for (const p of parts) {
+        await tx.insert(orderPaymentsTable).values({ orderId: id, mode: p.mode, amount: String(p.amount), reference: p.reference ?? null, paidAt, createdBy: username });
+      }
+    }
+  });
+
   const result = await getOrderWithItems(id);
   if (!result) { res.status(404).json({ error: "Order not found" }); return; }
-  res.json(result);
+  res.json(alreadyPaid ? result : { ...result, creditWarning });
   } catch (err: any) {
     console.error("PAYMENT ROUTE ERROR:", err?.message, err?.stack);
     res.status(500).json({ error: "Failed to process payment", detail: err?.message });
@@ -458,7 +522,12 @@ router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req: any, 
   // exactly what was reversed, when, and by whom. This never touches the
   // original order row itself.
   const [orderBeforeCancel] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
-  if (orderBeforeCancel?.paymentStatus === "paid") {
+  if (!orderBeforeCancel) { res.status(404).json({ error: "Order not found" }); return; }
+  if (orderBeforeCancel.paymentStatus === "cancelled") { res.status(400).json({ error: "This order is already cancelled." }); return; }
+  // A credit invoice that has customer receipts allocated to it cannot be cancelled until those receipts are voided
+  const allocated = (await allocatedByOrder([id])).get(id) ?? 0;
+  if (allocated > 0) { res.status(400).json({ error: `Receipts of Rs. ${allocated.toFixed(2)} are allocated to this credit invoice. Void those receipt vouchers first.` }); return; }
+  if (orderBeforeCancel.paymentStatus === "paid") {
     await db.insert(orderCorrectionsTable).values({
       originalOrderId: id,
       correctionType: "credit",

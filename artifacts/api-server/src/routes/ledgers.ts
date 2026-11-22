@@ -3,10 +3,12 @@ import type { Response } from "express";
 import { db, cashDaysTable, cashMovementsTable, expensesTable } from "@workspace/db";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
-import { isDay, dayRangeUtc, paidOrdersBetween, modeOf, nepalDay, addDays } from "../lib/ledgerData";
+import { isDay, dayRangeUtc, paidOrdersBetween, modeOf, nepalDay, addDays, collectionsByDay, receiptsBetween, type CollectionRow } from "../lib/ledgerData";
+import { MODE_LABEL } from "../lib/payments";
 
 const router = Router();
 const LEDGER_ROLES = ["admin", "accountant", "supervisor"];
+const LEDGER_MODES = ["cash", "qr", "card", "bank", "credit", "other"];
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const num = (v: unknown) => parseFloat(String(v));
 const IN_KINDS = ["other_in"];
@@ -21,31 +23,21 @@ function range(req: AuthRequest) {
   const from = isDay(req.query.from) ? req.query.from : addDays(to, -29);
   return { from, to };
 }
+const saleRef = (o: { id: number; invoiceNumber?: string | null }) => `Sale #${o.id}${o.invoiceNumber ? ` · ${o.invoiceNumber}` : ""}`;
 
-// Money received per day, by payment mode
+// Per day: bills by payment mode (from order_payments, falling back to payment_method), customer receipts, money received
 router.get("/ledger/collections", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!allowed(req, res)) return;
   const { from, to } = range(req);
   if (from > to) { res.status(400).json({ error: "The start date is after the end date." }); return; }
   const orders = await paidOrdersBetween(dayRangeUtc(from).from, dayRangeUtc(to).to);
-  const byDay = new Map<string, any>();
-  for (const o of orders) {
-    const day = nepalDay(o.at);
-    const row = byDay.get(day) ?? { day, orders: 0, cash: 0, qr: 0, card: 0, credit: 0, other: 0, total: 0, vat: 0 };
-    const amt = num(o.totalAmount);
-    row[modeOf(o.paymentMethod)] += amt;
-    row.total += amt;
-    row.vat += num((o as any).vatAmount ?? 0);
-    row.orders++;
-    byDay.set(day, row);
-  }
-  const rows = Array.from(byDay.values()).sort((a, b) => a.day.localeCompare(b.day)).map(r => ({
-    ...r, cash: round2(r.cash), qr: round2(r.qr), card: round2(r.card), credit: round2(r.credit), other: round2(r.other), total: round2(r.total), vat: round2(r.vat),
-  }));
-  const totals = rows.reduce((t, r) => ({
-    orders: t.orders + r.orders, cash: t.cash + r.cash, qr: t.qr + r.qr, card: t.card + r.card, credit: t.credit + r.credit, other: t.other + r.other, total: t.total + r.total, vat: t.vat + r.vat,
-  }), { orders: 0, cash: 0, qr: 0, card: 0, credit: 0, other: 0, total: 0, vat: 0 });
-  res.json({ from, to, rows, totals: Object.fromEntries(Object.entries(totals).map(([k, v]) => [k, round2(v as number)])) });
+  const receipts = await receiptsBetween(from, to);
+  const rows = collectionsByDay(orders, receipts);
+  const totals: Record<string, number> = {};
+  for (const r of rows) for (const [k, v] of Object.entries(r)) if (typeof v === "number") totals[k] = (totals[k] ?? 0) + v;
+  for (const k of Object.keys(totals)) if (k !== "orders") totals[k] = round2(totals[k]);
+  // "total" kept for older screens: it is the money received (credit excluded)
+  res.json({ from, to, rows: rows.map((r: CollectionRow) => ({ ...r, total: r.received })), totals: { ...totals, total: totals.received ?? 0 } });
 });
 
 async function cashLedger(from: string, to: string) {
@@ -53,7 +45,11 @@ async function cashLedger(from: string, to: string) {
   for (let d = from; d <= to; d = addDays(d, 1)) days.push(d);
   const dayRows = await db.select().from(cashDaysTable).where(and(gte(cashDaysTable.day, from), lte(cashDaysTable.day, to)));
   const dayMap = new Map(dayRows.map(r => [r.day, r]));
-  const sales = (await paidOrdersBetween(dayRangeUtc(from).from, dayRangeUtc(to).to)).filter(o => modeOf(o.paymentMethod) === "cash");
+  const orders = await paidOrdersBetween(dayRangeUtc(from).from, dayRangeUtc(to).to);
+  const sales = orders
+    .map(o => ({ o, amount: round2(o.parts.filter(p => modeOf(p.mode) === "cash").reduce((s, p) => s + p.amount, 0)) }))
+    .filter(x => x.amount > 0);
+  const receipts = await receiptsBetween(from, to, "cash");
   const exps = await db.select().from(expensesTable).where(and(
     gte(expensesTable.expenseDate, from), lte(expensesTable.expenseDate, to), eq(expensesTable.status, "active"), eq(expensesTable.paidFromDrawer, true)));
   const moves = await db.select().from(cashMovementsTable).where(and(
@@ -64,7 +60,8 @@ async function cashLedger(from: string, to: string) {
   for (const day of days) {
     const rec = dayMap.get(day);
     const items: { t: number; type: string; ref: string; description: string; amount: number; dir: "in" | "out" }[] = [
-      ...sales.filter(o => nepalDay(o.at) === day).map(o => ({ t: o.at.getTime(), type: "sale", ref: `Sale #${o.id}${(o as any).invoiceNumber ? ` · ${(o as any).invoiceNumber}` : ""}`, description: "Cash sale", amount: num(o.totalAmount), dir: "in" as const })),
+      ...sales.filter(x => nepalDay(x.o.at) === day).map(x => ({ t: x.o.at.getTime(), type: "sale", ref: saleRef(x.o), description: x.o.parts.length > 1 ? "Cash part of a split bill" : "Cash sale", amount: x.amount, dir: "in" as const })),
+      ...receipts.filter(r => r.receiptDate === day).map(r => ({ t: r.createdAt.getTime(), type: "receipt", ref: r.voucherNo, description: `Received from ${r.customerName ?? `customer #${r.customerId}`}`, amount: r.amount, dir: "in" as const })),
       ...exps.filter(e => e.expenseDate === day).map(e => ({ t: new Date(e.createdAt).getTime(), type: "payout", ref: `Expense #${e.id}`, description: `${e.category}${e.vendor ? ` · ${e.vendor}` : ""}`, amount: num(e.amount), dir: "out" as const })),
       ...moves.filter(m => m.day === day).map(m => ({ t: new Date(m.createdAt).getTime(), type: m.kind, ref: m.reference ?? "", description: `${KIND_LABEL[m.kind] ?? m.kind}${m.description ? ` · ${m.description}` : ""}`, amount: num(m.amount), dir: (IN_KINDS.includes(m.kind) ? "in" : "out") as "in" | "out" })),
     ].sort((a, b) => a.t - b.t);
@@ -95,24 +92,44 @@ async function cashLedger(from: string, to: string) {
   return entries;
 }
 
+// QR, card, bank, credit and other: bill parts in that mode, plus customer receipts where they apply.
+// The credit ledger is the receivable control: credit sales in, customer receipts (any mode) out.
+async function modeLedger(mode: string, from: string, to: string) {
+  const orders = await paidOrdersBetween(dayRangeUtc(from).from, dayRangeUtc(to).to);
+  const items: { t: number; day: string; type: string; ref: string; description: string; inAmt: number; outAmt: number }[] = [];
+  if (mode !== "bank") {
+    for (const o of orders) {
+      for (const p of o.parts) {
+        if (modeOf(p.mode) !== mode) continue;
+        const what = mode === "credit" ? "Credit sale (receivable)" : `${MODE_LABEL[p.mode] ?? p.mode}${o.parts.length > 1 ? " · part of a split bill" : ""}`;
+        items.push({ t: o.at.getTime(), day: nepalDay(o.at), type: "sale", ref: saleRef(o), description: `${what}${p.reference ? ` · ref ${p.reference}` : ""}`, inAmt: p.amount, outAmt: 0 });
+      }
+    }
+  }
+  const receiptMode = mode === "qr" ? "nabil_qr" : mode === "bank" ? "bank" : mode === "credit" ? undefined : null;
+  if (receiptMode !== null) {
+    for (const r of await receiptsBetween(from, to, receiptMode)) {
+      const who = r.customerName ?? `customer #${r.customerId}`;
+      if (mode === "credit") items.push({ t: r.createdAt.getTime(), day: r.receiptDate, type: "receipt", ref: r.voucherNo, description: `Received from ${who} (${MODE_LABEL[r.mode] ?? (r.mode === "bank" ? "Bank" : r.mode)})`, inAmt: 0, outAmt: r.amount });
+      else items.push({ t: r.createdAt.getTime(), day: r.receiptDate, type: "receipt", ref: r.voucherNo, description: `Received from ${who}`, inAmt: r.amount, outAmt: 0 });
+    }
+  }
+  items.sort((a, b) => a.day.localeCompare(b.day) || a.t - b.t);
+  let bal = 0;
+  return items.map(it => {
+    bal += it.inAmt - it.outAmt;
+    return { day: it.day, time: new Date(it.t).toISOString(), type: it.type, ref: it.ref, description: it.description, inAmt: round2(it.inAmt), outAmt: round2(it.outAmt), balance: round2(bal) };
+  });
+}
+
 router.get("/ledger/mode", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!allowed(req, res)) return;
   const { from, to } = range(req);
   const mode = String(req.query.mode ?? "cash");
-  if (!["cash", "qr", "card", "credit", "other"].includes(mode)) { res.status(400).json({ error: "Unknown payment mode." }); return; }
+  if (!LEDGER_MODES.includes(mode)) { res.status(400).json({ error: "Unknown payment mode." }); return; }
   if (from > to) { res.status(400).json({ error: "The start date is after the end date." }); return; }
 
-  let entries: any[];
-  if (mode === "cash") entries = await cashLedger(from, to);
-  else {
-    const orders = (await paidOrdersBetween(dayRangeUtc(from).from, dayRangeUtc(to).to))
-      .filter(o => modeOf(o.paymentMethod) === mode).sort((a, b) => a.at.getTime() - b.at.getTime());
-    let bal = 0;
-    entries = orders.map(o => {
-      const amt = num(o.totalAmount); bal += amt;
-      return { day: nepalDay(o.at), time: o.at.toISOString(), type: "sale", ref: `Sale #${o.id}${(o as any).invoiceNumber ? ` · ${(o as any).invoiceNumber}` : ""}`, description: "Sale received", inAmt: round2(amt), outAmt: 0, balance: round2(bal) };
-    });
-  }
+  const entries = mode === "cash" ? await cashLedger(from, to) : await modeLedger(mode, from, to);
   const totalIn = round2(entries.reduce((s, e) => s + e.inAmt, 0));
   const totalOut = round2(entries.reduce((s, e) => s + e.outAmt, 0));
   res.json({ mode, from, to, entries, totalIn, totalOut, closing: entries.length ? entries[entries.length - 1].balance : 0 });

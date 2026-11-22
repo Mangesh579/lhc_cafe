@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { UserRole } from "@workspace/api-client-react";
 
-import { Wallet, Receipt, Banknote, BookOpen } from "lucide-react";
+import { Wallet, Receipt, Banknote, BookOpen, HandCoins } from "lucide-react";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista", "accountant"] },
@@ -34,6 +34,7 @@ const navItems = [
   { href: "/expenses", label: "Expenses", icon: Wallet, roles: ["admin", "accountant"] },
   { href: "/cash-drawer", label: "Cash Drawer", icon: Banknote, roles: ["admin", "supervisor", "head_barista", "accountant"] },
   { href: "/ledgers", label: "Ledgers", icon: BookOpen, roles: ["admin", "accountant", "supervisor"] },
+  { href: "/receivables", label: "Receivables", icon: HandCoins, roles: ["admin", "accountant", "supervisor", "head_barista"] },
   { href: "/accounts", label: "Monthly Accounts", icon: Receipt, roles: ["admin", "supervisor", "head_barista", "accountant"] },
   { href: "/staff", label: "Staff", icon: CalendarCheck, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista"] },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista", "accountant"] },

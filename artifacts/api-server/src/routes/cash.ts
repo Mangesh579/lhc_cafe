@@ -3,7 +3,7 @@ import type { Response } from "express";
 import { db, cashDaysTable, cashMovementsTable, expensesTable, expenseChangesTable } from "@workspace/db";
 import { eq, and, lt, gte, lte, desc } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
-import { isDay, dayRangeUtc, paidOrdersBetween, modeOf, nepalDay } from "../lib/ledgerData";
+import { isDay, dayRangeUtc, paidOrdersBetween, nepalDay, cashSalesOf, receiptsBetween } from "../lib/ledgerData";
 
 const router = Router();
 
@@ -28,11 +28,13 @@ async function computeDay(day: string) {
   const opening = row ? num(row.openingBalance) : suggestedOpening;
 
   const { from, to } = dayRangeUtc(day);
-  const cashSales = (await paidOrdersBetween(from, to))
-    .filter(o => modeOf(o.paymentMethod) === "cash")
-    .sort((a, b) => a.at.getTime() - b.at.getTime())
-    .map(o => ({ id: o.id, at: o.at, invoice: (o as any).invoiceNumber ?? null, amount: round2(num(o.totalAmount)) }));
+  // Only the cash part of each bill (split bills count each part in its own mode); NC and credit never count
+  const cashSales = cashSalesOf(await paidOrdersBetween(from, to));
   const salesTotal = cashSales.reduce((s, o) => s + o.amount, 0);
+
+  // Credit customers paying their balance in cash (receipt vouchers) put cash in the drawer
+  const cashReceipts = (await receiptsBetween(day, day, "cash")).map(r => ({ id: r.id, voucherNo: r.voucherNo, customer: r.customerName ?? `Customer #${r.customerId}`, reference: r.reference ?? null, amount: r.amount }));
+  const receiptsTotal = cashReceipts.reduce((s, r) => s + r.amount, 0);
 
   const exp = await db.select().from(expensesTable)
     .where(and(eq(expensesTable.expenseDate, day), eq(expensesTable.status, "active"), eq(expensesTable.paidFromDrawer, true)))
@@ -46,13 +48,14 @@ async function computeDay(day: string) {
   const sum = (kind: string) => moves.filter(m => m.kind === kind).reduce((s, m) => s + num(m.amount), 0);
   const deposits = sum("deposit"), ownerDraws = sum("owner_draw"), otherIn = sum("other_in"), otherOut = sum("other_out");
 
-  const expected = round2(opening + salesTotal + otherIn - payoutsTotal - deposits - ownerDraws - otherOut);
+  const expected = round2(opening + salesTotal + receiptsTotal + otherIn - payoutsTotal - deposits - ownerDraws - otherOut);
   return {
     date: day,
     record: row ?? null,
     status: row?.status ?? "not_opened",
     opening: round2(opening), suggestedOpening: round2(suggestedOpening), suggestedFrom: prev?.day ?? null,
     cashSales, salesTotal: round2(salesTotal),
+    cashReceipts, receiptsTotal: round2(receiptsTotal),
     payouts, payoutsTotal: round2(payoutsTotal),
     movements: moves, deposits: round2(deposits), ownerDraws: round2(ownerDraws), otherIn: round2(otherIn), otherOut: round2(otherOut),
     expected,

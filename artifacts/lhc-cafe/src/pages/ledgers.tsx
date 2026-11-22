@@ -14,8 +14,9 @@ const money = (n: number) => (Math.round(n * 100) / 100).toLocaleString(undefine
 const MODES = [
   { value: "cash", label: "Cash" },
   { value: "qr", label: "QR Payment" },
-  { value: "card", label: "Card" },
-  { value: "credit", label: "Credit" },
+  { value: "card", label: "Card (both machines)" },
+  { value: "bank", label: "Bank (customer receipts)" },
+  { value: "credit", label: "Credit (receivable)" },
   { value: "other", label: "Other" },
 ];
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm";
@@ -43,10 +44,15 @@ export default function Ledgers() {
 
   useEffect(() => { if (allowed) load(); }, [allowed, load]);
 
+  const collRow = (r: any, label: string) => ({
+    Date: label, Bills: r.orders, Cash: r.cash, "QR Payment": r.qr, "Card - Nabil POS": r.cardNabil, "Card - HBL POS": r.cardHbl, "Card (machine not recorded)": r.cardUnknown,
+    Other: r.other, "Credit (billed, not received)": r.credit, "Total sales": r.sales,
+    "Receipts - Cash": r.receiptsCash, "Receipts - QR": r.receiptsQr, "Receipts - Bank": r.receiptsBank, "Money received": r.received, "VAT included": r.vat,
+  });
   const exportCollections = () => {
     if (!coll) return;
-    const rows = coll.rows.map((r: any) => ({ Date: r.day, Bills: r.orders, Cash: r.cash, "QR Payment": r.qr, Card: r.card, Credit: r.credit, Other: r.other, Total: r.total, "VAT included": r.vat }));
-    rows.push({ Date: "TOTAL", Bills: coll.totals.orders, Cash: coll.totals.cash, "QR Payment": coll.totals.qr, Card: coll.totals.card, Credit: coll.totals.credit, Other: coll.totals.other, Total: coll.totals.total, "VAT included": coll.totals.vat });
+    const rows = coll.rows.map((r: any) => collRow(r, r.day));
+    rows.push(collRow(coll.totals, "TOTAL"));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Collections");
     XLSX.writeFile(wb, `collections-${from}-to-${to}.xlsx`);
@@ -85,23 +91,31 @@ export default function Ledgers() {
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-xs text-muted-foreground uppercase tracking-wider"><tr>
                 <th className="px-4 py-3 text-left">Date</th><th className="px-3 py-3 text-right">Bills</th><th className="px-3 py-3 text-right">Cash</th><th className="px-3 py-3 text-right">QR Payment</th>
-                <th className="px-3 py-3 text-right">Card</th><th className="px-3 py-3 text-right">Credit</th><th className="px-3 py-3 text-right">Other</th><th className="px-3 py-3 text-right">Total</th><th className="px-3 py-3 text-right">VAT included</th>
+                <th className="px-3 py-3 text-right">Card</th><th className="px-3 py-3 text-right">Other</th><th className="px-3 py-3 text-right">Credit</th><th className="px-3 py-3 text-right">Total sales</th>
+                <th className="px-3 py-3 text-right">Customer receipts</th><th className="px-3 py-3 text-right">Money received</th><th className="px-3 py-3 text-right">VAT included</th>
               </tr></thead>
               <tbody className="divide-y">
-                {loading && <tr><td colSpan={9} className="px-4 py-6 text-center text-muted-foreground">Loading…</td></tr>}
-                {!loading && coll?.rows.length === 0 && <tr><td colSpan={9} className="px-4 py-6 text-center text-muted-foreground">No paid bills in this period.</td></tr>}
-                {coll?.rows.map((r: any) => (
-                  <tr key={r.day}><td className="px-4 py-2">{r.day}</td><td className="px-3 py-2 text-right">{r.orders}</td><td className="px-3 py-2 text-right">{money(r.cash)}</td><td className="px-3 py-2 text-right">{money(r.qr)}</td>
-                    <td className="px-3 py-2 text-right">{money(r.card)}</td><td className="px-3 py-2 text-right">{money(r.credit)}</td><td className="px-3 py-2 text-right">{money(r.other)}</td><td className="px-3 py-2 text-right font-medium">{money(r.total)}</td><td className="px-3 py-2 text-right text-muted-foreground">{money(r.vat)}</td></tr>
+                {loading && <tr><td colSpan={11} className="px-4 py-6 text-center text-muted-foreground">Loading…</td></tr>}
+                {!loading && coll?.rows.length === 0 && <tr><td colSpan={11} className="px-4 py-6 text-center text-muted-foreground">No paid bills in this period.</td></tr>}
+                {[...(coll?.rows ?? []).map((r: any) => ({ r, total: false })), ...(coll && coll.rows.length > 0 ? [{ r: { ...coll.totals, day: "Total" }, total: true }] : [])].map(({ r, total }: any) => (
+                  <tr key={r.day} className={total ? "font-semibold bg-muted/30" : ""}>
+                    <td className="px-4 py-2 whitespace-nowrap">{r.day}</td><td className="px-3 py-2 text-right">{r.orders}</td>
+                    <td className="px-3 py-2 text-right">{money(r.cash)}</td><td className="px-3 py-2 text-right">{money(r.qr)}</td>
+                    <td className="px-3 py-2 text-right" title={`Nabil POS ${money(r.cardNabil)} · HBL POS ${money(r.cardHbl)} · not recorded ${money(r.cardUnknown)}`}>
+                      {money(r.card)}{(r.cardNabil > 0 || r.cardHbl > 0) && <span className="block text-[10px] text-muted-foreground font-normal">N {money(r.cardNabil)} · H {money(r.cardHbl)}{r.cardUnknown > 0 ? ` · ? ${money(r.cardUnknown)}` : ""}</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right">{money(r.other)}</td>
+                    <td className="px-3 py-2 text-right text-amber-700">{money(r.credit)}</td>
+                    <td className="px-3 py-2 text-right">{money(r.sales)}</td>
+                    <td className="px-3 py-2 text-right">{money(r.receipts)}</td>
+                    <td className="px-3 py-2 text-right font-medium">{money(r.received)}</td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">{money(r.vat)}</td>
+                  </tr>
                 ))}
-                {coll && coll.rows.length > 0 && (
-                  <tr className="font-semibold bg-muted/30"><td className="px-4 py-2">Total</td><td className="px-3 py-2 text-right">{coll.totals.orders}</td><td className="px-3 py-2 text-right">{money(coll.totals.cash)}</td><td className="px-3 py-2 text-right">{money(coll.totals.qr)}</td>
-                    <td className="px-3 py-2 text-right">{money(coll.totals.card)}</td><td className="px-3 py-2 text-right">{money(coll.totals.credit)}</td><td className="px-3 py-2 text-right">{money(coll.totals.other)}</td><td className="px-3 py-2 text-right">{money(coll.totals.total)}</td><td className="px-3 py-2 text-right">{money(coll.totals.vat)}</td></tr>
-                )}
               </tbody>
             </table>
           </div></CardContent></Card>
-          <p className="text-xs text-muted-foreground">Bills are counted on the day they were paid. Not Chargeable bills are not collections. Card sales are not yet split by machine, and credit appears here once Credit Payment is switched on.</p>
+          <p className="text-xs text-muted-foreground">Bills are counted on the Nepal day they were paid; a split bill counts each part in its own mode. Credit is billed but not received, so it is not in Money received; customer receipts against credit are. Not Chargeable bills are not collections.</p>
         </TabsContent>
 
         <TabsContent value="ledger" className="mt-4 space-y-3">
@@ -137,7 +151,8 @@ export default function Ledgers() {
               </tbody>
             </table>
           </div></CardContent></Card>
-          {mode !== "cash" && <p className="text-xs text-muted-foreground">This ledger holds money received. Settlements to the bank, with the card-machine deductions, are added in the next step.</p>}
+          {mode === "credit" && <p className="text-xs text-muted-foreground">The receivable control: credit sales in, customer receipts (any mode) out. The balance is what customers owe. See Receivables for each customer.</p>}
+          {mode !== "cash" && mode !== "credit" && <p className="text-xs text-muted-foreground">This ledger holds money received. Settlements to the bank, with the card-machine deductions, are added in the next step.</p>}
         </TabsContent>
       </Tabs>
     </div>

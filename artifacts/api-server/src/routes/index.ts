@@ -14,6 +14,7 @@ import staffRouter from "./staff";
 import systemRouter from "./system";
 import alertsRouter from "./alerts";
 import tableRequestsRouter from "./tableRequests";
+import receivablesRouter from "./receivables";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use(staffRouter);
 router.use(systemRouter);
 router.use(alertsRouter);
 router.use(tableRequestsRouter);
+router.use(receivablesRouter);
 
 export default router;

@@ -1,4 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
+import { paymentSummary, orderHasMode, rs } from "@/lib/payments";
 import { useListOrders, useListMenuCategories, useListMenuItems } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -297,7 +298,8 @@ export default function OrderLog() {
 
   const filteredOrders = orders?.filter(order => {
     if (statusFilter !== "all" && order.orderStatus !== statusFilter) return false;
-    if (paymentFilter !== "all" && order.paymentMethod !== paymentFilter) return false;
+    if (paymentFilter === "credit_open") { if (!((order as any).creditOutstanding > 0)) return false; }
+    else if (paymentFilter !== "all" && !orderHasMode(order as any, paymentFilter)) return false;
     if (paymentStatusFilter !== "all" && order.paymentStatus !== paymentStatusFilter) return false;
     if (categoryFilter !== "all") {
       const catId = parseInt(categoryFilter);
@@ -329,7 +331,7 @@ export default function OrderLog() {
       return true;
     });
 
-    const headers = ["Order ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Total", "Discount", ...(canSeeProfit ? ["Net Sales", "Ingredient Cost", "Operating Cost", "Overhead Share", "Total Cost", "Net Profit", "Costing"] : [])];
+    const headers = ["Order ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Payment mode", "Credit outstanding", "Total", "Discount", ...(canSeeProfit ? ["Net Sales", "Ingredient Cost", "Operating Cost", "Overhead Share", "Total Cost", "Net Profit", "Costing"] : [])];
     const rows = ordersToExport.map(o => [
       o.id,
       new Date((o as any).backdatedAt ?? o.createdAt).toLocaleString(),
@@ -338,6 +340,8 @@ export default function OrderLog() {
       (o as any).loyaltyCustomerName ?? "",
       o.orderStatus,
       o.paymentStatus,
+      (o as any).isNc ? "NC" : paymentSummary(o as any),
+      (o as any).creditOutstanding ? Number((o as any).creditOutstanding).toFixed(2) : "",
       parseFloat(String(o.totalAmount)).toFixed(0),
       parseFloat(String((o as any).discountAmount ?? 0)).toFixed(0),
     ]);
@@ -371,6 +375,8 @@ export default function OrderLog() {
       "Customer": (o as any).loyaltyCustomerName ?? "",
       "Status": o.orderStatus,
       "Payment": o.paymentStatus,
+      "Payment mode": (o as any).isNc ? "NC" : paymentSummary(o as any),
+      "Credit outstanding": (o as any).creditOutstanding ? Number((o as any).creditOutstanding) : "",
       "Total": parseFloat(String(o.totalAmount)).toFixed(0),
       "Discount": parseFloat(String((o as any).discountAmount ?? 0)).toFixed(0),
     }));
@@ -770,7 +776,13 @@ export default function OrderLog() {
               <SelectItem value="all">All Methods</SelectItem>
               <SelectItem value="cash">Cash</SelectItem>
               <SelectItem value="nabil_qr">QR Payment</SelectItem>
-              <SelectItem value="card">Card</SelectItem>
+              <SelectItem value="card">Card (any)</SelectItem>
+              <SelectItem value="card_nabil">Card - Nabil POS</SelectItem>
+              <SelectItem value="card_hbl">Card - HBL POS</SelectItem>
+              <SelectItem value="card_legacy">Card (older, machine not recorded)</SelectItem>
+              <SelectItem value="credit">Credit</SelectItem>
+              <SelectItem value="credit_open">Credit, still owed</SelectItem>
+              <SelectItem value="split">Split payments</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -875,6 +887,9 @@ export default function OrderLog() {
                         {order.paymentStatus}
                       </Badge>
                     )}
+                    {(order as any).creditOutstanding > 0 && order.paymentStatus === "paid" && (
+                      <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-900">Owes {rs((order as any).creditOutstanding)}</Badge>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {useNepaliDate
@@ -938,7 +953,13 @@ export default function OrderLog() {
                     ))}
                   </div>
                 )}
-                <p className="text-xs text-muted-foreground capitalize">{String(order.paymentMethod).replace('_', ' ')}</p>
+                {!(order as any).isNc && <p className="text-xs text-muted-foreground">{paymentSummary(order as any)}</p>}
+                {(order as any).creditAmount > 0 && order.paymentStatus === "paid" && (
+                  <p className={`text-xs font-medium ${(order as any).creditOutstanding > 0 ? "text-amber-700" : "text-green-700"}`}>
+                    Credit invoice{(order as any).invoiceNumber ? ` ${(order as any).invoiceNumber}` : ""}: {rs((order as any).creditAmount)} on credit
+                    {(order as any).creditOutstanding > 0 ? `, ${rs((order as any).creditOutstanding)} still owed` : ", fully received"}
+                  </p>
+                )}
               </div>
             )}
           </Card>
@@ -1017,10 +1038,15 @@ export default function OrderLog() {
                           </div>
                         ) : (
                           <div className="flex flex-col gap-0.5">
-                            <span className="text-xs capitalize">{String(order.paymentMethod).replace('_', ' ')}</span>
-                            <Badge variant="secondary" className={`text-xs ${order.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' : order.paymentStatus === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                            <span className="text-xs">{paymentSummary(order as any)}</span>
+                            <Badge variant="secondary" className={`text-xs w-fit ${order.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' : order.paymentStatus === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
                               {order.paymentStatus}
                             </Badge>
+                            {(order as any).creditAmount > 0 && order.paymentStatus === "paid" && (
+                              <span className={`text-xs font-medium ${(order as any).creditOutstanding > 0 ? "text-amber-700" : "text-green-700"}`}>
+                                {(order as any).creditOutstanding > 0 ? `Owes ${rs((order as any).creditOutstanding)}` : "Credit received"}
+                              </span>
+                            )}
                           </div>
                         )}
                       </td>

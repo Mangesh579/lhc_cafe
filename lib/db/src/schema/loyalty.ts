@@ -13,6 +13,9 @@ export const loyaltyCustomersTable = pgTable("loyalty_customers", {
   loopNumber: integer("loop_number").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   paysMonthly: boolean("pays_monthly").notNull().default(false),
+  // Credit sales: optional limit (warning only) and optional credit days (for the overdue list)
+  creditLimit: numeric("credit_limit", { precision: 12, scale: 2 }),
+  creditDays: integer("credit_days"),
 });
 
 export const loyaltyRedemptionsTable = pgTable("loyalty_redemptions", {

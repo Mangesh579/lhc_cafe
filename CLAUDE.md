@@ -26,7 +26,7 @@ Cafe management system for LHC Cafe & Barista School (Sulimha Durbar, Patan, Nep
 - IRD compliance: paid invoices are immutable. No DELETE routes for orders or invoices. Cancelling a paid bill creates a credit note. Void with a reason instead of deleting, and keep audit trails.
 - Costs and profit are visible to admin and accountant only (hideCosts middleware strips cost fields).
 - Secrets only in .env, never in code.
-- After every change: typecheck and build both artifacts.
+- After every change: typecheck and build both artifacts, and run `pnpm test` (vitest, artifacts/api-server/src/__tests__, no database needed).
 
 ## Payments and cash rules
 - Payment modes: Cash, QR Payment, Card-Nabil POS, Card-HBL POS, Credit. The stored value for QR Payment stays `nabil_qr`; only the label changed. Legacy values `card` and `esewa` count as card.
@@ -47,7 +47,7 @@ Cafe management system for LHC Cafe & Barista School (Sulimha Durbar, Patan, Nep
 
 ## Roadmap, in order
 1. DONE: Cash drawer, payment-mode ledgers, rename "Nabil QR" to "QR Payment".
-2. Payment modes and split payment (order_payments); credit sales and customer receipts (receipt vouchers with allocation, credit limit/overdue); retire the monthly-account merge (after the open questions above).
+2. PARTLY DONE 2026-11-22 (migration 001 not yet run): payment modes and split payment (order_payments); credit sales and customer receipts (receipt vouchers with allocation, credit limit/overdue). STILL TO DO: retire the monthly-account merge (after the open questions above).
 3. Settlements of QR and card to the bank, with the bank charge.
 4. Suppliers, purchase bills (supplier invoice no., PAN, VAT), supplier ledgers, payments, returns, supplier on each ingredient, price history.
 5. Chart of accounts, vouchers, next-day Sales/Purchase/Consumption posting, trial balance, balance sheet, day book, period lock.

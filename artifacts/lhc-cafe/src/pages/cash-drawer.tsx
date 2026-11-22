@@ -107,7 +107,7 @@ export default function CashDrawer() {
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Opening cash</p><p className="text-lg font-bold">{money(d.opening)}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Cash sales</p><p className="text-lg font-bold">{money(d.salesTotal)}</p><p className="text-xs text-muted-foreground">{d.cashSales.length} bills</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Cash sales</p><p className="text-lg font-bold">{money(d.salesTotal)}</p><p className="text-xs text-muted-foreground">{d.cashSales.length} bills{(d.receiptsTotal ?? 0) > 0 ? ` · + ${money(d.receiptsTotal)} from credit customers` : ""}</p></CardContent></Card>
             <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Paid out of the drawer</p><p className="text-lg font-bold">{money(d.payoutsTotal + d.otherOut)}</p></CardContent></Card>
             <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Bank deposits and owner</p><p className="text-lg font-bold">{money(d.deposits + d.ownerDraws)}</p></CardContent></Card>
           </div>
@@ -156,6 +156,9 @@ export default function CashDrawer() {
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-4 py-3 bg-muted/40">Today's drawer entries</p>
             <table className="w-full text-sm">
               <tbody className="divide-y">
+                {(d.cashReceipts ?? []).map((r: any) => (
+                  <tr key={`r${r.id}`}><td className="px-4 py-2">Customer receipt</td><td className="px-4 py-2">{r.voucherNo} · {r.customer}{r.reference ? ` · ${r.reference}` : ""}</td><td className="px-4 py-2 text-right text-green-700">+ {money(r.amount)}</td><td /></tr>
+                ))}
                 {d.payouts.map((p: any) => (
                   <tr key={`p${p.id}`}><td className="px-4 py-2">Payout</td><td className="px-4 py-2">{p.category}{p.vendor ? ` · ${p.vendor}` : ""}{p.description ? ` · ${p.description}` : ""}</td><td className="px-4 py-2 text-right text-red-600">- {money(p.amount)}</td><td /></tr>
                 ))}
@@ -167,7 +170,7 @@ export default function CashDrawer() {
                     <td className="px-4 py-2 text-right">{isOpen && <Button size="sm" variant="ghost" className="text-destructive h-7" onClick={() => { const reason = window.prompt("Why void this entry?"); if (reason) act(() => apiJson(`/cash/movements/${m.id}/void`, "POST", { reason }), "Entry voided"); }}>Void</Button>}</td>
                   </tr>
                 ))}
-                {d.payouts.length === 0 && d.movements.length === 0 && <tr><td className="px-4 py-4 text-muted-foreground" colSpan={4}>No payouts or movements yet.</td></tr>}
+                {d.payouts.length === 0 && d.movements.length === 0 && !(d.cashReceipts ?? []).length && <tr><td className="px-4 py-4 text-muted-foreground" colSpan={4}>No receipts, payouts or movements yet.</td></tr>}
               </tbody>
             </table>
           </CardContent></Card>
@@ -178,7 +181,7 @@ export default function CashDrawer() {
               <table className="w-full text-sm">
                 <tbody className="divide-y">
                   {d.cashSales.map((s: any) => (
-                    <tr key={s.id}><td className="px-4 py-1.5">#{s.id}{s.invoice ? ` · ${s.invoice}` : ""}</td><td className="px-4 py-1.5 text-muted-foreground">{format(new Date(s.at), "h:mm a")}</td><td className="px-4 py-1.5 text-right">{money(s.amount)}</td></tr>
+                    <tr key={s.id}><td className="px-4 py-1.5">#{s.id}{s.invoice ? ` · ${s.invoice}` : ""}{s.split ? <span className="ml-1.5 text-xs text-muted-foreground">(cash part of a split bill)</span> : null}</td><td className="px-4 py-1.5 text-muted-foreground">{format(new Date(s.at), "h:mm a")}</td><td className="px-4 py-1.5 text-right">{money(s.amount)}</td></tr>
                   ))}
                   {d.cashSales.length === 0 && <tr><td className="px-4 py-4 text-muted-foreground">No cash sales yet.</td></tr>}
                 </tbody>

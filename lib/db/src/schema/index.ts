@@ -17,6 +17,7 @@ export * from "./expenses";
 export * from "./operating-costs";
 export * from "./qr-session-customers";
 export * from "./cash";
+export * from "./payments";
 export { tableSessionsTable } from "./tables";
 export { bestsellerCacheTable } from "./bestseller-cache";
 export { staffShiftsTable, attendancePunchesTable, attendanceCommentsTable } from "./staff";
