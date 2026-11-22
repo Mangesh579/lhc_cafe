@@ -583,7 +583,7 @@ export default function Orders() {
                       Make {(order as any).loyaltyCustomerName ?? "customer"} a monthly account
                     </Button>
                   )}
-                  {isPaymentPending && (!(order as any).accountBill || canMarkMonthly) && (
+                  {isPaymentPending && (!(order as any).accountBill || ["admin", "supervisor"].includes(String((user as any)?.role ?? ""))) && (
                     <Button size="sm" variant="outline" onClick={() => openCustDialog(order)} className="gap-1.5 text-xs h-8 px-4">
                       {(order as any).loyaltyCustomerId ? "Change customer" : "Add customer"}
                     </Button>
