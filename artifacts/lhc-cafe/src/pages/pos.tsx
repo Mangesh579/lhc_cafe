@@ -218,8 +218,8 @@ export default function POS() {
       const result = await createOrder.mutateAsync({ data: orderData });
       setLastOrderDetails({ ...result, cartItems: [...cart], subtotal, customer: currentCustomer });
       toast((result as any).merged
-        ? { title: `Added to bill #${result.id}`, description: (result as any).accountBill ? `KOT ${(result as any).kotNumber} added to the monthly account.` : `KOT ${(result as any).kotNumber} added to this table's open bill.` }
-        : { title: "Order Placed", description: (result as any).accountBill ? `Monthly account bill #${result.id} opened.` : `Order #${result.id} created successfully.` });
+        ? { title: `Added to bill #${result.id}`, description: `KOT ${(result as any).kotNumber} added to this table's open bill.` }
+        : { title: "Order Placed", description: `Order #${result.id} created successfully.` });
       setCart([]); setPhone(""); setSelectedCustomerId(null); setPaymentMethod("cash"); setOrderNotes(""); setTableNumber("");
       setIsNc(false); setNcPersonName(""); setNcReason("");
       setIsReceiptOpen(true);

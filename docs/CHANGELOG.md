@@ -259,3 +259,37 @@ db/migrations/004_account_conversion.sql: NOT YET RUN on the server.
   - Samir Shrestha, bill #770 -> 2083/84-00302, Rs. 150 (balance 1,270 -> 1,420)
   - Saroj Maharjan, bill #809 -> 2083/84-00303, Rs. 150 (balance 1,350 -> 1,500)
 - Still to do: remove the monthly-account screens, the account-bill merge and the QR "charge to my account" option. Until then, a customer still marked as a monthly account can start a new monthly bill.
+
+
+## 2026-11-24: Monthly accounts retired
+
+All open monthly-account bills were converted on 2026-11-24 (3 bills). Checked live before this change with the read-only dry run: 0 open monthly bills.
+
+### Delivered
+- No more monthly (account) bills can be created:
+  - Active Orders: "Make <customer> a monthly account" and the "make monthly too" option in Add customer are removed. Adding or changing a customer on an order only sets the customer; it never merges bills (PATCH /orders/:id/customer).
+  - Staff orders (POST /orders): a customer's pays_monthly flag no longer sends the order to an account bill. Orders on a table still join that table's open bill as a new KOT (account bills excluded from that lookup).
+  - QR page: the "Charge this order to my monthly account" checkbox, the "My monthly account" panel and the monthly-account card on My Order are removed. POST /public/order with chargeToAccount: true returns 410 with a clear message and places nothing. GET /public/loyalty/account answers "no monthly account". The QR OTP session binding (used only for the account) is removed; old qr_session_customers rows are kept.
+  - API: PATCH /accounts/:id {paysMonthly: true} and GET /accounts return 410 with a clear message. Turning the flag off is still allowed. GET /accounts/customers (customer search for Add customer, the Pay dialog and Receivables) is unchanged except that it no longer returns paysMonthly.
+  - lib/mergeOrders.ts removed (only the account flows used it). Table changes still merge with their own code.
+- The pays_monthly flag is ignored everywhere and left in the data (no migration).
+- Navigation: the Monthly Accounts page and sidebar entry are removed; /accounts opens Receivables. Receivables has a new tab "Converted monthly bills" (admin, accountant): the conversion history, read-only, plus a live check that no monthly bill is open (with a link to the conversion page for the admin if one ever is). The conversion page stays at /accounts/conversion, reachable from that link.
+- Kept readable, nothing deleted: old account bills and their per-KOT tables (Order Log, per-KOT P&L reporting in lib/opcosting.ts and lib/accountSales.ts), converted bills, account_conversions and account_conversion_invoices, the conversion dry-run and audit routes.
+- CLAUDE.md: Roadmap replaced with the owner's new list (1 monthly accounts retired; 2 suppliers and payables; 3 chart of accounts and posting; 4 reports; 5 VAT and TDS; 6 course fees; 7 payroll; 8 owner's live view; 9 CBMS). Staff clock-in was checked for item 7: it exists (attendance punches and shifts, routes/staff.ts).
+
+### Files
+- New: artifacts/api-server/src/lib/monthlyRetired.ts; artifacts/api-server/src/__tests__/monthlyRetired.test.ts; artifacts/lhc-cafe/src/components/ConvertedMonthlyBills.tsx.
+- Changed: api-server routes/orders.ts, routes/accounts.ts, routes/public.ts, vitest.config.ts (dummy test-only env so the app loads in route tests); lhc-cafe App.tsx, components/layout/Sidebar.tsx, pages/orders.tsx, pages/public-order.tsx, pages/pos.tsx, pages/receivables.tsx, pages/account-conversion.tsx (back link); CLAUDE.md; docs/HANDOFF.md.
+- Removed: artifacts/api-server/src/lib/mergeOrders.ts; artifacts/lhc-cafe/src/pages/accounts.tsx.
+- Tables: none changed. Migration: none needed.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 107 tests pass. New monthlyRetired.test.ts (11 tests) starts the real Express app on an in-memory PostgreSQL (PGlite): making a monthly account is refused (410) and the monthly list is gone; an order for a customer still flagged pays_monthly is a normal bill; orders on the same table still merge into one bill as KOT 2; adding a pays_monthly customer to an order never merges; QR "charge to my account" is refused with nothing placed; a normal QR order still joins the table's open bill; the QR account lookup says "no monthly account"; no monthly bill exists and the dry run shows 0; the conversion history, the converted bill with its items, and customer search are still readable.
+- Typecheck of all three artifacts clean; API and frontend build.
+- Live, read-only (accountant login): dry run shows 0 open monthly bills.
+- Not run: the screens in a browser; anything that writes to production.
+
+### Decisions made (by Claude; please confirm)
+- pays_monthly is ignored rather than cleared, so the data still shows who used to pay monthly.
+- The conversion page and its API stay (admin only), reachable only through the Receivables check, in case an old bill is ever found open.
+- Old account bills in Active Orders still show their "Monthly account" label if one were ever open, so old data reads correctly.

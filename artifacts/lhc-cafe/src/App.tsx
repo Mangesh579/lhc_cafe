@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -17,7 +17,6 @@ import OrderLog from "@/pages/order-log";
 import MenuPage from "@/pages/menu";
 import Inventory from "@/pages/inventory";
 import Expenses from "@/pages/expenses";
-import Accounts from "@/pages/accounts";
 import CashDrawer from "@/pages/cash-drawer";
 import Ledgers from "@/pages/ledgers";
 import Receivables from "@/pages/receivables";
@@ -96,7 +95,8 @@ function Router() {
         <Route path="/inventory" component={Inventory} />
         <Route path="/expenses" component={Expenses} />
         <Route path="/accounts/conversion" component={AccountConversion} />
-        <Route path="/accounts" component={Accounts} />
+        {/* Monthly accounts were retired on 2026-11-24; the old address opens Receivables */}
+        <Route path="/accounts"><Redirect to="/receivables" /></Route>
         <Route path="/cash-drawer" component={CashDrawer} />
         <Route path="/ledgers" component={Ledgers} />
         <Route path="/receivables" component={Receivables} />

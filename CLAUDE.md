@@ -76,10 +76,13 @@ Chart of accounts
 - Base it on the owner's template (docs/specs/coa-template.png, to be added), adapted for Nepal: add bank accounts (Nabil, HBL), card and QR settlement receivables, customer receivables, kitchen and drink inventory, input and output VAT, TDS payable, salary payable, advance course fees, customer advances, food, beverage and course income, ingredient consumption, waste, NC cost, and card bank charges. The accountant must approve it before posting is built.
 
 ## Roadmap, in order
-1. DONE: Cash drawer, payment-mode ledgers, rename "Nabil QR" to "QR Payment".
-2. DONE 2026-11-22 (migration 001 run on the server): payment modes and split payment (order_payments); credit sales, receipt vouchers with allocation, credit limit and overdue. Credit rules from the 2026-11-23 answers built 2026-11-23 (migration 002 run on the server 2026-11-24): 15 days, default limit setting, item-wise customer credit notes, points on payment, bill number on drawer payouts. Monthly-account conversion built and run 2026-11-24 (migration 004 run on the server 2026-11-24): all 3 open bills converted by the admin; none left open. STILL TO DO: remove the monthly-account screens, the account-bill merge and the QR "charge to my account" option.
-3. DONE 2026-11-24 (migration 003 run on the server 2026-11-24): settlements of QR and card to the bank, per machine and day, with the bank charge booked as an expense.
-4. Suppliers, purchase bills (supplier invoice no., PAN, VAT), supplier ledgers, payments, returns with debit notes, supplier on each ingredient, price history.
-5. Chart of accounts, vouchers (RV, CV, JV, PV), next-day Sales/Purchase/Consumption posting, trial balance, balance sheet, day book, period lock.
-6. VAT (off until registration; output/input, registers, monthly summary, credit-note register) and TDS.
-7. Barista school course fees. 8. Payroll. 9. CBMS-ready fields and outbox.
+Done so far: cash drawer and payment-mode ledgers; payment modes, split payment, credit sales, receipt vouchers, credit rules and credit notes (migrations 001, 002); card and QR settlements (003); monthly-account conversion (004). See docs/CHANGELOG.md.
+1. Monthly accounts retired (2026-11-24): all open monthly bills converted into credit invoices; "Make monthly account", the Add-customer merge into an account bill and the QR "charge to my account" option removed (the API answers with a clear error); the Monthly Accounts page replaced by Receivables (conversion history under Receivables > Converted monthly bills). No migration. Old data stays readable.
+2. Suppliers, purchases, payables, supplier ledger, payments (PV), returns with debit notes, supplier on each ingredient, price history.
+3. Chart of accounts, vouchers RV/CV/JV/PV, double-entry posting, next-day posting, period lock.
+4. Day Book, Trial Balance, Balance Sheet, ledger P&L, aging.
+5. VAT (off until registration) and TDS.
+6. Course fees.
+7. Payroll (check whether staff clock-in exists). Checked 2026-11-24: it does; attendance punches and shifts in routes/staff.ts (POST /staff/punch, attendance_punches, staff_shifts).
+8. Owner's live view.
+9. CBMS-ready fields and outbox.

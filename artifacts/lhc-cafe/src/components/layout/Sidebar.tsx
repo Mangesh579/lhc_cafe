@@ -36,7 +36,6 @@ const navItems = [
   { href: "/ledgers", label: "Ledgers", icon: BookOpen, roles: ["admin", "accountant", "supervisor"] },
   { href: "/receivables", label: "Receivables", icon: HandCoins, roles: ["admin", "accountant", "supervisor", "head_barista"] },
   { href: "/settlements", label: "Settlements", icon: Landmark, roles: ["admin", "accountant", "supervisor"] },
-  { href: "/accounts", label: "Monthly Accounts", icon: Receipt, roles: ["admin", "supervisor", "head_barista", "accountant"] },
   { href: "/staff", label: "Staff", icon: CalendarCheck, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista"] },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["admin", "supervisor", "staff", "head_chef", "head_barista", "accountant"] },
 ];

@@ -1,3 +1,4 @@
+import { QR_ACCOUNT_RETIRED_MSG } from "../lib/monthlyRetired";
 import { Router } from "express";
 import { db, menuItemsTable, menuCategoriesTable, ordersTable, orderItemsTable, cafeTablesTable, tableSessionsTable, recipesTable, inventoryItemsTable, inventoryLogsTable, bestsellerCacheTable, loyaltyEmailVerificationsTable, loyaltyCustomersTable, loyaltyRedemptionsTable, tableRequestsTable, orderKotCancellationsTable } from "@workspace/db";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
@@ -6,7 +7,6 @@ import { publicOrderRateLimiter } from "../middlewares/rateLimit";
 import { applyPrepWaste } from "../lib/prepWaste";
 import { claimOrderRequest, completeOrderRequest } from "../lib/idempotency";
 import { itemCostFields } from "../lib/costing";
-import { qrSessionCustomersTable } from "@workspace/db";
 import { loyaltyCustomersTable as qrCustomersTable } from "@workspace/db";
 import { expandRecipeLines } from "../lib/ingredientUsage";
 import { Resend } from "resend";
@@ -302,6 +302,8 @@ router.get("/my-orders", requireCafeWifi, publicOrderRateLimiter, async (req, re
 router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
   try {
     const { sessionToken, items, customerNote, paymentMethod } = req.body;
+    // Monthly accounts were retired on 2026-11-24: "charge to my account" is refused before anything is placed
+    if (req.body.chargeToAccount === true) { res.status(410).json({ error: QR_ACCOUNT_RETIRED_MSG }); return; }
     const session = await resolveSession(sessionToken);
     if (!session) { res.status(401).json({ error: "Session expired. Please scan the QR code again." }); return; }
 
@@ -340,27 +342,9 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
       }
     }
 
-    // ── One bill per table: join the table's open unpaid bill as a new KOT ──
-    // ── A verified monthly-account customer who chose "charge to my account" ──
-    let accountCustomerId: number | null = null;
-    let accountTableLabel: string | null = null;
-    let accountBillRow: typeof ordersTable.$inferSelect | undefined;
-    if (req.body.chargeToAccount === true) {
-      const verifiedId = await verifiedCustomerForSession(String(req.body.sessionToken ?? ""));
-      if (verifiedId) {
-        const [acc] = await db.select().from(qrCustomersTable).where(eq(qrCustomersTable.id, verifiedId));
-        if (acc?.paysMonthly) {
-          accountCustomerId = acc.id;
-          accountTableLabel = table.name || `Table ${table.tableNumber}`;
-          [accountBillRow] = await db.select().from(ordersTable).where(and(
-            eq(ordersTable.loyaltyCustomerId, acc.id), eq(ordersTable.accountBill, true),
-            eq(ordersTable.paymentStatus, "pending"), sql`${ordersTable.orderStatus} <> 'cancelled'`,
-          )).orderBy(desc(ordersTable.createdAt)).limit(1);
-        }
-      }
-    }
-    let [openBill] = accountCustomerId ? [accountBillRow] : await db.select().from(ordersTable)
-      .where(and(eq(ordersTable.tableId, table.id), eq(ordersTable.paymentStatus, "pending"), eq(ordersTable.isNc, false), sql`${ordersTable.orderStatus} <> 'cancelled'`))
+    // ── One bill per table visit: join the table's open unpaid bill as a new KOT ──
+    let [openBill] = await db.select().from(ordersTable)
+      .where(and(eq(ordersTable.tableId, table.id), eq(ordersTable.paymentStatus, "pending"), eq(ordersTable.isNc, false), eq(ordersTable.accountBill, false), sql`${ordersTable.orderStatus} <> 'cancelled'`))
       .orderBy(desc(ordersTable.createdAt)).limit(1);
     let kotNo = 1;
     if (openBill) {
@@ -374,8 +358,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
       notes: [openBill.notes, customerNote].filter(Boolean).join(" | ") || null,
       orderStatus: "pending",
     }).where(eq(ordersTable.id, openBill.id)).returning() : await db.insert(ordersTable).values({
-        accountBill: !!accountCustomerId,
-        ...(accountCustomerId ? { loyaltyCustomerId: accountCustomerId } : {}),
+        accountBill: false,
       tableId: table.id,
       totalAmount: String(totalAmount),
       paymentMethod: paymentMethod ?? "cash",
@@ -392,7 +375,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
         unitPrice: String(item.unitPrice),
         subtotal: String(item.subtotal),
         notes: item.notes ?? null,
-        kotNumber: kotNo, kotAt: new Date(), kotNote: customerNote ?? null, kotBy: null, kotTable: accountCustomerId ? accountTableLabel : null,
+        kotNumber: kotNo, kotAt: new Date(), kotNote: customerNote ?? null, kotBy: null, kotTable: null,
         ...(await itemCostFields(item.menuItemId)),
       });
     }
@@ -421,8 +404,7 @@ router.post("/order", requireCafeWifi, publicOrderRateLimiter, async (req, res):
 
     await applyPrepWaste(order.id, resolvedItems, `QR Order #${order.id} (${table.name || `Table ${table.tableNumber}`})`, "QR order", kotNo);
     if (requestId) await completeOrderRequest(requestId, order.id, kotNo, !!openBill);
-    if (accountCustomerId && !openBill) await db.update(ordersTable).set({ tableId: null }).where(eq(ordersTable.id, order.id));
-    res.json({ success: true, orderId: order.id, totalAmount, onAccount: !!accountCustomerId });
+    res.json({ success: true, orderId: order.id, totalAmount, onAccount: false });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to place order" });
@@ -578,75 +560,11 @@ router.post("/loyalty/request-otp", requireCafeWifi, publicOrderRateLimiter, asy
 
 // POST /api/public/loyalty/verify-otp
 // Verifies the OTP and returns the customer's loyalty points if correct.
-// ── Remember WHO passed the OTP for this QR session (checked on the server, never trusted from the page) ──
-const VERIFIED_TTL_MS = 12 * 60 * 60 * 1000;
-
-async function verifiedCustomerForSession(token: string): Promise<number | null> {
-  if (!token) return null;
-  const [row] = await db.select().from(qrSessionCustomersTable).where(eq(qrSessionCustomersTable.sessionToken, token));
-  if (!row) return null;
-  if (Date.now() - new Date(row.verifiedAt).getTime() > VERIFIED_TTL_MS) return null;
-  return row.loyaltyCustomerId;
-}
-
-// Runs before the real OTP check: when that check answers with a customer, link it to the session
-router.post("/loyalty/verify-otp", (req, res, next) => {
-  const send = res.json.bind(res);
-  (res as any).json = (body: any) => {
-    const token = typeof req.body?.sessionToken === "string" ? req.body.sessionToken : "";
-    if (res.statusCode < 400 && token && body?.customer?.id) {
-      const customerId = Number(body.customer.id);
-      db.insert(qrSessionCustomersTable)
-        .values({ sessionToken: token, loyaltyCustomerId: customerId, verifiedAt: new Date() })
-        .onConflictDoUpdate({ target: qrSessionCustomersTable.sessionToken, set: { loyaltyCustomerId: customerId, verifiedAt: new Date() } })
-        .catch(() => {});
-      if (Math.random() < 0.05) {
-        db.delete(qrSessionCustomersTable).where(sql`${qrSessionCustomersTable.verifiedAt} < ${new Date(Date.now() - 2 * 24 * 3600 * 1000)}`).catch(() => {});
-      }
-    }
-    return send(body);
-  };
-  next();
-});
-
-// ── The verified customer's monthly account: running total, days open, visits ──
-router.get("/loyalty/account", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
-  const customerId = await verifiedCustomerForSession(String(req.query.sessionToken ?? ""));
-  if (!customerId) { res.status(401).json({ error: "Verify your phone and email in the Loyalty tab first." }); return; }
-  const [cust] = await db.select().from(qrCustomersTable).where(eq(qrCustomersTable.id, customerId));
-  if (!cust) { res.status(404).json({ error: "Customer not found" }); return; }
-  if (!cust.paysMonthly) { res.json({ paysMonthly: false, openBill: null }); return; }
-
-  const [bill] = await db.select().from(ordersTable).where(and(
-    eq(ordersTable.loyaltyCustomerId, cust.id), eq(ordersTable.accountBill, true),
-    eq(ordersTable.paymentStatus, "pending"), sql`${ordersTable.orderStatus} <> 'cancelled'`,
-  )).orderBy(desc(ordersTable.createdAt)).limit(1);
-  if (!bill) { res.json({ paysMonthly: true, openBill: null }); return; }
-
-  const rows = await db
-    .select({ name: menuItemsTable.name, qty: orderItemsTable.quantity, subtotal: orderItemsTable.subtotal, kot: orderItemsTable.kotNumber, at: orderItemsTable.kotAt, table: orderItemsTable.kotTable })
-    .from(orderItemsTable)
-    .leftJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id))
-    .where(eq(orderItemsTable.orderId, bill.id));
-  const visits = new Map<number, any>();
-  for (const r of rows) {
-    const k = r.kot ?? 1;
-    const v = visits.get(k) ?? { kot: k, at: r.at ?? bill.createdAt, table: r.table ?? null, items: [], subtotal: 0 };
-    v.items.push({ name: r.name ?? "", qty: r.qty });
-    v.subtotal += parseFloat(String(r.subtotal));
-    visits.set(k, v);
-  }
-  res.json({
-    paysMonthly: true,
-    openBill: {
-      id: bill.id,
-      total: parseFloat(String(bill.totalAmount)),
-      since: bill.createdAt,
-      daysOpen: Math.floor((Date.now() - new Date(bill.createdAt).getTime()) / 86400000),
-      status: bill.orderStatus,
-      visits: Array.from(visits.values()).sort((a, b) => b.kot - a.kot),
-    },
-  });
+// Monthly accounts were retired on 2026-11-24. The QR page no longer binds a verified customer to the session
+// (that existed only for "charge to my account"); old rows in qr_session_customers are kept. Old pages that still
+// ask for the account get a plain "no monthly account" answer.
+router.get("/loyalty/account", requireCafeWifi, publicOrderRateLimiter, async (_req, res): Promise<void> => {
+  res.json({ paysMonthly: false, openBill: null, retired: true });
 });
 
 router.post("/loyalty/verify-otp", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {

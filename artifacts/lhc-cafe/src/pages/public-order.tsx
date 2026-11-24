@@ -450,7 +450,6 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       setLoyaltyVerifiedCustomer(d.customer);
       setLoyaltyStep("done");
       loadRedeemedLevels(d.customer.id, d.customer.loopNumber ?? 1);
-      loadMyAccount();
     } catch { setLoyaltyError("Network error. Please try again."); }
     finally { setLoyaltyLoading(false); }
   };
@@ -496,21 +495,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   ];
 
   const [redeemedLevels, setRedeemedLevels] = useState<number[]>([]);
-  const [myAccount, setMyAccount] = useState<any | null>(null);
-  const [chargeToAccount, setChargeToAccount] = useState(true);
-  const [orderOnAccount, setOrderOnAccount] = useState(false);
-  const loadMyAccount = async () => {
-    if (!sessionToken) return;
-    try {
-      const r = await fetch(`${API_BASE}/api/public/loyalty/account?sessionToken=${encodeURIComponent(sessionToken)}`);
-      setMyAccount(r.ok ? await r.json() : null);
-    } catch { setMyAccount(null); }
-  };
-  useEffect(() => {
-    if (!myAccount?.paysMonthly) return;
-    const t = setInterval(loadMyAccount, STATUS_POLL_MS);
-    return () => clearInterval(t);
-  }, [myAccount?.paysMonthly, sessionToken]);
+  // Monthly accounts were retired on 2026-11-24: no "my monthly account" panel and no "charge to my account".
 
   const loadRedeemedLevels = async (customerId: number, loopNumber: number) => {
     try {
@@ -555,7 +540,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   };
 
   const qrAttemptId = () => {
-    const sig = JSON.stringify([cart.map(i => [i.id, i.quantity, noteDrafts[i.id] ?? i.itemNote ?? ""]), orderNoteDraft ?? notes, chargeToAccount]);
+    const sig = JSON.stringify([cart.map(i => [i.id, i.quantity, noteDrafts[i.id] ?? i.itemNote ?? ""]), orderNoteDraft ?? notes]);
     if (qrAttemptRef.current?.sig !== sig) qrAttemptRef.current = { sig, id: newRequestId() };
     return qrAttemptRef.current.id;
   };
@@ -567,13 +552,13 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     try {
       const r = await fetch(`${API_BASE}/api/public/order`, {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ sessionToken, requestId: qrAttemptId(), chargeToAccount: !!(myAccount?.paysMonthly && chargeToAccount), customerNote: (orderNoteDraft !== null ? orderNoteDraft.trim() : notes) || undefined, items: cart.map(i => ({ menuItemId: i.id, quantity: i.quantity, notes: (noteDrafts[i.id] !== undefined ? noteDrafts[i.id].trim() : i.itemNote) || undefined })) }),
+        body: JSON.stringify({ sessionToken, requestId: qrAttemptId(), customerNote: (orderNoteDraft !== null ? orderNoteDraft.trim() : notes) || undefined, items: cart.map(i => ({ menuItemId: i.id, quantity: i.quantity, notes: (noteDrafts[i.id] !== undefined ? noteDrafts[i.id].trim() : i.itemNote) || undefined })) }),
       });
       if (r.status === 401) { localStorage.removeItem(SESSION_KEY); setSessionState("expired"); return; }
       if (r.status === 409) { alert("Your order is already being placed. Please wait a moment, then check My Order."); return; }
       if (!r.ok) throw new Error();
       const res = await r.json();
-      qrAttemptRef.current = null; setOrderOnAccount(!!res.onAccount); if (res.onAccount) loadMyAccount(); setOrderId(res.orderId); setIsSuccess(true); setCart([]); setCartOpen(false); setNotes(""); setNoteDrafts({}); setOrderNoteDraft(null);
+      qrAttemptRef.current = null; setOrderId(res.orderId); setIsSuccess(true); setCart([]); setCartOpen(false); setNotes(""); setNoteDrafts({}); setOrderNoteDraft(null);
       fetch(`${API_BASE}/api/public/my-orders?sessionToken=${encodeURIComponent(sessionToken)}`)
         .then(r2 => r2.ok ? r2.json() : null).then(d => { if (d) setMyOrders(d); }).catch(() => {});
     } catch { alert("Could not place order. Please try again."); }
@@ -663,7 +648,6 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
         </div>
         <p className="reveal" style={{ fontFamily:SANS, fontSize:11, color:WARN, letterSpacing:"0.14em", textTransform:"uppercase", marginBottom:8 }}>LHC Cafe</p>
         <h1 className="reveal-2" style={{ fontFamily:SERIF, fontSize:34, color:TEXT, fontWeight:400, marginBottom:8 }}>Order Placed</h1>
-        {orderOnAccount && <p style={{ fontFamily:SANS, fontSize:12, color:WARN, marginBottom:8 }}>Added to your monthly account. Pay at the counter.</p>}
         <p style={{ fontFamily:SANS, fontSize:13, color:"rgba(245,238,225,0.32)", marginBottom:32 }}>{tableName || `Table ${tableNumber}`} · #{orderId}</p>
         <button onClick={() => { setIsSuccess(false); switchTab("myorder"); }} className="place-btn"
           style={{ padding:"13px 30px", background:WARN, border:"none", borderRadius:24, color:BG, fontFamily:SANS, fontSize:13, fontWeight:700, letterSpacing:"0.04em", textTransform:"uppercase", cursor:"pointer" }}>
@@ -980,35 +964,6 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
             );
           })()}
 
-          {myAccount?.paysMonthly && (
-            <div style={{ padding:"18px", background:SURFACE, border:`1px solid ${BORDER}`, borderRadius:14 }}>
-              <p style={{ fontFamily:SANS, fontSize:11, color:"rgba(245,238,225,0.5)", letterSpacing:"0.06em", textTransform:"uppercase", fontWeight:600, marginBottom:10 }}>My monthly account</p>
-              {!myAccount.openBill ? (
-                <p style={{ fontFamily:SERIF, fontSize:15, color:"rgba(245,238,225,0.6)" }}>Nothing to pay right now.</p>
-              ) : (
-                <>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:8 }}>
-                    <span style={{ fontFamily:SERIF, fontSize:30, color:WARN, fontWeight:600 }}>Rs {Math.round(myAccount.openBill.total).toLocaleString()}</span>
-                    <span style={{ fontFamily:SANS, fontSize:11, color: myAccount.openBill.daysOpen >= 30 ? "#C85A3A" : "rgba(245,238,225,0.5)" }}>
-                      open {myAccount.openBill.daysOpen} day{myAccount.openBill.daysOpen === 1 ? "" : "s"}{myAccount.openBill.daysOpen >= 30 ? " · payment due" : ""}
-                    </span>
-                  </div>
-                  <p style={{ fontFamily:SANS, fontSize:11, color:"rgba(245,238,225,0.35)", margin:"6px 0 12px" }}>Running total of your orders. The final amount is confirmed when you pay at the counter.</p>
-                  <div style={{ maxHeight:220, overflowY:"auto", display:"flex", flexDirection:"column", gap:8 }}>
-                    {myAccount.openBill.visits.map((v: any) => (
-                      <div key={v.kot} style={{ borderTop:`1px solid ${BORDER}`, paddingTop:8 }}>
-                        <div style={{ display:"flex", justifyContent:"space-between" }}>
-                          <span style={{ fontFamily:SANS, fontSize:11, color:"rgba(245,238,225,0.45)" }}>{new Date(v.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}{v.table ? ` · ${v.table}` : ""}</span>
-                          <span style={{ fontFamily:SANS, fontSize:11, color:"rgba(245,238,225,0.45)" }}>Rs {Math.round(v.subtotal)}</span>
-                        </div>
-                        <p style={{ fontFamily:SERIF, fontSize:14, color:"rgba(245,238,225,0.75)" }}>{v.items.map((it: any) => `${it.qty}× ${it.name}`).join(", ")}</p>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
           <p style={{ fontFamily:SANS, fontSize:12, color:"rgba(245,238,225,0.5)", letterSpacing:"0.06em", textTransform:"uppercase", fontWeight:600 }}>Rewards</p>
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
             {LOYALTY_TIERS.map(tier => {
@@ -1121,31 +1076,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     <div style={{ padding: "24px 16px", minHeight: "60vh" }}>
       <p className="reveal" style={{ fontFamily:SANS, fontSize:10, color:"rgba(200,135,58,0.55)", letterSpacing:"0.14em", textTransform:"uppercase", marginBottom:8 }}>{tableName || `Table ${tableNumber}`}</p>
       <h1 className="reveal-2" style={{ fontFamily:SERIF, fontSize:28, color:TEXT, fontWeight:400, marginBottom:22 }}>My Order</h1>
-      {(() => {
-        const b = myAccount?.openBill;
-        const v = b?.visits?.[0];
-        if (!b || !v) return null;
-        if (Date.now() - new Date(v.at).getTime() > 3 * 3600 * 1000 || ["completed", "cancelled"].includes(b.status)) return null;
-        const status = STATUS_CONFIG[b.status] ?? STATUS_CONFIG.pending;
-        const StatusIcon = status.icon;
-        return (
-          <div className="order-card" style={{ padding:"15px 17px", marginBottom:10 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-              <span style={{ fontFamily:SANS, fontSize:12, color:"rgba(245,238,225,0.4)" }}>Your monthly account · latest order</span>
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <StatusIcon size={12} color={status.color} />
-                <span style={{ fontFamily:SANS, fontSize:11, color:status.color, fontWeight:500 }}>{status.label}</span>
-              </div>
-            </div>
-            {v.items.map((it: any, i: number) => (
-              <p key={i} style={{ fontFamily:SERIF, fontSize:15, color:"rgba(245,238,225,0.75)" }}><span style={{ color:WARN, marginRight:6, fontSize:13 }}>{it.qty}×</span>{it.name}</p>
-            ))}
-            <p style={{ fontFamily:SANS, fontSize:11, color:"rgba(245,238,225,0.35)", marginTop:8 }}>Added to your account. Pay at the counter.</p>
-          </div>
-        );
-      })()}
-
-      {activeMyOrders.length === 0 && !(myAccount?.openBill?.visits?.[0] && Date.now() - new Date(myAccount.openBill.visits[0].at).getTime() < 3 * 3600 * 1000 && !["completed", "cancelled"].includes(myAccount.openBill.status)) ? (
+      {activeMyOrders.length === 0 ? (
         <div className="reveal-2" style={{ textAlign:"center", padding:"44px 0", border:`1px dashed ${BORDER}`, borderRadius:12 }}>
           <Clock size={18} color={WARN} style={{ marginBottom:12 }} />
           <p style={{ fontFamily:SERIF, fontStyle:"italic", fontSize:15, color:"rgba(245,238,225,0.4)", marginBottom:6 }}>No active orders yet</p>
@@ -1231,12 +1162,6 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
               </div>
             ))}
             <div style={{ padding:"10px 0 4px" }}>
-              {myAccount?.paysMonthly && (
-                <label style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0 10px", fontFamily:SANS, fontSize:12, color:"rgba(245,238,225,0.7)", cursor:"pointer" }}>
-                  <input type="checkbox" checked={chargeToAccount} onChange={e => setChargeToAccount(e.target.checked)} />
-                  Charge this order to my monthly account
-                </label>
-              )}
               {orderNoteDraft === null && notes ? (
                 <div style={{ display:"flex", alignItems:"center", gap:8, background:"rgba(143,174,110,0.1)", border:"1px solid rgba(143,174,110,0.35)", borderRadius:8, padding:"8px 10px" }}>
                   <CheckCircle2 size={14} color="#8FAE6E" style={{ flexShrink:0 }} />

@@ -12,6 +12,7 @@ import { Plus, Printer, ArrowLeft } from "lucide-react";
 import { apiJson } from "@/lib/expenseApi";
 import { RECEIPT_MODES, modeLabel, round2, rs } from "@/lib/payments";
 import { printReceiptHtml } from "@/lib/kot";
+import { ConvertedMonthlyBills } from "@/components/ConvertedMonthlyBills";
 
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
 const nepalToday = () => new Date(Date.now() + 345 * 60000).toISOString().slice(0, 10);
@@ -386,6 +387,7 @@ export default function Receivables() {
             <TabsTrigger value="customers">Customers</TabsTrigger>
             <TabsTrigger value="overdue">Overdue {overdue.length > 0 && <Badge variant="destructive" className="ml-1.5 h-5 px-1.5">{overdue.length}</Badge>}</TabsTrigger>
             <TabsTrigger value="receipts">Receipts</TabsTrigger>
+            {canAdmin && <TabsTrigger value="converted">Converted monthly bills</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="customers" className="mt-4 space-y-3">
@@ -445,6 +447,12 @@ export default function Receivables() {
           <TabsContent value="receipts" className="mt-4">
             <Card><CardContent className="p-0"><div className="overflow-x-auto"><ReceiptRows list={receipts} /></div></CardContent></Card>
           </TabsContent>
+
+          {canAdmin && (
+            <TabsContent value="converted" className="mt-4">
+              {tab === "converted" && <ConvertedMonthlyBills isAdmin={role === "admin"} />}
+            </TabsContent>
+          )}
         </Tabs>
       )}
 

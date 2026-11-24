@@ -325,12 +325,11 @@ export default function Orders() {
       if (seq === (window as any).__custSeq) { setCustResults(list); setCustLoading(false); }
     } catch { if (seq === (window as any).__custSeq) { setCustResults([]); setCustLoading(false); } }
   };
-  const openCustDialog = (order: any) => { setCustDialog({ order }); setCustQuery(""); setCustPick(null); setCustMakeMonthly(false); searchCustomers(""); };
+  const openCustDialog = (order: any) => { setCustDialog({ order }); setCustQuery(""); setCustPick(null); searchCustomers(""); };
   const saveCustomer = async () => {
     if (!custDialog || !custPick) return;
     setCustSaving(true);
     try {
-      if (custMakeMonthly && !custPick.paysMonthly) { const ok = await markMonthly(custPick.id); if (!ok) return; }
       const r = await fetch(`${API_BASE}/api/orders/${custDialog.order.id}/customer`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
@@ -339,37 +338,12 @@ export default function Orders() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast({ title: "Couldn't set the customer", description: d?.error, variant: "destructive" }); return; }
       queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
-      toast(d.mergedInto
-        ? { title: `Added to ${custPick.name}'s monthly account`, description: `Merged into bill #${d.mergedInto} as new KOTs.` }
-        : d.accountOpened
-          ? { title: `${custPick.name}'s monthly account opened`, description: "Their next orders will be added to this bill." }
-          : { title: "Customer added" });
+      toast({ title: "Customer added" });
       setCustDialog(null);
     } catch { toast({ title: "Failed to set the customer", variant: "destructive" }); }
     finally { setCustSaving(false); }
   };
 
-  const [custMakeMonthly, setCustMakeMonthly] = useState(false);
-  const canMarkMonthly = ["admin", "supervisor", "head_barista"].includes(String((user as any)?.role ?? ""));
-  const markMonthly = async (customerId: number): Promise<any | null> => {
-    const r = await fetch(`${API_BASE}/api/accounts/${customerId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
-      body: JSON.stringify({ paysMonthly: true }),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) { toast({ title: "Couldn't make it a monthly account", description: d?.error, variant: "destructive" }); return null; }
-    return d;
-  };
-  const makeMonthly = async (order: any) => {
-    if (!confirm(`Make ${order.loyaltyCustomerName ?? "this customer"} a monthly account?\n\nTheir open orders will be merged into one bill, and their future orders will join it.`)) return;
-    try {
-      const d = await markMonthly(order.loyaltyCustomerId);
-      if (!d) return;
-      queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
-      toast({ title: `${order.loyaltyCustomerName ?? "Customer"} is now a monthly account`, description: d.orders > 1 ? `${d.orders} open orders were merged into bill #${d.billId}.` : "Their next orders will join one bill." });
-    } catch { toast({ title: "Failed to update", variant: "destructive" }); }
-  };
 
   const printKot = (order: any, kotNumber?: number) => {
     printReceiptHtml(buildKotHtml(order, { kotNumber }));
@@ -652,12 +626,7 @@ export default function Orders() {
                       Change table
                     </Button>
                   )}
-                  {isPaymentPending && !(order as any).accountBill && (order as any).loyaltyCustomerId && canMarkMonthly && (
-                    <Button size="sm" variant="outline" onClick={() => makeMonthly(order)} className="gap-1.5 text-xs h-8 px-4 border-green-300 text-green-800">
-                      Make {(order as any).loyaltyCustomerName ?? "customer"} a monthly account
-                    </Button>
-                  )}
-                  {isPaymentPending && (!(order as any).accountBill || ["admin", "supervisor"].includes(String((user as any)?.role ?? ""))) && (
+                  {isPaymentPending && !(order as any).accountBill && (
                     <Button size="sm" variant="outline" onClick={() => openCustDialog(order)} className="gap-1.5 text-xs h-8 px-4">
                       {(order as any).loyaltyCustomerId ? "Change customer" : "Add customer"}
                     </Button>
@@ -1091,11 +1060,6 @@ export default function Orders() {
       <Dialog open={!!custDialog} onOpenChange={(o) => !o && setCustDialog(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>{custDialog?.order?.loyaltyCustomerId ? "Change customer" : "Add customer"}: Order #{custDialog?.order?.id}</DialogTitle></DialogHeader>
-          {custDialog?.order?.accountBill && (
-            <p className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-md px-3 py-2">
-              This is {custDialog.order.loyaltyCustomerName ?? "the customer"}'s monthly account bill. Choose another monthly-account customer to move the whole bill to them.
-            </p>
-          )}
           <div className="space-y-3 py-2">
             <input
               autoFocus value={custQuery}
@@ -1108,21 +1072,10 @@ export default function Orders() {
               {custResults.map((c: any) => (
                 <button key={c.id} type="button" onClick={() => setCustPick(c)} className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${custPick?.id === c.id ? "bg-muted font-medium" : ""}`}>
                   {c.name} <span className="text-xs text-muted-foreground">{c.phone}</span>
-                  {c.paysMonthly && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-800">Monthly account</span>}
                 </button>
               ))}
             </div>
-            {custPick && !custPick.paysMonthly && canMarkMonthly && (
-              <label className="flex items-start gap-2 text-sm cursor-pointer">
-                <input type="checkbox" className="mt-1" checked={custMakeMonthly} onChange={e => setCustMakeMonthly(e.target.checked)} />
-                <span>Make {custPick.name} a <strong>monthly account</strong> too (pays once a month). All their orders then go on one bill.</span>
-              </label>
-            )}
-            {custPick?.paysMonthly && (
-              <p className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-md px-3 py-2">
-                {custPick.name} pays monthly. This order will be added to their one open account bill as a new KOT, or become that bill if they have none open.
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground">To let the customer pay later, choose Credit when paying the bill.</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCustDialog(null)}>Cancel</Button>

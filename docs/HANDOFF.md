@@ -8,7 +8,7 @@
 7. Costing: cost_per_unit, order_items.unit_cost snapshot, hideCosts, profit in Order Log, dish cost sheet.
 8. Expenses (expenses, attachments, change history), Record purchase, accountant role.
 9. Operating costs, overhead allocation, P&L, break-even, waste in P&L.
-10. Monthly accounts (account_bill, pays_monthly, mergeOrders, QR OTP session binding) and per-KOT reporting for account bills. TO BE RETIRED (see roadmap step 2); do not extend them. Keep existing data readable.
+10. Monthly accounts: RETIRED 2026-11-24. Every open monthly bill was converted (item 16). Removed: "Make monthly account", the Add-customer merge into an account bill, lib/mergeOrders.ts, the QR "charge to my account" option, the QR "My monthly account" panel and its OTP session binding, and the Monthly Accounts page (/accounts now opens Receivables). The API refuses with 410 and a clear message: PATCH /accounts/:id {paysMonthly: true}, GET /accounts, POST /public/order with chargeToAccount. The pays_monthly flag is ignored everywhere (left in the data). Still readable: old account bills (accountBill, per-KOT tables) in Order Log and in the per-KOT P&L reporting, converted bills (payment_status converted), account_conversions history (Receivables > Converted monthly bills), qr_session_customers rows. No rows deleted.
 11. Connection speed card, slow-endpoint log, optional LAN route.
 12. Cash drawer (routes/cash.ts, pages/cash-drawer.tsx), payment-mode ledgers (routes/ledgers.ts, pages/ledgers.tsx), orders.paid_at, expenses.paid_from_drawer, and the "QR Payment" label (stored value stays nabil_qr). Committed 2026-11-22 (066e7ee). The owner has run the SQL on the server; confirm the pages work live before relying on them.
 13. Split payment and credit sales (roadmap step 2, parts A and B), 2026-11-22. Five payment modes (cash, nabil_qr, card_nabil, card_hbl, credit); order_payments table, written by the Pay dialog in Active Orders; cash drawer, collections and mode ledgers read order_payments with a fallback to orders.payment_method; paid_at on settlement; credit sales with their own invoice, the customer's receivable, credit limit (warning) and credit days; Receivables page (balances, overdue, customer ledger); receipt vouchers (RV) with allocation to invoices; Order Log shows the payment breakdown and what is still owed. Tests: `pnpm test` (vitest). See docs/TEST_PLAN_payments.md. Needs migration 001 (below).
@@ -30,7 +30,7 @@
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
-- Monthly accounts (item 10): every open bill was converted on 2026-11-24, but the screens, the account-bill merge and the QR "charge to my account" option are still live, so a customer still marked as a monthly account can open a new monthly bill. Remove them next (or untick "monthly account" on those customers meanwhile), then use the dry run to check none is open.
+- Monthly accounts are retired in code (item 10). Until that code is deployed, the old code can still open a monthly bill; after deploying, Receivables > Converted monthly bills shows a live "no monthly bill is open" check (and a link to convert one if any appears).
 - Tests: the database tests (accountConversionRun, migration004) run on PGlite, an in-memory PostgreSQL, so `pnpm test` still needs no server. PGlite and drizzle-kit are dev dependencies of api-server.
 - Customer credit notes exist only for credit invoices and cannot exceed what is still owed. Refunds of money already received are not modelled (accountant: avoid refunds; when needed, void with a reason). Supplier debit notes come with purchases (roadmap step 4).
 - Credit notes do not yet change sales, profit or VAT reports (VAT credit-note register is roadmap step 6).
@@ -43,4 +43,4 @@
 - Server PostgreSQL timezone is Etc/UTC (confirmed in CLAUDE.md); the ledger code is safe either way.
 
 # Next work
-Rest of step 2: retire the monthly-account merge (convert open monthly-account bills into one credit invoice per visit). The read-only dry run exists (Monthly Accounts > Conversion dry run, GET /api/accounts/conversion-preview); review it with the accountant and answer its "decisions needed" before any conversion is built, then steps 3 to 9 in the CLAUDE.md roadmap. Each task must end with a docs/CHANGELOG.md entry.
+Roadmap step 2 in CLAUDE.md: suppliers, purchases, payables, supplier ledger, payments (PV), returns with debit notes, supplier on each ingredient, price history. Then steps 3 to 9. Each task must end with a docs/CHANGELOG.md entry.

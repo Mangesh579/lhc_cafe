@@ -93,7 +93,7 @@ export default function AccountConversion() {
           <p className="text-sm text-muted-foreground">How each open monthly-account bill would become separate credit invoices. Viewing changes nothing; the admin converts one customer at a time, after a preview.</p>
         </div>
         <div className="flex gap-2">
-          <Link href="/accounts"><Button variant="outline" size="sm">Back to Monthly Accounts</Button></Link>
+          <Link href="/receivables"><Button variant="outline" size="sm">Back to Receivables</Button></Link>
           <Button variant="outline" size="sm" onClick={exportExcel} disabled={!data}>Export Excel</Button>
         </div>
       </div>
