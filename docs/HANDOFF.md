@@ -26,7 +26,7 @@
    - Opening bills: purchase_bills kind 'opening' (OB numbers), dated on or before the opening-balance date (a setting), with their own due date; no stock, expense or drawer effect; same duplicate rule; paid, aged and voided like bills.
    - Aging by supplier on the Nepal day (not yet due, 1-15, 16-30, 31-60, over 60), bills due this week, overdue list, Excel export. Supplier ledger with payments and a running balance, Excel export.
    - Cash ledger shows CV payments; Bank ledger shows PV payments and bills paid by cheque/online when bought. A purchase bill with payments allocated cannot be voided.
-   Needs migration 007 (below).
+   Migration 007 applied 2026-11-24; checked live the same day (see CHANGELOG).
 
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
@@ -35,9 +35,10 @@
 - 004_account_conversion.sql (2026-11-24, by the owner): account_conversions, account_conversion_invoices, orders.converted_from_order_id.
 - 005_suppliers_purchases.sql (2026-11-24, by the owner): suppliers, ingredient_suppliers, purchase_bills, purchase_bill_items, ingredient_price_history; expenses.purchase_bill_id and purchase_bill_item_id.
 - 006_purchase_bank_account.sql (2026-11-24, by the owner): purchase_bills.paid_from_account (Nabil or HBL, required for cheque and online bills).
+- 007_supplier_payments.sql (2026-11-24, by the owner): purchase_bills.kind, payables_settings, supplier_payments, supplier_payment_allocations.
 
 # Not yet applied on the server
-- db/migrations/007_supplier_payments.sql (purchase_bills.kind, payables_settings, supplier_payments, supplier_payment_allocations). Run after a backup, BEFORE deploy.sh and before pushing to main.
+- None.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.

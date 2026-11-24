@@ -464,3 +464,10 @@ db/migrations/007_supplier_payments.sql: NOT YET RUN on the server.
 - "Not yet due" includes bills due today; 1-15 starts the day after the due date (Nepal day).
 - Payments dated in an earlier fiscal year are refused, like bills.
 - The supplier's net payable = owed on bills - advances; a negative running balance is shown as an advance.
+
+
+## 2026-11-24: Migration 007 run
+
+- The owner ran db/migrations/007_supplier_payments.sql on the server and deployed commit b567f0e (supplier payments, opening balances and aging, part B). Recorded as run in CLAUDE.md and docs/HANDOFF.md.
+- Checked live (read-only, accountant login): the opening-balance settings, supplier payments, aging and purchase-bill routes answer from the new tables. At the time: opening-balance date not set, 0 payments, 0 bills, nothing owed.
+- Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
