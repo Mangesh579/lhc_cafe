@@ -15,7 +15,7 @@ const MODES = [
   { value: "cash", label: "Cash" },
   { value: "qr", label: "QR Payment" },
   { value: "card", label: "Card (both machines)" },
-  { value: "bank", label: "Bank (customer receipts)" },
+  { value: "bank", label: "Bank (receipts and settlements)" },
   { value: "credit", label: "Credit (receivable)" },
   { value: "other", label: "Other" },
 ];
@@ -152,7 +152,8 @@ export default function Ledgers() {
             </table>
           </div></CardContent></Card>
           {mode === "credit" && <p className="text-xs text-muted-foreground">The receivable control: credit sales in, customer receipts (any mode) out. The balance is what customers owe. See Receivables for each customer.</p>}
-          {mode !== "cash" && mode !== "credit" && <p className="text-xs text-muted-foreground">This ledger holds money received. Settlements to the bank, with the card-machine deductions, are added in the next step.</p>}
+          {(mode === "card" || mode === "qr") && <p className="text-xs text-muted-foreground">Sales come in; settlements go out (what reached the bank, and the bank charge). The balance is what the machine still owes you: see Settlements.</p>}
+          {mode === "bank" && <p className="text-xs text-muted-foreground">Customer receipts by bank, and card/QR settlements that reached the bank.</p>}
         </TabsContent>
       </Tabs>
     </div>

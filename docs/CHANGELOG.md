@@ -120,3 +120,44 @@ db/migrations/002_credit_rules_billno.sql: NOT YET RUN on the server.
 - Not tested live: saving a payout with a bill number (today's drawer was not open); the admin-only cancel guard; the screens themselves (API only).
 - Test records left for the owner to clean up: orders #771 (2083/84-00295, credit 120), #772 (2083/84-00296, credit 60), #773 (2083/84-00297, cash 30) to cancel as admin; voided RV-2083/84-00004, RV-2083/84-00005 and CN-2083/84-00001 stay as audit records; the test customer keeps 3 points (cancelling does not reverse points); disable the temporary `test` user.
 - Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
+
+
+## 2026-11-24: Card and QR settlements (roadmap step 3)
+
+### Delivered
+- New Settlements page (/settlements; admin, accountant, supervisor to view; admin and accountant to settle). For each machine (Card - Nabil POS, Card - HBL POS, QR Payment) and Nepal sales day it shows the unsettled sales total and bill count, with unsettled totals per machine at the top. Filters: unsettled / all days, machine.
+- Sales come from order_payments (card_nabil, card_hbl, nabil_qr), falling back to orders.payment_method for orders without rows; a split bill counts each part on its own machine. NC, credit, cash and unpaid bills never count. QR receipt vouchers count as QR on their receipt date. Days use Nepal time (lib/ledgerData).
+- Settle: the user enters what reached the bank, the date it arrived and the bank reference (required, like a bill number). The server recomputes the day's sales and refuses if they changed since the screen loaded. Bank charge = sales - received, booked as an expense (indirect, category "Bank and card charges", vendor = the bank, method bank transfer, bill no. = the reference, dated the settlement date; there is no VAT field on expenses). No expense when the charge is 0.
+- Fee warning, never a block: Nabil POS outside 2.75%, HBL POS outside 3.00-3.25%, QR any shortfall (QR has no fee). A Rs. 0.50 rounding allowance applies (configurable). The warning is shown live in the dialog, asked to confirm, and stored with the settlement.
+- QR and Nabil POS settle to the Nabil account; HBL POS to HBL.
+- Settled days are read-only. The admin can void a settlement with a reason, which also voids its bank charge expense; the day can then be settled again. If a settled day's sales change later, the page shows the gap.
+- Ledgers: the Card and QR ledgers show each settlement going out (amount to bank, bank charge), so their balance is what is still unsettled; the Bank ledger shows settlements coming in.
+- Settings (admin/accountant): start date for tracking (default 2026-11-22, when split payments went live), rounding allowance, fee range per machine (CLAUDE.md: limits are settings, not hard-coded).
+- "Bank and card charges" added to the indirect expense categories.
+
+### Files
+- New: db/migrations/003_settlements.sql; lib/db/src/schema/settlements.ts; api-server src/lib/settlementRules.ts, src/routes/settlements.ts, src/__tests__/settlements.test.ts; lhc-cafe src/pages/settlements.tsx.
+- Changed: lib/db/src/schema/index.ts; api-server src/routes/index.ts, src/routes/ledgers.ts; lhc-cafe App.tsx, components/layout/Sidebar.tsx, lib/expenseApi.ts, pages/ledgers.tsx; CLAUDE.md (roadmap line); docs/HANDOFF.md.
+
+### Tables
+- New: settlement_machines (3 rows), settlement_settings (1 row), settlements. Expenses get new rows when a settlement has a bank charge. No existing row is changed.
+
+### Migration
+db/migrations/003_settlements.sql: NOT YET RUN on the server.
+
+### Tests
+- Run on the dev machine (with ESBUILD_BINARY_PATH): `pnpm test`, 74 tests pass (17 new in settlements.test.ts: machine mapping, split bills per machine, cash/credit/NC/unpaid excluded, payment_method fallback, legacy card kept apart, Nepal day boundary, QR receipts, Nabil exact and outside, rounding allowance, HBL inside and outside the range, QR no-fee warning, refusals, paisa, input checks). Typecheck: api-server, lhc-cafe, mockup-sandbox clean. Builds: API and frontend succeed.
+- Not run: end-to-end against a database (no local Postgres; Docker Desktop was not running) and the screens in a browser. Nothing run against production.
+
+### Decisions made (by Claude; please confirm)
+- A day can be settled only after it ends (Nepal time); one settlement per machine and day.
+- The bank reference is required, as the bill for the bank charge expense.
+- The bank charge expense is dated the day the money reached the bank, not the sales day.
+- QR receipt vouchers are included in QR settlements; bank receipts are not (they go straight to the bank).
+- Received more than sales is refused (check the amount); a Rs. 0.50 rounding allowance before warning.
+- Older "Card" payments without a machine are shown but cannot be settled.
+- Voiding a settlement is admin-only.
+
+### Open questions
+- Accountant: does the card fee apply to the gross including VAT once VAT is on? (No change needed now; the charge is whatever the bank deducted.)
+- Owner: start tracking from 2026-11-22, or from another date?

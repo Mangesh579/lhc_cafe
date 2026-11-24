@@ -80,3 +80,27 @@ Do these in a quiet hour. Use a test customer from the loyalty list, and cancel 
 
 ## Not tested
 - Any database from this machine; the thermal printer for credit notes.
+
+
+---
+
+# Test plan: card and QR settlements (migration 003)
+
+## On the server
+1. Backup, then `sudo -u postgres psql cafenexus -v ON_ERROR_STOP=1 -f db/migrations/003_settlements.sql` (run it twice: no errors).
+2. `SELECT * FROM settlement_machines ORDER BY machine;` gives hbl_pos 3.000-3.250, nabil_pos 2.750-2.750, qr empty. `SELECT * FROM settlement_settings;` gives 2026-11-22, 0.50.
+3. Deploy, then push to main.
+
+## In the app
+1. Settlements shows unsettled totals for Nabil POS, HBL POS and QR, and one row per machine and day since 2026-11-22. Today is not listed.
+2. Pick a Nabil POS day; compare its sales with Ledgers > Collections (card, Nabil) for that day. A split bill's card part should be counted, not the whole bill.
+3. Settle it with exactly 2.75% less: green "Within the expected fee"; saved; the row turns read-only with "Settled <date>". Expenses shows a "Bank and card charges" line for the charge with the reference as bill no.
+4. Settle an HBL day with 2.8% less: amber warning and a confirm; still saved, with the warning shown on the row.
+5. Settle a QR day with the full amount: no charge, no expense. Try a QR amount short by Rs. 10: warning.
+6. Try more than the sales, an empty reference, or a bank date before the sales day: refused.
+7. Ledgers > Card ledger and QR ledger: the settlement and bank charge go out; Bank ledger: the received amount comes in.
+8. As admin, void one settlement: the row is unsettled again and its expense is void in Expenses.
+9. Supervisor sees the page but no Settle button; only the admin sees Void.
+
+## Not tested
+- End-to-end against a database before deploying; the screens in a browser.

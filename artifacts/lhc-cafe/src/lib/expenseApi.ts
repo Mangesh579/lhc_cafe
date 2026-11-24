@@ -24,6 +24,7 @@ export const INDIRECT_CATEGORIES = [
   "Equipment maintenance and repairs",
   "Laundry",
   "Pest control",
+  "Bank and card charges",
   "Other administrative and operational",
 ];
 

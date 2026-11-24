@@ -15,12 +15,14 @@
 
 14. Accountant's credit rules (2026-11-23): default credit terms in credit_settings (15 days; one default limit, blank until the owner sets it; a customer's own terms override; the limit only warns); item-wise customer credit notes (CN) that lower the receivable; loyalty points earned as the customer pays (none at a credit sale); receipts and credit notes only for loyalty customers; a required bill number on petty cash payouts (expenses.bill_number). Migration 002 applied 2026-11-24; verified live the same day (see CHANGELOG).
 
+15. Card and QR settlements (roadmap step 3), 2026-11-24: Settlements page (/settlements). Per machine (Nabil POS, HBL POS, QR) and Nepal sales day: unsettled sales from order_payments (fallback payment_method) plus QR receipt vouchers; the user enters what reached the bank; the difference is a "Bank and card charges" expense (no VAT). Fee warning outside the machine's range (Nabil 2.75%, HBL 3.00-3.25%, QR none), configurable in settlement_machines. Settled days are read-only; the admin can void (also voids the expense). Card/QR ledgers show settlements going out; the Bank ledger shows them coming in. Needs migration 003 (below).
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
 
 # Not yet applied on the server
-- None.
+- db/migrations/003_settlements.sql (settlement_machines with the 3 machines and fee ranges, settlement_settings with start date 2026-11-22, settlements). Run after a backup, BEFORE deploy.sh and before pushing to main.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
@@ -29,7 +31,7 @@
 - Credit notes do not yet change sales, profit or VAT reports (VAT credit-note register is roadmap step 6).
 - The default credit limit is blank until the owner sets it (Receivables > Change defaults).
 - Cash vouchers (CV) with supplier PAN for cash expenses are not built yet; drawer payouts only require a bill number for now (roadmap step 5).
-- QR and card money is shown as received; settlement to the bank with the card-machine charge is roadmap step 3.
+- Settlements: one per machine and sales day, only for days that have ended. Older "Card" payments with no machine recorded are listed but cannot be settled. A day's sales that change after settling (late or cancelled bill) are flagged on the Settlements page; the settled figures are not changed.
 - The OpenAPI spec and generated client still list only cash/nabil_qr for payment methods.
 - scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
 - On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary).

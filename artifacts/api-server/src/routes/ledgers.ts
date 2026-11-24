@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Response } from "express";
-import { db, cashDaysTable, cashMovementsTable, expensesTable, creditNotesTable, loyaltyCustomersTable } from "@workspace/db";
+import { db, cashDaysTable, cashMovementsTable, expensesTable, creditNotesTable, loyaltyCustomersTable, settlementsTable } from "@workspace/db";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { isDay, dayRangeUtc, paidOrdersBetween, modeOf, nepalDay, addDays, collectionsByDay, receiptsBetween, type CollectionRow } from "../lib/ledgerData";
@@ -120,6 +120,23 @@ async function modeLedger(mode: string, from: string, to: string) {
       .where(and(eq(creditNotesTable.status, "active"), gte(creditNotesTable.noteDate, from), lte(creditNotesTable.noteDate, to)));
     for (const n of notes) {
       items.push({ t: new Date(n.createdAt).getTime(), day: n.noteDate, type: "credit_note", ref: n.noteNo, description: `Credit note · ${n.customerName ?? ""} · ${n.reason}`, inAmt: 0, outAmt: num(n.total) });
+    }
+  }
+  if (mode === "card" || mode === "qr" || mode === "bank") {
+    // Settlements: card/QR money leaves the machine's ledger (to the bank, and the bank charge) and arrives in the bank
+    const machines = mode === "card" ? ["nabil_pos", "hbl_pos"] : mode === "qr" ? ["qr"] : ["nabil_pos", "hbl_pos", "qr"];
+    const rows = await db.select().from(settlementsTable)
+      .where(and(eq(settlementsTable.status, "active"), gte(settlementsTable.settledOn, from), lte(settlementsTable.settledOn, to)));
+    const label = (m: string) => m === "nabil_pos" ? "Card - Nabil POS" : m === "hbl_pos" ? "Card - HBL POS" : "QR Payment";
+    const bank = (b: string) => b === "hbl" ? "HBL" : "Nabil Bank";
+    for (const st of rows.filter(r => machines.includes(r.machine))) {
+      const t = new Date(st.createdAt).getTime();
+      if (mode === "bank") {
+        items.push({ t, day: st.settledOn, type: "settlement", ref: st.reference, description: `${label(st.machine)} settlement of ${st.salesDay} into ${bank(st.bankAccount)}`, inAmt: num(st.received), outAmt: 0 });
+      } else {
+        items.push({ t, day: st.settledOn, type: "settlement", ref: st.reference, description: `${label(st.machine)} sales of ${st.salesDay} settled to ${bank(st.bankAccount)}`, inAmt: 0, outAmt: num(st.received) });
+        if (num(st.charge) > 0) items.push({ t, day: st.settledOn, type: "bank_charge", ref: st.reference, description: `Bank charge on ${label(st.machine)} settlement of ${st.salesDay} (${num(st.chargePct).toFixed(2)}%)`, inAmt: 0, outAmt: num(st.charge) });
+      }
     }
   }
   items.sort((a, b) => a.day.localeCompare(b.day) || a.t - b.t);
