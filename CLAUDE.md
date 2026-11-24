@@ -50,7 +50,7 @@ Receivables (answers of 2026-11-23)
 - Credit notes and debit notes are item-wise (customer and vendor). A credit note reduces the customer's balance; a debit note reduces what we owe the supplier.
 - Refunds: avoid them; refund only when necessary (guest satisfaction), and always record a void with a reason.
 - Loyalty points on credit sales are earned only when the customer pays (in proportion to what each receipt covers), not at the sale.
-- Open monthly-account bills: convert each into individual credit invoices, one per visit (working reading, owner to confirm). Do a dry run and list the result before changing anything.
+- Open monthly-account bills (accountant confirmed 2026-11-24): convert each into individual credit invoices, one per visit, where a visit is the same Nepal day and the same table. Invoices are always dated on the visit day, for sales and purchase bills alike. The old monthly bill is closed as "converted" and linked to the new invoices, never deleted. A dry-run report exists (/accounts/conversion-preview); the conversion itself must be previewed and confirmed per customer.
 
 Settlements
 - Card and QR settlement is per day. QR settles to the same bank account as Nabil POS. The bank charge is booked as an expense per settlement; no VAT on it.
