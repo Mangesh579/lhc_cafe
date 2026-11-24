@@ -50,6 +50,7 @@ export const purchaseBillsTable = pgTable("purchase_bills", {
   terms: text("terms").notNull(),
   paidVia: text("paid_via"),
   paymentReference: text("payment_reference"),
+  paidFromAccount: text("paid_from_account"), // nabil | hbl: the bank account that paid a cheque or online bill (migration 006)
   creditDays: integer("credit_days").notNull().default(0),
   dueDate: date("due_date").notNull(),
   costMethod: text("cost_method").notNull().default("average"),

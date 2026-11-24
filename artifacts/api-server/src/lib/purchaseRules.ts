@@ -4,6 +4,7 @@ import { addDaysTo, daysBetween } from "./receivableRules";
 import { allocateDiscount } from "./accountConversion";
 
 export const PAID_VIA = ["drawer", "cheque", "online"] as const;
+export const BANK_ACCOUNTS = ["nabil", "hbl"] as const;
 export const SUPPLIER_TYPES = ["goods", "service"] as const;
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 const clean = (v: unknown, max: number): string | null => { const s = String(v ?? "").trim().replace(/\s+/g, " ").slice(0, max); return s || null; };
@@ -47,7 +48,7 @@ export function overdueDays(dueDate: string, today: string, balance: number): nu
 export type BillLine = { inventoryItemId: number; quantity: number; rate: number; amount: number; vatAmount: number; lineTotal: number };
 export type BillInput = {
   supplierId: number; pan: string; billNumber: string; billNumberKey: string; billDate: string;
-  terms: "cash" | "credit"; paidVia: (typeof PAID_VIA)[number] | null; paymentReference: string | null;
+  terms: "cash" | "credit"; paidVia: (typeof PAID_VIA)[number] | null; paymentReference: string | null; paidFromAccount: (typeof BANK_ACCOUNTS)[number] | null;
   creditDays: number; dueDate: string; costMethod: "average" | "last"; notes: string | null;
   lines: BillLine[]; subtotal: number; vatAmount: number; total: number;
 };
@@ -68,13 +69,17 @@ export function validateBill(body: any, ctx: { today: string; fiscalYearOf: (day
 
   const terms = body?.terms === "credit" ? "credit" : body?.terms === "cash" ? "cash" : null;
   if (!terms) return { error: "Choose cash (paid now) or credit (pay later)." };
-  let paidVia: BillInput["paidVia"] = null, paymentReference: string | null = null;
+  let paidVia: BillInput["paidVia"] = null, paymentReference: string | null = null, paidFromAccount: BillInput["paidFromAccount"] = null;
   if (terms === "cash") {
     if (!(PAID_VIA as readonly string[]).includes(body?.paidVia)) return { error: "Choose how it was paid: cash drawer, cheque or online transfer." };
     paidVia = body.paidVia;
     paymentReference = clean(body?.paymentReference, 80);
     if (paidVia === "cheque" && !paymentReference) return { error: "Enter the cheque number." };
     if (paidVia === "online" && !paymentReference) return { error: "Enter the online transaction reference." };
+    if (paidVia === "cheque" || paidVia === "online") {
+      if (!(BANK_ACCOUNTS as readonly string[]).includes(body?.paidFromAccount)) return { error: "Choose the bank account that paid: Nabil or HBL." };
+      paidFromAccount = body.paidFromAccount;
+    }
   }
   const creditDays = terms === "credit" ? Number(body?.creditDays ?? 0) : 0;
   if (!Number.isInteger(creditDays) || creditDays < 0 || creditDays > 365) return { error: "Credit days must be a whole number from 0 to 365." };
@@ -110,7 +115,7 @@ export function validateBill(body: any, ctx: { today: string; fiscalYearOf: (day
   const subtotal = round2(lines.reduce((s, l) => s + l.amount, 0));
   const vatAmount = round2(lines.reduce((s, l) => s + l.vatAmount, 0));
   return {
-    supplierId, pan, billNumber, billNumberKey: billNumberKey(billNumber), billDate, terms, paidVia, paymentReference,
+    supplierId, pan, billNumber, billNumberKey: billNumberKey(billNumber), billDate, terms, paidVia, paymentReference, paidFromAccount,
     creditDays, dueDate: dueDateOf(billDate, creditDays), costMethod, notes: clean(body?.notes, 300),
     lines, subtotal, vatAmount, total: round2(subtotal + vatAmount),
   };

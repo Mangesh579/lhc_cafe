@@ -34,7 +34,15 @@ describe("purchase bill checks", () => {
     expect(validateBill({ ...ok, terms: "cash", paidVia: "cheque" }, ctx)).toHaveProperty("error");
     expect(validateBill({ ...ok, terms: "cash", paidVia: "online" }, ctx)).toHaveProperty("error");
     expect(validateBill({ ...ok, terms: "cash", paidVia: "drawer" }, ctx)).toMatchObject({ paidVia: "drawer", creditDays: 0, dueDate: "2026-11-20" });
-    expect(validateBill({ ...ok, terms: "cash", paidVia: "cheque", paymentReference: "CHQ 001" }, ctx)).toMatchObject({ paymentReference: "CHQ 001" });
+    expect(validateBill({ ...ok, terms: "cash", paidVia: "cheque", paymentReference: "CHQ 001", paidFromAccount: "nabil" }, ctx)).toMatchObject({ paymentReference: "CHQ 001", paidFromAccount: "nabil" });
+  });
+
+  it("cheque and online bills must say which bank account paid (Nabil or HBL); drawer bills have none", () => {
+    expect((validateBill({ ...ok, terms: "cash", paidVia: "cheque", paymentReference: "CHQ 001" }, ctx) as any).error).toMatch(/Nabil or HBL/);
+    expect(validateBill({ ...ok, terms: "cash", paidVia: "online", paymentReference: "TXN9", paidFromAccount: "sbi" }, ctx)).toHaveProperty("error");
+    expect(validateBill({ ...ok, terms: "cash", paidVia: "online", paymentReference: "TXN9", paidFromAccount: "hbl" }, ctx)).toMatchObject({ paidFromAccount: "hbl" });
+    expect(validateBill({ ...ok, terms: "cash", paidVia: "drawer", paidFromAccount: "hbl" }, ctx)).toMatchObject({ paidFromAccount: null });
+    expect(validateBill(ok, ctx)).toMatchObject({ paidFromAccount: null });
   });
 
   it("allows backdating within the fiscal year, but not the future or an earlier fiscal year (Nepal day)", () => {

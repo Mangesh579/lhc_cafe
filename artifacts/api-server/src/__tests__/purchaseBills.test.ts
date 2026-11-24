@@ -158,6 +158,29 @@ describe("purchase bills", () => {
     expect((await api("acct", "POST", "/purchase-bills", bill({ billNumber: "CHQ-1", terms: "cash", paidVia: "cheque" }))).status).toBe(400); // cheque number needed
   });
 
+  it("refuses a drawer-paid bill on a drawer day that is already closed, with a clear message, and posts nothing", async () => {
+    await ctx.db.insert(cashDaysTable).values({ day: "2026-11-21", openingBalance: "0", status: "closed" });
+    const stockBefore = (await item(rice)).currentStock;
+    const r = await api("acct", "POST", "/purchase-bills", bill({ billNumber: "CLOSED-1", billDate: "2026-11-21", terms: "cash", paidVia: "drawer", billVat: undefined, lines: [{ inventoryItemId: rice, quantity: 1, amount: 50 }] }));
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/cash drawer for 2026-11-21 is closed/);
+    expect((await item(rice)).currentStock).toBe(stockBefore);
+    expect((await api("acct", "GET", "/purchase-bills/check?pan=123456789&billNumber=CLOSED-1")).body.duplicate).toBeNull();
+    // the same day by cheque is fine: only the drawer is closed
+    const ok = await api("acct", "POST", "/purchase-bills", bill({ billNumber: "CLOSED-1", billDate: "2026-11-21", terms: "cash", paidVia: "cheque", paymentReference: "CHQ 10045", paidFromAccount: "nabil", billVat: undefined, lines: [{ inventoryItemId: rice, quantity: 1, amount: 50 }] }));
+    expect(ok.status).toBe(201);
+  });
+
+  it("cheque and online bills store the paying bank account with the reference", async () => {
+    const r = await api("acct", "POST", "/purchase-bills", bill({ billNumber: "ONL-1", terms: "cash", paidVia: "online", paymentReference: "TXN 88123", paidFromAccount: "hbl", billVat: undefined, lines: [{ inventoryItemId: rice, quantity: 1, amount: 75 }] }));
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ paidVia: "online", paymentReference: "TXN 88123", paidFromAccount: "hbl", paid: 75, balance: 0 });
+    const [e] = await ctx.db.select().from(expensesTable).where(eq(expensesTable.purchaseBillId, r.body.id));
+    expect([e.paymentMethod, e.paidFromDrawer]).toEqual(["bank_transfer", false]);
+    expect(e.description).toMatch(/online transfer TXN 88123 from HBL/);
+    expect((await api("acct", "POST", "/purchase-bills", bill({ billNumber: "ONL-2", terms: "cash", paidVia: "online", paymentReference: "TXN 9", billVat: undefined, lines: [{ inventoryItemId: rice, quantity: 1, amount: 75 }] }))).body.error).toMatch(/Nabil or HBL/);
+  });
+
   it("an older (backdated) bill does not overwrite the last purchase and uses the average", async () => {
     const before = await item(milk);
     await api("acct", "POST", "/purchase-bills", bill({ billNumber: "OLD-1", billDate: "2026-11-10", costMethod: "last", billVat: undefined, lines: [{ inventoryItemId: milk, quantity: 5, amount: 500 }] }));
@@ -182,7 +205,7 @@ describe("purchase bills", () => {
     expect(r.status).toBe(200);
     expect(r.body.costLeft.sort()).toEqual(["Milk", "Rice"]);
     expect((await item(milk)).currentStock).toBe("15.00");  // 20 - 5
-    expect((await item(rice)).currentStock).toBe("2.00");   // 12 - 10
+    expect((await item(rice)).currentStock).toBe("4.00");   // 14 - 10 (2 + 10 + 1 cheque + 1 online, then this void)
     const exps = await ctx.db.select().from(expensesTable).where(eq(expensesTable.purchaseBillId, creditBillId));
     expect(exps.every((e: any) => e.status === "void")).toBe(true);
     const hist = await ctx.db.select().from(ingredientPriceHistoryTable).where(eq(ingredientPriceHistoryTable.billId, creditBillId));

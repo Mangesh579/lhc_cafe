@@ -364,3 +364,38 @@ db/migrations/005_suppliers_purchases.sql: NOT YET RUN on the server.
 - The owner ran db/migrations/005_suppliers_purchases.sql on the server and deployed commit aab299d (suppliers and purchase bills, part A). Recorded as run in CLAUDE.md and docs/HANDOFF.md.
 - Checked live (read-only, accountant login): the Suppliers, Purchase bills and unmapped-ingredient routes answer from the new tables. At the time: 0 suppliers, 0 bills, 293 ingredients with no supplier linked.
 - Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
+
+
+## 2026-11-24: Part A additions (bank account on cheque/online bills; spec for opening balances and posting)
+
+The owner's approval of part A arrived with four additions after part A was already live (migration 005 run, commit aab299d). Handled as follows:
+
+1. Refuse a drawer-paid bill on a closed drawer day: already in part A (lib/purchasePosting.ts, same rule as cash receipts). Added a route test: the bill is refused with "The cash drawer for <day> is closed…", nothing is posted (stock unchanged, no bill), and the same bill paid by cheque that day is accepted.
+2. Cheque and online bills store the bank account that paid (Nabil or HBL) with the cheque number or transaction reference.
+   - New column purchase_bills.paid_from_account, required for cheque and online bills, empty for drawer and credit bills (API check, form field, database checks).
+   - It shows on the bill, in the bill lists and in the expense description.
+   - A new migration 006 is used because 005 had already run on the server.
+3. Spec section 12, "Opening supplier balances" (part B): the accountant enters, per supplier, the unpaid bills at the start date (bill number, date, due date, amount). No stock, costing, price history or expense. A payable that part B payments can be allocated to. Same duplicate check. Opening balance of Accounts Payable in step 3. Not built.
+4. Spec section 13, note for roadmap step 3, using the chart of accounts the accountant approved on 2026-11-24:
+   - purchases post to 1400 Inventory - Kitchen / 1410 Inventory - Drinks, against 2100 Accounts Payable, 1100 Cash on Hand, or 1200 Bank - Nabil / 1210 Bank - HBL by how they were paid;
+   - only consumption posts to 5000/5010 Ingredient consumption (waste 5100, NC 5200);
+   - purchase expense rows (purchase_bill_id or, older, inventory_item_id) must never be posted as costs again.
+   Also recorded in CLAUDE.md under the chart of accounts.
+
+### Files
+- New: db/migrations/006_purchase_bank_account.sql; artifacts/api-server/src/__tests__/migration006.test.ts.
+- Changed: lib/db/src/schema/purchases.ts (paid_from_account); api-server src/lib/purchaseRules.ts, src/lib/purchasePosting.ts, tests purchaseRules and purchaseBills; lhc-cafe pages/purchase-bill.tsx (bank account field), pages/suppliers.tsx (shows it); docs/specs/step2-suppliers.md (sections 11 to 13); CLAUDE.md; docs/HANDOFF.md.
+
+### Tables
+- Changed: purchase_bills (+paid_from_account, with two checks; the "required" check is NOT VALID so any cheque/online bill entered before 006 is kept as it is). No existing row is changed.
+
+### Migration
+db/migrations/006_purchase_bank_account.sql: NOT YET RUN on the server.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 139 tests pass. New:
+  - a pure test: cheque and online need Nabil or HBL, drawer and credit have none;
+  - two route tests: the closed drawer day is refused with nothing posted, and an online bill stores HBL with its reference;
+  - migration006: runs twice; an old cheque bill without an account is kept; cheque/online need nabil or hbl; drawer and credit refuse an account.
+- Typecheck of all three artifacts clean; API and frontend build.
+- Not run: the screens in a browser; anything against production.

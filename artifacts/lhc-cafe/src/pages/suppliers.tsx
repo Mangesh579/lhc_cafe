@@ -18,6 +18,7 @@ import { ArrowLeft, Plus } from "lucide-react";
 
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
 const PAID_VIA: Record<string, string> = { drawer: "Cash drawer", cheque: "Cheque", online: "Online transfer" };
+const BANK: Record<string, string> = { nabil: "Nabil Bank", hbl: "HBL" };
 const blankSupplier = { name: "", pan: "", address: "", phone: "", contactPerson: "", creditDays: "0", notes: "", supplierType: "goods", active: true };
 
 export default function Suppliers() {
@@ -115,7 +116,7 @@ export default function Suppliers() {
             <td className="px-3 py-2 text-right">{rs(b.total)}</td>
             <td className="px-3 py-2 text-right">{b.status === "void" ? "—" : rs(b.paid)}</td>
             <td className="px-3 py-2 text-right font-medium">{b.status === "void" ? <Badge variant="secondary">Void</Badge> : b.balance > 0 ? rs(b.balance) : <span className="text-green-700">Paid</span>}</td>
-            <td className={`px-3 py-2 whitespace-nowrap ${b.overdue ? "text-red-600 font-medium" : ""}`}>{b.terms === "cash" ? PAID_VIA[b.paidVia] : b.dueDate}{b.overdue ? ` (${b.daysOverdue} days late)` : ""}</td>
+            <td className={`px-3 py-2 whitespace-nowrap ${b.overdue ? "text-red-600 font-medium" : ""}`}>{b.terms === "cash" ? `${PAID_VIA[b.paidVia]}${b.paidFromAccount ? ` · ${BANK[b.paidFromAccount]}` : ""}` : b.dueDate}{b.overdue ? ` (${b.daysOverdue} days late)` : ""}</td>
           </tr>
         ))}
       </tbody>
@@ -287,7 +288,7 @@ export default function Suppliers() {
           {billDetail && (
             <div className="space-y-2 text-sm">
               <p>{billDetail.supplierName} · PAN {billDetail.supplierPan} · {billDetail.pjNumber}</p>
-              <p>Bill date {billDetail.billDate} · {billDetail.terms === "credit" ? `credit, due ${billDetail.dueDate}` : `paid by ${PAID_VIA[billDetail.paidVia]}${billDetail.paymentReference ? ` (${billDetail.paymentReference})` : ""}`}</p>
+              <p>Bill date {billDetail.billDate} · {billDetail.terms === "credit" ? `credit, due ${billDetail.dueDate}` : `paid by ${PAID_VIA[billDetail.paidVia]}${billDetail.paymentReference ? ` (${billDetail.paymentReference})` : ""}${billDetail.paidFromAccount ? ` from ${BANK[billDetail.paidFromAccount]}` : ""}`}</p>
               {billDetail.status === "void" && <p className="text-red-700">VOID: {billDetail.voidReason} ({billDetail.voidedBy})</p>}
               <table className="w-full text-xs border rounded"><tbody className="divide-y">
                 {billDetail.items.map((i: any) => (

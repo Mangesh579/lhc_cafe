@@ -22,6 +22,7 @@ export function expenseCategoryFor(department: string): string {
   return department === "drink" ? "Beverages and drink ingredients" : "Food ingredients (meat, vegetables, fruits)";
 }
 const EXPENSE_METHOD: Record<string, string> = { drawer: "cash", cheque: "cheque", online: "bank_transfer" };
+export const BANK_NAME: Record<string, string> = { nabil: "Nabil Bank", hbl: "HBL" };
 
 async function drawerClosed(tx: Db, day: string) {
   const [r] = await tx.select({ s: cashDaysTable.status }).from(cashDaysTable).where(eq(cashDaysTable.day, day));
@@ -51,7 +52,7 @@ export async function createPurchaseBill(dbx: Db, input: BillInput, opts: { user
     const [bill] = await tx.insert(purchaseBillsTable).values({
       pjNumber, supplierId: supplier.id, supplierName: supplier.name, supplierPan: input.pan,
       billNumber: input.billNumber, billNumberKey: input.billNumberKey, billDate: input.billDate,
-      terms: input.terms, paidVia: input.paidVia, paymentReference: input.paymentReference,
+      terms: input.terms, paidVia: input.paidVia, paymentReference: input.paymentReference, paidFromAccount: input.paidFromAccount,
       creditDays: input.creditDays, dueDate: input.dueDate, costMethod: input.costMethod,
       subtotal: String(input.subtotal), vatAmount: String(input.vatAmount), total: String(input.total),
       notes: input.notes, createdBy: opts.user,
@@ -89,7 +90,7 @@ export async function createPurchaseBill(dbx: Db, input: BillInput, opts: { user
       // The direct expense: the cost record for P&L, cash profit and the Expenses page (read-only there)
       const [exp] = await tx.insert(expensesTable).values({
         expenseDate: input.billDate, type: "direct", category: expenseCategoryFor(item.department), subcategory: item.category ?? null,
-        description: `${item.name}: ${line.quantity} ${item.unit} purchased (${pjNumber}, bill ${input.billNumber})`,
+        description: `${item.name}: ${line.quantity} ${item.unit} purchased (${pjNumber}, bill ${input.billNumber})${input.paidFromAccount ? `, paid by ${input.paidVia === "cheque" ? "cheque" : "online transfer"} ${input.paymentReference} from ${BANK_NAME[input.paidFromAccount]}` : ""}`,
         vendor: supplier.name, amount: String(line.lineTotal),
         paymentMethod: input.terms === "credit" ? "credit" : EXPENSE_METHOD[input.paidVia!],
         paidFromDrawer: input.paidVia === "drawer", billNumber: input.billNumber,

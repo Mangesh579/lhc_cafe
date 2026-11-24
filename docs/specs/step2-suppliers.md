@@ -117,3 +117,46 @@ On PGlite, like the conversion tests:
 3. Yes: one supplier record per PAN (PAN unique).
 4. Yes: items that aren't in stock stay on Expenses, with a bill number, until vouchers (roadmap step 3).
 5. Added: the bill form has a **supplier dropdown** that auto-fills the supplier's PAN/VAT number and credit days. Both can be edited on the bill. The bill keeps its own PAN, which the duplicate check uses, and the form warns when it differs from the supplier's.
+
+## 11. Additions (owner, 2026-11-24, after part A went live)
+
+1. **Closed cash drawer.** A bill paid from the cash drawer is refused when that bill date's drawer is already closed, with a clear message. This is the same rule as cash receipts. It was built in part A; a test was added.
+2. **Bank account for cheque and online bills.** A cheque or online-transfer bill also stores which bank account paid it, Nabil or HBL (`purchase_bills.paid_from_account`), next to the cheque number or transaction reference. It is required for those bills and empty for drawer and credit bills. Added by migration 006 (005 had already been run).
+
+## 12. Opening supplier balances (part B; not built in part A)
+
+When the cafe starts using supplier ledgers, suppliers are already owed money for bills from before. The accountant enters those unpaid bills once, per supplier, so balances, due dates and aging are right from the start date.
+
+- **What is entered for each opening bill:** the supplier, their bill number, bill date, due date and the amount still unpaid.
+- **No stock and no costing:**
+  - no ingredient lines;
+  - no stock change;
+  - no cost per unit or price-history change;
+  - no expense. The goods were received and expensed before the start date, so booking them again would double-count.
+- **What it does create:** a payable that part B's payments (PV/CV) can be allocated to, partly or fully, like any credit bill. It shows in the supplier ledger as "opening balance", and aging counts it from its due date.
+- **Rules:**
+  - The same duplicate check applies: bill number per supplier PAN, across opening bills and purchase bills.
+  - An opening bill is immutable like any bill and corrected by void with a reason.
+  - Only the admin and the accountant enter them.
+  - Each opening bill is dated before the start date.
+  - The start date is a setting.
+- **For step 3:** the opening total per supplier becomes the opening balance of Accounts Payable (2100), against an opening-balance equity entry. The accountant confirms the start date and totals before posting.
+
+## 13. Note for roadmap step 3 (chart of accounts and posting)
+
+Account numbers are from the chart of accounts the accountant approved on 2026-11-24 (CLAUDE.md, "Chart of accounts"). Purchases and consumption must post to different accounts, so that nothing is counted as a cost twice.
+
+- **A purchase bill increases stock, not cost of sales:**
+  - kitchen lines post Dr **1400 Inventory - Kitchen**;
+  - drink lines post Dr **1410 Inventory - Drinks**;
+  - the credit side depends on how it was paid:
+    - **2100 Accounts Payable** for credit bills (suppliers are the sub-ledger);
+    - **1100 Cash on Hand** for drawer-paid bills;
+    - **1200 Bank - Nabil** or **1210 Bank - HBL** for cheque and online bills, from `purchase_bills.paid_from_account`.
+- **Only consumption posts to cost of sales:**
+  - Dr **5000 Ingredient consumption - Food** (kitchen) and Dr **5010 Ingredient consumption - Beverage** (drinks), against Cr 1400/1410;
+  - the amount is the ingredient cost of what was sold, from the `order_items.unit_cost` snapshots;
+  - waste posts to **5100 Waste and spoilage** and NC to **5200 Complimentary (NC) cost**, also against inventory.
+- **Purchase expenses must not be posted as costs again.** Each purchase-bill line also creates a direct expense row (`expenses.purchase_bill_id` set). That row keeps today's reports working (the P&L memo, cash profit, the Expenses page). The step-3 posting must skip those rows, and the older purchase expenses from Record purchase (`expenses.inventory_item_id` set), because the bill already posted them to inventory. Otherwise the same purchase would be a cost twice: once as an expense and again when consumed.
+- **Input VAT:** stays part of the inventory cost until the VAT switch (roadmap step 5). After registration, VAT on bills posts to **1450 Input VAT**.
+- **Opening supplier balances** (section 12) post to 2100 against an opening-balance entry in equity, as the accountant decides when step 3 is built.

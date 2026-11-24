@@ -29,7 +29,7 @@
 - 005_suppliers_purchases.sql (2026-11-24, by the owner): suppliers, ingredient_suppliers, purchase_bills, purchase_bill_items, ingredient_price_history; expenses.purchase_bill_id and purchase_bill_item_id.
 
 # Not yet applied on the server
-- None.
+- db/migrations/006_purchase_bank_account.sql (purchase_bills.paid_from_account, Nabil or HBL, required for cheque and online bills). Run after a backup, BEFORE deploy.sh and before pushing to main.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
@@ -39,7 +39,7 @@
 - Credit notes do not yet change sales, profit or VAT reports (VAT credit-note register is roadmap step 6).
 - The default credit limit is blank until the owner sets it (Receivables > Change defaults).
 - Cash vouchers (CV) with supplier PAN for cash expenses are not built yet; drawer payouts only require a bill number for now (roadmap step 3).
-- Purchase bills (item 17): payments of credit bills (PV/CV), allocation and aging are part B; returns and debit notes are part C. Until part B, a credit bill stays fully owed. Line units must be the ingredient's own unit (no unit conversion). Bills dated in an earlier fiscal year are refused. Existing purchases (from the old Record purchase) are not bills and are not payables.
+- Purchase bills (item 17): payments of credit bills (PV/CV), allocation and aging are part B; returns and debit notes are part C. Until part B, a credit bill stays fully owed. Opening supplier balances (unpaid bills from before the start date, no stock change) are specified for part B (spec section 12). Step 3 must post purchases to inventory and only consumption to cost of sales, never the purchase expenses again (spec section 13). Line units must be the ingredient's own unit (no unit conversion). Bills dated in an earlier fiscal year are refused. Existing purchases (from the old Record purchase) are not bills and are not payables.
 - Settlements: one per machine and sales day, only for days that have ended. Older "Card" payments with no machine recorded are listed but cannot be settled. A day's sales that change after settling (late or cancelled bill) are flagged on the Settlements page; the settled figures are not changed.
 - The OpenAPI spec and generated client still list only cash/nabil_qr for payment methods.
 - scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.

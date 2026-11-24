@@ -36,6 +36,7 @@ export default function PurchaseBill() {
   const [creditDays, setCreditDays] = useState("0");
   const [paidVia, setPaidVia] = useState("drawer");
   const [reference, setReference] = useState("");
+  const [bankAccount, setBankAccount] = useState("");
   const [costMethod, setCostMethod] = useState("average");
   const [vatMode, setVatMode] = useState<"none" | "bill" | "line">("none");
   const [billVat, setBillVat] = useState("");
@@ -90,6 +91,7 @@ export default function PurchaseBill() {
       const b = await apiJson("/purchase-bills", "POST", {
         supplierId: Number(supplierId), pan, billNumber, billDate, terms, creditDays: parseInt(creditDays) || 0,
         paidVia: terms === "cash" ? paidVia : undefined, paymentReference: terms === "cash" ? reference : undefined,
+        paidFromAccount: terms === "cash" && paidVia !== "drawer" ? bankAccount : undefined,
         costMethod, notes, billVat: vatMode === "bill" ? (parseFloat(billVat) || 0) : undefined,
         lines: lines.filter(l => l.inventoryItemId).map(l => ({ inventoryItemId: Number(l.inventoryItemId), quantity: parseFloat(l.quantity), amount: parseFloat(l.amount), vatAmount: vatMode === "line" ? (parseFloat(l.vatAmount) || 0) : undefined })),
       });
@@ -131,6 +133,10 @@ export default function PurchaseBill() {
               </select>
               {paidVia === "drawer" && <p className="text-xs text-muted-foreground">Shows as a payout in that day&apos;s cash drawer.</p>}</div>
             {paidVia !== "drawer" && <div className="space-y-1"><Label>{paidVia === "cheque" ? "Cheque no. *" : "Transaction ref. *"}</Label><Input value={reference} onChange={e => setReference(e.target.value)} /></div>}
+            {paidVia !== "drawer" && <div className="space-y-1"><Label>Paid from account *</Label>
+              <select className={SELECT} value={bankAccount} onChange={e => setBankAccount(e.target.value)}>
+                <option value="">Choose…</option><option value="nabil">Nabil Bank</option><option value="hbl">HBL</option>
+              </select></div>}
           </>
         )}
       </CardContent></Card>
@@ -186,7 +192,7 @@ export default function PurchaseBill() {
 
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={() => setLocation("/suppliers")}>Cancel</Button>
-        <Button disabled={saving || !supplierId || !pan.trim() || !billNumber.trim() || !!duplicate || !(total > 0) || lines.some(l => l.inventoryItemId && !(parseFloat(l.quantity) > 0))} onClick={save}>
+        <Button disabled={saving || !supplierId || !pan.trim() || !billNumber.trim() || !!duplicate || !(total > 0) || (terms === "cash" && paidVia !== "drawer" && (!reference.trim() || !bankAccount)) || lines.some(l => l.inventoryItemId && !(parseFloat(l.quantity) > 0))} onClick={save}>
           {saving ? "Saving…" : `Save bill (${rs(total)})`}
         </Button>
       </div>
