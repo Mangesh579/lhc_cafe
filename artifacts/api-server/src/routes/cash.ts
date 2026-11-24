@@ -3,6 +3,7 @@ import type { Response } from "express";
 import { db, cashDaysTable, cashMovementsTable, expensesTable, expenseChangesTable } from "@workspace/db";
 import { eq, and, lt, gte, lte, desc } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
+import { validatePayout } from "../lib/cashRules";
 import { isDay, dayRangeUtc, paidOrdersBetween, nepalDay, cashSalesOf, receiptsBetween } from "../lib/ledgerData";
 
 const router = Router();
@@ -39,7 +40,7 @@ async function computeDay(day: string) {
   const exp = await db.select().from(expensesTable)
     .where(and(eq(expensesTable.expenseDate, day), eq(expensesTable.status, "active"), eq(expensesTable.paidFromDrawer, true)))
     .orderBy(expensesTable.id);
-  const payouts = exp.map(e => ({ id: e.id, category: e.category, vendor: e.vendor, description: e.description, amount: round2(num(e.amount)) }));
+  const payouts = exp.map(e => ({ id: e.id, category: e.category, vendor: e.vendor, description: e.description, billNumber: e.billNumber ?? null, amount: round2(num(e.amount)) }));
   const payoutsTotal = payouts.reduce((s, p) => s + p.amount, 0);
 
   const moves = await db.select().from(cashMovementsTable)
@@ -130,17 +131,15 @@ router.post("/cash/payout", authenticate, async (req: AuthRequest, res: Response
   if (!allowed(req, res)) return;
   const day = await requireOpenDay(req.body?.date, res);
   if (!day) return;
-  const amt = num(req.body?.amount);
-  const category = clean(req.body?.category, 80);
-  if (!(amt > 0)) { res.status(400).json({ error: "Enter an amount above 0." }); return; }
-  if (!category) { res.status(400).json({ error: "Choose a category." }); return; }
+  const v = validatePayout(req.body);
+  if ("error" in v) { res.status(400).json({ error: v.error }); return; }
   const user = req.user?.username ?? "user";
   const [row] = await db.insert(expensesTable).values({
-    expenseDate: day, type: req.body?.type === "indirect" ? "indirect" : "direct", category, subcategory: null,
-    description: clean(req.body?.description, 500), vendor: clean(req.body?.vendor, 120), amount: String(round2(amt)),
-    paymentMethod: "cash", paidFromDrawer: true, isRecurring: false, createdBy: user,
+    expenseDate: day, type: v.type, category: v.category, subcategory: null,
+    description: v.description, vendor: v.vendor, amount: String(v.amount),
+    paymentMethod: "cash", paidFromDrawer: true, billNumber: v.billNumber, isRecurring: false, createdBy: user,
   } as any).returning();
-  await db.insert(expenseChangesTable).values({ expenseId: row.id, action: "created", details: "Petty cash payout from the drawer", changedBy: user });
+  await db.insert(expenseChangesTable).values({ expenseId: row.id, action: "created", details: `Petty cash payout from the drawer, bill no. ${v.billNumber}`, changedBy: user });
   res.status(201).json(row);
 });
 

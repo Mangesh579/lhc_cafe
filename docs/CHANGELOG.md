@@ -61,3 +61,52 @@ B. Credit sales and receivables
 - Accountant: one receipt settling several invoices is allowed now; confirm.
 - Owner: database timezone (`SHOW timezone;`).
 - Monthly accounts were not removed and not extended.
+
+
+## 2026-11-23: Credit rules from the accountant's answers, credit notes, loyalty on payment, payout bill numbers
+
+Built on the owner's Windows dev machine on top of commit 2b1c49e (migration 001 already run on the server).
+
+### Delivered
+1. Credit terms
+- Default credit days 15 (was a 30-day placeholder) and one default credit limit for all customers, in a new one-row credit_settings table. The limit is blank until the owner sets it in Receivables > Change defaults (admin/accountant). A customer's own limit or days override the default; blank means "use the default".
+- The limit still only warns (Pay dialog, settlement response, red in the Receivables list); it never blocks. Due dates and the overdue list use the effective days.
+2. Customer credit notes (item-wise)
+- credit_notes and credit_note_items; numbers CN-<FY>-00001 (voucher_sequences). Admin/accountant only. Each has a reason, prints, and is voided with a reason; never deleted.
+- Each line is an item from the credit invoice: quantity limited to what is not yet credited (earlier notes count), priced at what was actually charged (the bill's discount applied), amount can be lowered for a price allowance; VAT at the invoice's own rate. The total cannot exceed what is still owed.
+- Owed = credit part - credit notes - receipts allocated. Used by customer balances, the customer ledger, overdue, Order Log "Owes", receipt allocation and the Credit ledger.
+- An invoice with active credit notes (or receipts) cannot be cancelled.
+3. Loyalty points follow payment
+- No points at a credit sale. Points are recomputed on the running total paid on the bill (non-credit parts + receipts allocated, capped at the bill after credit notes), pre-VAT, at the existing 1 point per Rs. 10. Each receipt earns in proportion; voiding a receipt takes the points back. Every change is written to loyalty_point_logs. The visit counts at the sale.
+- Cash/QR/card bills earn in full at payment, as before. Bills paid before this change (loyalty_paid_basis empty) keep their points untouched.
+4. Receipts and credit notes only for loyalty customers (clear message otherwise).
+5. Petty cash bill number: POST /cash/payout refuses a payout without a bill number ("No bill, no payout") and stores it in expenses.bill_number. Cash Drawer form has a required field and lists it; the Expenses page and its export show it. Existing payouts keep an empty bill number.
+
+### Files
+- New: db/migrations/002_credit_rules_billno.sql; api-server src/lib/cashRules.ts; tests creditTerms, creditNotes, loyalty, pettyCash (.test.ts).
+- Changed: lib/db schema payments.ts (credit_settings, credit_notes, credit_note_items), orders.ts (loyalty_paid_basis), expenses.ts (bill_number); api-server lib/receivableRules.ts, lib/receivables.ts; routes receivables.ts, orders.ts, cash.ts, ledgers.ts; __tests__/receivables.test.ts (15 days); lhc-cafe pages receivables.tsx, cash-drawer.tsx, expenses.tsx; CLAUDE.md (roadmap line); docs HANDOFF.md, TEST_PLAN_payments.md.
+
+### Tables
+- New: credit_settings (one row: 15 days, no limit), credit_notes, credit_note_items.
+- Changed: orders (+loyalty_paid_basis), expenses (+bill_number). No existing row is changed.
+
+### Migration
+db/migrations/002_credit_rules_billno.sql: NOT YET RUN on the server.
+
+### Tests
+- Run: typecheck of api-server, lhc-cafe and mockup-sandbox: clean.
+- Not run on this machine: `pnpm test` and both builds. esbuild's Windows binary is missing (pnpm-workspace.yaml strips it), so vitest and `pnpm run build` fail at startup; the API build fails the same way on unchanged main. Run them with ESBUILD_BINARY_PATH set (see HANDOFF), or on the server.
+- New tests: credit terms (defaults, overrides, no warning until a limit is set, warn not block, due date), credit notes (discounted price, VAT, allowance, quantity limits with earlier notes, cap at outstanding, invalid items), loyalty (none at credit sale, proportional receipts, split, pre-VAT, rounding, void, cap after notes), petty cash (bill number required and trimmed).
+- Not tested against any database on this machine. The same logic (with customer debit notes, since removed) passed end-to-end checks against a throwaway Postgres in the earlier cloud session.
+
+### Decisions made (by Claude; please confirm)
+- Following CLAUDE.md ("a debit note reduces what we owe the supplier"), only customer credit notes are built; supplier debit notes come with purchases (roadmap step 4).
+- Credit notes only on credit invoices and never above what is still owed; refunds of received money are not handled (accountant: avoid refunds).
+- Credit note lines are priced at the price actually charged; VAT at the invoice's own rate.
+- Loyalty uses the pre-VAT amount and the existing 1 point per Rs. 10; total_spent moves with the points.
+- Only admin and accountant issue/void credit notes and change default terms; supervisors can still record receipts.
+- Drawer payouts require a bill number only; the CV voucher series and supplier PAN on cash expenses (CLAUDE.md) come with vouchers in roadmap step 5.
+
+### Open questions
+- Owner: the default credit limit amount.
+- Accountant: should credit notes reach the sales/VAT reports before VAT registration?

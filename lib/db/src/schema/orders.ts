@@ -25,6 +25,8 @@ export const ordersTable = pgTable("orders", {
   ncPersonName: text("nc_person_name"),
   ncReason: text("nc_reason"),
   paidAt: timestamp("paid_at"),
+  // Pre-VAT amount already counted towards loyalty points and total spent (points follow money paid)
+  loyaltyPaidBasis: numeric("loyalty_paid_basis", { precision: 12, scale: 2 }),
   accountBill: boolean("account_bill").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

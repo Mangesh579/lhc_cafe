@@ -1,8 +1,76 @@
 // Receivable rules for credit sales and receipt vouchers. Pure functions only, unit tested.
 import { round2 } from "./payments";
 
-// Used when a customer has no credit days of their own. Placeholder until the accountant decides (see CLAUDE.md open questions).
-export const DEFAULT_CREDIT_DAYS = 30;
+// Accountant, 2026-11-23: 15 credit days unless the customer has their own. Stored in credit_settings; this is the fallback.
+export const DEFAULT_CREDIT_DAYS = 15;
+
+export type CreditDefaults = { defaultCreditDays: number; defaultCreditLimit: number | null };
+
+// The customer's own terms win; blank means the default for everyone.
+export function effectiveTerms(customer: { creditLimit: number | null; creditDays: number | null }, d: CreditDefaults) {
+  return {
+    creditLimit: customer.creditLimit ?? d.defaultCreditLimit ?? null,
+    creditDays: customer.creditDays ?? d.defaultCreditDays ?? DEFAULT_CREDIT_DAYS,
+    limitIsDefault: customer.creditLimit == null && d.defaultCreditLimit != null,
+    daysAreDefault: customer.creditDays == null,
+  };
+}
+
+// Still owed on a credit invoice: the credit part, minus credit notes, minus receipts allocated.
+export function outstandingOf(creditAmount: number, creditNotes: number, allocated: number): number {
+  return round2(Math.max(0, creditAmount - creditNotes - allocated));
+}
+
+// Loyalty (accountant, 2026-11-23): points only on money actually paid, in proportion to the bill.
+// total = bill incl. VAT, vat = its VAT, paid = non-credit parts + receipts allocated, adjusted = total - credit notes.
+// Returns the pre-VAT amount that has earned points so far; points = floor(basis / 10).
+export function loyaltyBasis(total: number, vat: number, paid: number, adjusted: number): number {
+  if (!(total > 0)) return 0;
+  const counted = Math.max(0, Math.min(paid, adjusted));
+  return round2((total - vat) * counted / total);
+}
+export const pointsFor = (basis: number) => Math.floor(round2(basis) / 10);
+
+export type InvoiceItem = { id: number; name: string; quantity: number; unitPrice: number; creditedQty: number };
+export type NoteLine = { orderItemId: number; description: string; quantity: number; unitPrice: number; amount: number };
+
+// Lines of an item-wise credit note, checked against the invoice.
+//  netPreVat / itemsSubtotal = the discount factor the bill was sold at; VAT uses the bill's own VAT / pre-VAT ratio.
+//  Each line: an invoice item, a quantity up to what is not yet credited, optionally a lower amount (an allowance).
+//  maxCredit: a credit note cannot exceed what is still owed on the invoice (refunds are not handled here).
+export function buildCreditNote(
+  input: unknown,
+  invoice: { items: InvoiceItem[]; netPreVat: number; itemsSubtotal: number; vatAmount: number; maxCredit: number },
+): { lines: NoteLine[]; subtotal: number; vatAmount: number; total: number } | { error: string } {
+  if (!Array.isArray(input) || input.length === 0) return { error: "Add at least one item." };
+  if (input.length > 50) return { error: "Too many lines." };
+  const factor = invoice.itemsSubtotal > 0 ? invoice.netPreVat / invoice.itemsSubtotal : 1;
+  const vatRate = invoice.netPreVat > 0 ? invoice.vatAmount / invoice.netPreVat : 0;
+  const lines: NoteLine[] = [];
+  const usedQty = new Map<number, number>();
+  for (const raw of input as any[]) {
+    const quantity = Number(raw?.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) return { error: "Each line needs a whole quantity above 0." };
+    const item = invoice.items.find(i => i.id === Number(raw?.orderItemId));
+    if (!item) return { error: "Each line must be an item from this invoice." };
+    const used = (usedQty.get(item.id) ?? 0) + quantity;
+    const left = item.quantity - item.creditedQty;
+    if (used > left) return { error: `Only ${left} x ${item.name} can still be credited.` };
+    usedQty.set(item.id, used);
+    const full = round2(quantity * item.unitPrice * factor);
+    const amount = raw?.amount == null || raw?.amount === "" ? full : round2(parseFloat(String(raw.amount)));
+    if (!(amount > 0)) return { error: `Enter an amount above 0 for ${item.name}.` };
+    if (amount - full >= 0.005) return { error: `${quantity} x ${item.name} was sold for Rs. ${full.toFixed(2)}; the credit cannot be more.` };
+    lines.push({ orderItemId: item.id, description: item.name, quantity, unitPrice: round2(amount / quantity), amount });
+  }
+  const subtotal = round2(lines.reduce((s, l) => s + l.amount, 0));
+  const vatAmount = round2(subtotal * vatRate);
+  const total = round2(subtotal + vatAmount);
+  if (total - invoice.maxCredit >= 0.005) {
+    return { error: `The credit note (Rs. ${total.toFixed(2)}) is more than is still owed on this invoice (Rs. ${invoice.maxCredit.toFixed(2)}).` };
+  }
+  return { lines, subtotal, vatAmount, total };
+}
 
 export const RECEIPT_MODES = ["cash", "nabil_qr", "bank"] as const;
 export const RECEIPT_MODE_LABEL: Record<string, string> = { cash: "Cash", nabil_qr: "QR Payment", bank: "Bank" };

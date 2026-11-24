@@ -45,7 +45,7 @@ describe("credit terms", () => {
 
   it("works out due dates from credit days, with a default", () => {
     expect(dueDateOf("2026-11-20", 15)).toBe("2026-12-05");
-    expect(DEFAULT_CREDIT_DAYS).toBe(30);
-    expect(dueDateOf("2026-11-20", null)).toBe("2026-12-20");
+    expect(DEFAULT_CREDIT_DAYS).toBe(15);
+    expect(dueDateOf("2026-11-20", null)).toBe("2026-12-05");
   });
 });

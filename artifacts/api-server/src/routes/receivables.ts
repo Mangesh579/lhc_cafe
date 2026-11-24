@@ -1,11 +1,11 @@
 import { Router } from "express";
 import type { Response } from "express";
-import { db, customerReceiptsTable, receiptAllocationsTable, loyaltyCustomersTable, ordersTable } from "@workspace/db";
+import { db, customerReceiptsTable, receiptAllocationsTable, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable, creditNotesTable, creditNoteItemsTable, creditSettingsTable } from "@workspace/db";
 import { and, eq, gte, lte, desc, inArray, sql } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { isDay, nepalDay, isDrawerClosed } from "../lib/ledgerData";
-import { creditInvoices, customerBalances } from "../lib/receivables";
-import { validateAllocations, RECEIPT_MODES, RECEIPT_MODE_LABEL, DEFAULT_CREDIT_DAYS } from "../lib/receivableRules";
+import { creditInvoices, customerBalances, creditDefaults, syncLoyaltyForOrder } from "../lib/receivables";
+import { validateAllocations, buildCreditNote, RECEIPT_MODES, RECEIPT_MODE_LABEL } from "../lib/receivableRules";
 import { nextVoucherNumber } from "../lib/fiscal";
 import { round2 } from "../lib/payments";
 
@@ -54,7 +54,7 @@ async function receiptsWithAllocations(where: any) {
 // ── Customers with credit: balance, limit, overdue ──
 router.get("/receivables/customers", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, VIEW_ROLES)) return;
-  res.json({ defaultCreditDays: DEFAULT_CREDIT_DAYS, customers: await customerBalances() });
+  res.json({ ...(await creditDefaults()), customers: await customerBalances() });
 });
 
 // One customer's receivable ledger: credit invoices in, receipts out, running balance
@@ -66,7 +66,10 @@ router.get("/receivables/customers/:id", authenticate, async (req: AuthRequest, 
   const [balance] = await customerBalances(id);
   const invoices = await creditInvoices({ customerId: id });
   const receipts = await receiptsWithAllocations(eq(customerReceiptsTable.customerId, id));
+  const notes = await notesWithItems(eq(creditNotesTable.customerId, id));
   const items = [
+    ...notes.filter(n => n.status === "active").map(n => ({ day: n.noteDate, t: new Date(n.createdAt).toISOString(), type: "credit_note", ref: n.noteNo, orderId: n.orderId,
+      description: `Credit note on ${n.invoiceNumber ?? `order #${n.orderId}`}: ${n.reason}`, debit: 0, credit: n.total })),
     ...invoices.map(i => ({ day: i.day, t: i.at, type: "invoice", ref: i.invoiceNumber ?? `Order #${i.orderId}`, orderId: i.orderId, description: i.creditAmount < i.billTotal ? `Credit sale (part of a Rs. ${i.billTotal.toFixed(2)} bill)` : "Credit sale", debit: i.creditAmount, credit: 0 })),
     ...receipts.filter(r => r.status === "active").map(r => ({ day: r.receiptDate, t: new Date(r.createdAt).toISOString(), type: "receipt", ref: r.voucherNo, orderId: null, description: `Receipt (${r.modeLabel})${r.reference ? ` · ${r.reference}` : ""}`, debit: 0, credit: r.amount })),
   ].sort((a, b) => a.day.localeCompare(b.day) || a.t.localeCompare(b.t));
@@ -74,7 +77,7 @@ router.get("/receivables/customers/:id", authenticate, async (req: AuthRequest, 
   const ledger = items.map(it => { bal = round2(bal + it.debit - it.credit); return { ...it, balance: bal }; });
   res.json({
     customer: { id: customer.id, name: customer.name, phone: customer.phone, creditLimit: customer.creditLimit != null ? num(customer.creditLimit) : null, creditDays: customer.creditDays },
-    balance: balance ?? null, invoices, receipts, ledger, defaultCreditDays: DEFAULT_CREDIT_DAYS,
+    balance: balance ?? null, invoices, receipts, notes, ledger, ...(await creditDefaults()),
   });
 });
 
@@ -84,9 +87,13 @@ router.get("/receivables/customers/:id/summary", authenticate, async (req: AuthR
   const [customer] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, id));
   if (!customer) { res.status(404).json({ error: "Customer not found" }); return; }
   const [b] = await customerBalances(id);
+  const d = await creditDefaults();
+  const own = customer.creditLimit != null ? num(customer.creditLimit) : null;
   res.json({
     customerId: id, name: customer.name, balance: b?.balance ?? 0, overdue: b?.overdue ?? 0, openInvoices: b?.openInvoices ?? 0,
-    creditLimit: customer.creditLimit != null ? num(customer.creditLimit) : null, creditDays: customer.creditDays ?? null,
+    // the limit that applies: the customer's own, else the default for everyone (warning only)
+    creditLimit: own ?? d.defaultCreditLimit, limitIsDefault: own == null && d.defaultCreditLimit != null,
+    creditDays: customer.creditDays ?? d.defaultCreditDays,
   });
 });
 
@@ -104,11 +111,29 @@ router.patch("/receivables/customers/:id/terms", authenticate, async (req: AuthR
   res.json({ success: true });
 });
 
+// ── Credit terms for everyone: default days and default limit (a customer's own terms override them) ──
+router.get("/receivables/settings", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, VIEW_ROLES)) return;
+  res.json(await creditDefaults());
+});
+
+router.patch("/receivables/settings", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, ADMIN_ROLES, "Only the admin or the accountant can change the default credit terms.")) return;
+  const rawLimit = req.body?.defaultCreditLimit, rawDays = req.body?.defaultCreditDays;
+  const limit = rawLimit === null || rawLimit === "" || rawLimit === undefined ? null : num(rawLimit);
+  const days = Number(rawDays);
+  if (limit !== null && !(limit >= 0)) { res.status(400).json({ error: "The default credit limit must be 0 or more, or empty for no limit." }); return; }
+  if (!(Number.isInteger(days) && days >= 0 && days <= 365)) { res.status(400).json({ error: "Default credit days must be a whole number from 0 to 365." }); return; }
+  const values = { defaultCreditDays: days, defaultCreditLimit: limit === null ? null : String(round2(limit)), updatedBy: req.user?.username ?? "user", updatedAt: new Date() };
+  await db.insert(creditSettingsTable).values({ id: 1, ...values }).onConflictDoUpdate({ target: creditSettingsTable.id, set: values });
+  res.json(await creditDefaults());
+});
+
 // Credit invoices past their due date with money still owed
 router.get("/receivables/overdue", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, VIEW_ROLES)) return;
   const all = await creditInvoices();
-  res.json({ defaultCreditDays: DEFAULT_CREDIT_DAYS, invoices: all.filter(i => i.outstanding > 0 && i.daysOverdue > 0).sort((a, b) => b.daysOverdue - a.daysOverdue) });
+  res.json({ ...(await creditDefaults()), invoices: all.filter(i => i.outstanding > 0 && i.daysOverdue > 0).sort((a, b) => b.daysOverdue - a.daysOverdue) });
 });
 
 router.get("/receivables/open-invoices", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
@@ -139,7 +164,7 @@ router.get("/receipts/:id", authenticate, async (req: AuthRequest, res: Response
 // Locks the customer so two receipts for the same customer are never allocated at the same time
 async function lockCustomer(tx: any, customerId: number) {
   const r = await tx.execute(sql`SELECT id FROM loyalty_customers WHERE id = ${customerId} FOR UPDATE`);
-  if (!(r.rows ?? r).length) throw new HttpError(404, "Customer not found");
+  if (!(r.rows ?? r).length) throw new HttpError(400, "Receipts and credit notes are only for customers on the loyalty list.");
 }
 
 async function openInvoiceMap(tx: any, customerId: number) {
@@ -172,6 +197,7 @@ router.post("/receipts", authenticate, async (req: AuthRequest, res: Response): 
         reference: clean(b.reference, 80), notes: clean(b.notes, 300), createdBy: user,
       }).returning();
       for (const a of v.allocations) await tx.insert(receiptAllocationsTable).values({ receiptId: row.id, orderId: a.orderId, amount: String(a.amount), createdBy: user });
+      for (const a of v.allocations) await syncLoyaltyForOrder(tx, a.orderId, `Points for Rs. ${a.amount.toFixed(2)} paid by ${voucherNo}`, user);
       return row.id;
     });
     const [r] = await receiptsWithAllocations(eq(customerReceiptsTable.id, id));
@@ -199,6 +225,7 @@ router.post("/receipts/:id/allocate", authenticate, async (req: AuthRequest, res
       if ("error" in v) throw new HttpError(400, v.error);
       if (v.allocations.length === 0) throw new HttpError(400, "Enter an amount for at least one invoice.");
       for (const a of v.allocations) await tx.insert(receiptAllocationsTable).values({ receiptId: id, orderId: a.orderId, amount: String(a.amount), createdBy: user });
+      for (const a of v.allocations) await syncLoyaltyForOrder(tx, a.orderId, `Points for Rs. ${a.amount.toFixed(2)} paid by ${rc.voucherNo}`, user);
     });
     const [r] = await receiptsWithAllocations(eq(customerReceiptsTable.id, id));
     res.json(r);
@@ -217,9 +244,141 @@ router.post("/receipts/:id/void", authenticate, async (req: AuthRequest, res: Re
   const [rc] = await db.select().from(customerReceiptsTable).where(eq(customerReceiptsTable.id, id));
   if (!rc || rc.status !== "active") { res.status(404).json({ error: "Receipt not found" }); return; }
   if (rc.mode === "cash" && await isDrawerClosed(rc.receiptDate)) { res.status(400).json({ error: "That day's cash drawer is closed. Ask the admin to reopen it first." }); return; }
-  await db.update(customerReceiptsTable).set({ status: "void", voidReason: reason, voidedBy: req.user?.username ?? "user", voidedAt: new Date() })
-    .where(and(eq(customerReceiptsTable.id, id), eq(customerReceiptsTable.status, "active")));
+  const user = req.user?.username ?? "user";
+  await db.transaction(async (tx) => {
+    await lockCustomer(tx, rc.customerId);
+    const [done] = await tx.update(customerReceiptsTable).set({ status: "void", voidReason: reason, voidedBy: user, voidedAt: new Date() })
+      .where(and(eq(customerReceiptsTable.id, id), eq(customerReceiptsTable.status, "active"))).returning({ id: customerReceiptsTable.id });
+    if (!done) return;
+    // Points earned on what this receipt paid are taken back
+    const allocs = await tx.select({ orderId: receiptAllocationsTable.orderId }).from(receiptAllocationsTable).where(eq(receiptAllocationsTable.receiptId, id));
+    for (const orderId of new Set(allocs.map(a => a.orderId))) await syncLoyaltyForOrder(tx, orderId, `Points taken back: ${rc.voucherNo} voided`, user);
+  });
   res.json({ success: true });
+});
+
+// ── Customer credit notes (CN): item-wise, against credit invoices ──
+async function notesWithItems(where: any) {
+  const rows = await db.select({
+    id: creditNotesTable.id, noteNo: creditNotesTable.noteNo, orderId: creditNotesTable.orderId,
+    invoiceNumber: ordersTable.invoiceNumber, customerId: creditNotesTable.customerId, customerName: loyaltyCustomersTable.name,
+    noteDate: creditNotesTable.noteDate, reason: creditNotesTable.reason, subtotal: creditNotesTable.subtotal, vatAmount: creditNotesTable.vatAmount,
+    total: creditNotesTable.total, status: creditNotesTable.status, voidReason: creditNotesTable.voidReason, createdBy: creditNotesTable.createdBy, createdAt: creditNotesTable.createdAt,
+  }).from(creditNotesTable)
+    .leftJoin(ordersTable, eq(creditNotesTable.orderId, ordersTable.id))
+    .leftJoin(loyaltyCustomersTable, eq(creditNotesTable.customerId, loyaltyCustomersTable.id))
+    .where(where).orderBy(desc(creditNotesTable.id)).limit(500);
+  const ids = rows.map(r => r.id);
+  const items = ids.length ? await db.select().from(creditNoteItemsTable).where(inArray(creditNoteItemsTable.noteId, ids)).orderBy(creditNoteItemsTable.id) : [];
+  return rows.map(r => ({
+    ...r, subtotal: round2(num(r.subtotal)), vatAmount: round2(num(r.vatAmount)), total: round2(num(r.total)),
+    items: items.filter(i => i.noteId === r.id).map(i => ({ ...i, unitPrice: round2(num(i.unitPrice)), amount: round2(num(i.amount)) })),
+  }));
+}
+
+// The invoice's items, what can still be credited, and the figures a note is worked out from
+async function invoiceForNotes(ex: any, orderId: number) {
+  const [inv] = await creditInvoices({ orderIds: [orderId] }, ex);
+  if (!inv) return null;
+  const [o] = await ex.select().from(ordersTable).where(eq(ordersTable.id, orderId));
+  const items = await ex.select({ id: orderItemsTable.id, name: menuItemsTable.name, quantity: orderItemsTable.quantity, unitPrice: orderItemsTable.unitPrice, subtotal: orderItemsTable.subtotal })
+    .from(orderItemsTable).leftJoin(menuItemsTable, eq(orderItemsTable.menuItemId, menuItemsTable.id)).where(eq(orderItemsTable.orderId, orderId)).orderBy(orderItemsTable.id);
+  const credited = await ex.select({ orderItemId: creditNoteItemsTable.orderItemId, qty: sql<string>`SUM(${creditNoteItemsTable.quantity})` })
+    .from(creditNoteItemsTable).innerJoin(creditNotesTable, eq(creditNotesTable.id, creditNoteItemsTable.noteId))
+    .where(and(eq(creditNotesTable.orderId, orderId), eq(creditNotesTable.status, "active")))
+    .groupBy(creditNoteItemsTable.orderItemId);
+  const creditedBy = new Map<number, number>(credited.map((c: any) => [c.orderItemId, Number(c.qty)]));
+  const total = round2(num(o.totalAmount)), vat = round2(num(o.vatAmount));
+  return {
+    invoice: inv,
+    items: items.map((i: any) => ({ id: i.id, name: i.name ?? `Item #${i.id}`, quantity: i.quantity, unitPrice: round2(num(i.unitPrice)), creditedQty: creditedBy.get(i.id) ?? 0 })),
+    itemsSubtotal: round2(items.reduce((s: number, i: any) => s + num(i.subtotal), 0)),
+    netPreVat: round2(total - vat), vatAmount: vat,
+  };
+}
+
+router.get("/receivables/invoices/:orderId", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, VIEW_ROLES)) return;
+  const orderId = idOf(req.params.orderId);
+  const data = await invoiceForNotes(db, orderId);
+  if (!data) { res.status(404).json({ error: "That is not a credit invoice." }); return; }
+  const factor = data.itemsSubtotal > 0 ? data.netPreVat / data.itemsSubtotal : 1;
+  res.json({
+    ...data.invoice, vatAmount: data.vatAmount, vatRate: data.netPreVat > 0 ? data.vatAmount / data.netPreVat : 0,
+    items: data.items.map((i: any) => ({ ...i, netUnitPrice: round2(i.unitPrice * factor) })),
+    notes: await notesWithItems(eq(creditNotesTable.orderId, orderId)),
+  });
+});
+
+router.get("/credit-notes", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, VIEW_ROLES)) return;
+  const conds = [];
+  if (isDay(req.query.from)) conds.push(gte(creditNotesTable.noteDate, req.query.from));
+  if (isDay(req.query.to)) conds.push(lte(creditNotesTable.noteDate, req.query.to));
+  const customerId = Number(req.query.customerId);
+  if (Number.isInteger(customerId) && customerId > 0) conds.push(eq(creditNotesTable.customerId, customerId));
+  res.json(await notesWithItems(conds.length ? and(...conds) : undefined));
+});
+
+router.post("/credit-notes", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, ADMIN_ROLES, "Only the admin or the accountant can issue credit notes.")) return;
+  const b = req.body ?? {};
+  const orderId = Number(b.orderId);
+  const reason = clean(b.reason, 300);
+  const today = nepalDay(new Date());
+  const date = isDay(b.date) ? b.date : today;
+  if (!Number.isInteger(orderId) || orderId <= 0) { res.status(400).json({ error: "Choose the invoice." }); return; }
+  if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
+  if (date > today) { res.status(400).json({ error: "The note date cannot be in the future." }); return; }
+  const user = req.user?.username ?? "user";
+  try {
+    const id = await db.transaction(async (tx) => {
+      const [o] = await tx.select({ customerId: ordersTable.loyaltyCustomerId }).from(ordersTable).where(eq(ordersTable.id, orderId));
+      if (!o?.customerId) throw new HttpError(400, "Credit notes are only for credit invoices of loyalty customers.");
+      await lockCustomer(tx, o.customerId);
+      const data = await invoiceForNotes(tx, orderId);
+      if (!data) throw new HttpError(400, "That is not a credit invoice (or it was cancelled).");
+      if (date < data.invoice.day) throw new HttpError(400, "The note cannot be dated before the invoice.");
+      const v = buildCreditNote(b.lines, { items: data.items, itemsSubtotal: data.itemsSubtotal, netPreVat: data.netPreVat, vatAmount: data.vatAmount, maxCredit: data.invoice.outstanding });
+      if ("error" in v) throw new HttpError(400, v.error);
+      const noteNo = await nextVoucherNumber(tx, "CN");
+      const [row] = await tx.insert(creditNotesTable).values({
+        noteNo, orderId, customerId: o.customerId, noteDate: date, reason,
+        subtotal: String(v.subtotal), vatAmount: String(v.vatAmount), total: String(v.total), createdBy: user,
+      }).returning();
+      for (const l of v.lines) {
+        await tx.insert(creditNoteItemsTable).values({ noteId: row.id, orderItemId: l.orderItemId, description: l.description, quantity: l.quantity, unitPrice: String(l.unitPrice), amount: String(l.amount) });
+      }
+      await syncLoyaltyForOrder(tx, orderId, `${noteNo} issued`, user);
+      return row.id;
+    });
+    const [n] = await notesWithItems(eq(creditNotesTable.id, id));
+    res.status(201).json(n);
+  } catch (e: any) {
+    if (e instanceof HttpError) { res.status(e.status).json({ error: e.message }); return; }
+    throw e;
+  }
+});
+
+router.post("/credit-notes/:id/void", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, ADMIN_ROLES, "Only the admin or the accountant can void a credit note.")) return;
+  const id = idOf(req.params.id);
+  const reason = clean(req.body?.reason, 300);
+  if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
+  const user = req.user?.username ?? "user";
+  try {
+    await db.transaction(async (tx) => {
+      const [n] = await tx.select().from(creditNotesTable).where(eq(creditNotesTable.id, id));
+      if (!n || n.status !== "active") throw new HttpError(404, "Credit note not found");
+      await lockCustomer(tx, n.customerId);
+      await tx.update(creditNotesTable).set({ status: "void", voidReason: reason, voidedBy: user, voidedAt: new Date() }).where(eq(creditNotesTable.id, id));
+      await syncLoyaltyForOrder(tx, n.orderId, `${n.noteNo} voided`, user);
+    });
+    res.json({ success: true });
+  } catch (e: any) {
+    if (e instanceof HttpError) { res.status(e.status).json({ error: e.message }); return; }
+    throw e;
+  }
 });
 
 export default router;

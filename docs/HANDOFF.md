@@ -13,19 +13,26 @@
 12. Cash drawer (routes/cash.ts, pages/cash-drawer.tsx), payment-mode ledgers (routes/ledgers.ts, pages/ledgers.tsx), orders.paid_at, expenses.paid_from_drawer, and the "QR Payment" label (stored value stays nabil_qr). Committed 2026-11-22 (066e7ee). The owner has run the SQL on the server; confirm the pages work live before relying on them.
 13. Split payment and credit sales (roadmap step 2, parts A and B), 2026-11-22. Five payment modes (cash, nabil_qr, card_nabil, card_hbl, credit); order_payments table, written by the Pay dialog in Active Orders; cash drawer, collections and mode ledgers read order_payments with a fallback to orders.payment_method; paid_at on settlement; credit sales with their own invoice, the customer's receivable, credit limit (warning) and credit days; Receivables page (balances, overdue, customer ledger); receipt vouchers (RV) with allocation to invoices; Order Log shows the payment breakdown and what is still owed. Tests: `pnpm test` (vitest). See docs/TEST_PLAN_payments.md. Needs migration 001 (below).
 
+14. Accountant's credit rules (2026-11-23): default credit terms in credit_settings (15 days; one default limit, blank until the owner sets it; a customer's own terms override; the limit only warns); item-wise customer credit notes (CN) that lower the receivable; loyalty points earned as the customer pays (none at a credit sale); receipts and credit notes only for loyalty customers; a required bill number on petty cash payouts (expenses.bill_number). Needs migration 002 (below).
+
+# Applied on the server
+- 001_payments_credit.sql (2026-11-22, by the owner).
+
 # Not yet applied on the server
-- db/migrations/001_payments_credit.sql (order_payments, customer_receipts, receipt_allocations, voucher_sequences, loyalty_customers.credit_limit/credit_days). Run after a backup, BEFORE deploy.sh and before pushing to main (Vercel deploys the frontend on push).
+- db/migrations/002_credit_rules_billno.sql (credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number). Run after a backup, BEFORE deploy.sh and before pushing to main (Vercel deploys the frontend on push).
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
 - Monthly accounts (item 10) are still live alongside credit. Retire them only after the accountant answers the open questions in CLAUDE.md.
-- Partial credit/debit notes do not change a credit invoice's outstanding amount (full cancellation does). Refunds of receipts are not modelled.
-- Overdue uses 30 days when a customer has no credit days (placeholder).
+- Customer credit notes exist only for credit invoices and cannot exceed what is still owed. Refunds of money already received are not modelled (accountant: avoid refunds; when needed, void with a reason). Supplier debit notes come with purchases (roadmap step 4).
+- Credit notes do not yet change sales, profit or VAT reports (VAT credit-note register is roadmap step 6).
+- The default credit limit is blank until the owner sets it (Receivables > Change defaults).
+- Cash vouchers (CV) with supplier PAN for cash expenses are not built yet; drawer payouts only require a bill number for now (roadmap step 5).
 - QR and card money is shown as received; settlement to the bank with the card-machine charge is roadmap step 3.
 - The OpenAPI spec and generated client still list only cash/nabil_qr for payment methods.
 - scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
 - On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary).
-- Check the server's PostgreSQL timezone (`SHOW timezone;`); the ledger code is now safe either way.
+- Server PostgreSQL timezone is Etc/UTC (confirmed in CLAUDE.md); the ledger code is safe either way.
 
 # Next work
-Rest of step 2 (retire the monthly-account merge, after the accountant's answers), then steps 3 to 9 in the CLAUDE.md roadmap. Each task must end with a docs/CHANGELOG.md entry.
+Rest of step 2: retire the monthly-account merge (convert open monthly-account bills into one credit invoice per visit, dry run first), then steps 3 to 9 in the CLAUDE.md roadmap. Each task must end with a docs/CHANGELOG.md entry.

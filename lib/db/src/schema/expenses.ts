@@ -12,6 +12,7 @@ export const expensesTable = pgTable("expenses", {
   paymentMethod: text("payment_method").notNull().default("cash"),
   isRecurring: boolean("is_recurring").notNull().default(false),
   paidFromDrawer: boolean("paid_from_drawer").notNull().default(false),
+  billNumber: text("bill_number"), // required for petty cash payouts from the drawer (since 2026-11-23)
   frequency: text("frequency"),
   inventoryItemId: integer("inventory_item_id"),
   purchaseQuantity: numeric("purchase_quantity", { precision: 12, scale: 4 }),

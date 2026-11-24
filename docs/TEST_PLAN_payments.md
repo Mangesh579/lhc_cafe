@@ -50,3 +50,33 @@ Do these in a quiet hour. Use a test customer from the loyalty list, and cancel 
 - Against the production database.
 - Printing on the real thermal printer (receipt voucher and the bill's payment line).
 - The QR order page (public-order) was not changed; QR orders are still paid in Active Orders.
+
+
+---
+
+# Test plan: credit rules of 2026-11-23 (migration 002)
+
+## Before deploying (dev machine)
+1. `pnpm test` with ESBUILD_BINARY_PATH set (Windows): expect all tests to pass, including creditTerms, creditNotes, loyalty, pettyCash.
+2. `pnpm run build` and `pnpm --filter ./artifacts/lhc-cafe run build`: both succeed.
+
+## On the server
+1. Backup, then `psql cafenexus -v ON_ERROR_STOP=1 -f db/migrations/002_credit_rules_billno.sql`. Run it a second time: no errors (idempotent).
+2. `SELECT * FROM credit_settings;` gives one row: 1 | 15 | (empty).
+3. Deploy (deploy.sh), then push to main for the frontend.
+
+## In the app (owner, with a test loyalty customer)
+1. Receivables shows "Default credit terms for everyone: 15 days · limit not set". As admin/accountant, Change defaults: set a limit (e.g. Rs. 5,000). A supervisor does not see the button.
+2. Credit sale under the limit: no warning. A credit sale that goes over it: red warning and a confirm in the Pay dialog; the sale still goes through. Due date = invoice day + 15.
+3. Customer credit terms: set their own limit/days; they override the defaults. Clear them: defaults apply again.
+4. Loyalty: note the customer's points. Rs. 1,000 credit sale: points unchanged, visit count +1. Receipt of Rs. 400 against it: +40. Receipt of the rest: +60. Void the second receipt: -60. The point log shows each line.
+5. A cash bill for a loyalty customer still earns points straight away.
+6. Credit note: customer > invoice > Credit note, 1 of an item, a reason, Issue. CN number; print it. Balance and the invoice's "Owes" drop by the note; Ledgers > Credit ledger shows it as money out. Try more items than were sold, or more than is owed: refused.
+7. Void the credit note: the amount is owed again.
+8. Cancel a credit invoice with a credit note or receipt: refused until they are voided.
+9. Receipt for a customer not on the loyalty list (via API): refused.
+10. Cash Drawer > Petty cash payout without a bill number: the button stays disabled ("No bill, no payout"). With one: saved, shown in the drawer list ("Bill ...") and on the Expenses page and export. Older payouts show no bill number.
+11. Clean up: void test credit notes and receipts, then cancel the test bills.
+
+## Not tested
+- Any database from this machine; the thermal printer for credit notes.

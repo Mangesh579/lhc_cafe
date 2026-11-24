@@ -29,7 +29,7 @@ export default function CashDrawer() {
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [openAmt, setOpenAmt] = useState("");
-  const [payout, setPayout] = useState({ type: "direct", category: DIRECT_CATEGORIES[0], vendor: "", amount: "", description: "" });
+  const [payout, setPayout] = useState({ type: "direct", category: DIRECT_CATEGORIES[0], vendor: "", billNumber: "", amount: "", description: "" });
   const [move, setMove] = useState({ kind: "deposit", amount: "", description: "", reference: "" });
   const [closeOpen, setCloseOpen] = useState(false);
   const [counted, setCounted] = useState("");
@@ -134,9 +134,13 @@ export default function CashDrawer() {
                 <select className={SELECT} value={payout.category} onChange={e => setPayout({ ...payout, category: e.target.value })}>
                   {(payout.type === "direct" ? DIRECT_CATEGORIES : INDIRECT_CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <Input placeholder="Paid to" value={payout.vendor} onChange={e => setPayout({ ...payout, vendor: e.target.value })} />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input placeholder="Paid to" value={payout.vendor} onChange={e => setPayout({ ...payout, vendor: e.target.value })} />
+                  <Input placeholder="Bill number *" value={payout.billNumber} onChange={e => setPayout({ ...payout, billNumber: e.target.value })} />
+                </div>
                 <Input placeholder="What was it for (e.g. coriander)" value={payout.description} onChange={e => setPayout({ ...payout, description: e.target.value })} />
-                <Button size="sm" disabled={busy || !(parseFloat(payout.amount) > 0)} onClick={() => act(async () => { await apiJson("/cash/payout", "POST", { date, ...payout, amount: parseFloat(payout.amount) }); setPayout({ ...payout, amount: "", vendor: "", description: "" }); }, "Payout recorded")}>Record payout</Button>
+                <Button size="sm" disabled={busy || !(parseFloat(payout.amount) > 0) || !payout.billNumber.trim()} onClick={() => act(async () => { await apiJson("/cash/payout", "POST", { date, ...payout, billNumber: payout.billNumber.trim(), amount: parseFloat(payout.amount) }); setPayout({ ...payout, amount: "", vendor: "", billNumber: "", description: "" }); }, "Payout recorded")}>Record payout</Button>
+                {!payout.billNumber.trim() && parseFloat(payout.amount) > 0 && <p className="text-xs text-red-600">No bill, no payout: enter the bill number from the supplier's bill.</p>}
               </CardContent></Card>
 
               <Card><CardContent className="p-4 space-y-2">
@@ -160,7 +164,7 @@ export default function CashDrawer() {
                   <tr key={`r${r.id}`}><td className="px-4 py-2">Customer receipt</td><td className="px-4 py-2">{r.voucherNo} · {r.customer}{r.reference ? ` · ${r.reference}` : ""}</td><td className="px-4 py-2 text-right text-green-700">+ {money(r.amount)}</td><td /></tr>
                 ))}
                 {d.payouts.map((p: any) => (
-                  <tr key={`p${p.id}`}><td className="px-4 py-2">Payout</td><td className="px-4 py-2">{p.category}{p.vendor ? ` · ${p.vendor}` : ""}{p.description ? ` · ${p.description}` : ""}</td><td className="px-4 py-2 text-right text-red-600">- {money(p.amount)}</td><td /></tr>
+                  <tr key={`p${p.id}`}><td className="px-4 py-2">Payout</td><td className="px-4 py-2">{p.category}{p.vendor ? ` · ${p.vendor}` : ""}{p.description ? ` · ${p.description}` : ""}{p.billNumber ? <span className="text-muted-foreground"> · Bill {p.billNumber}</span> : null}</td><td className="px-4 py-2 text-right text-red-600">- {money(p.amount)}</td><td /></tr>
                 ))}
                 {d.movements.map((m: any) => (
                   <tr key={`m${m.id}`}>

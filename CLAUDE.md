@@ -76,7 +76,7 @@ Chart of accounts
 
 ## Roadmap, in order
 1. DONE: Cash drawer, payment-mode ledgers, rename "Nabil QR" to "QR Payment".
-2. DONE 2026-11-22 (migration 001 run on the server): payment modes and split payment (order_payments); credit sales, receipt vouchers with allocation, credit limit and overdue. STILL TO DO: credit rules from the 2026-11-23 answers (15 days, default limit setting, item-wise credit and debit notes, points on payment), then retire the monthly-account merge (dry run first).
+2. DONE 2026-11-22 (migration 001 run on the server): payment modes and split payment (order_payments); credit sales, receipt vouchers with allocation, credit limit and overdue. Credit rules from the 2026-11-23 answers built 2026-11-23 (migration 002 NOT yet run): 15 days, default limit setting, item-wise customer credit notes, points on payment, bill number on drawer payouts. STILL TO DO: retire the monthly-account merge (dry run first).
 3. Settlements of QR and card to the bank, per day, with the bank charge.
 4. Suppliers, purchase bills (supplier invoice no., PAN, VAT), supplier ledgers, payments, returns with debit notes, supplier on each ingredient, price history.
 5. Chart of accounts, vouchers (RV, CV, JV, PV), next-day Sales/Purchase/Consumption posting, trial balance, balance sheet, day book, period lock.

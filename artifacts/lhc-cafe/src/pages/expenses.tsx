@@ -143,7 +143,7 @@ export default function Expenses() {
       const active = list.filter(r => r.status === "active");
       const sheet = list.map(r => ({
         "Date": r.expenseDate, "Type": r.type === "direct" ? "Direct" : "Indirect", "Category": r.category, "Subcategory": r.subcategory ?? "",
-        "Description": r.description ?? "", "Paid to / vendor": r.vendor ?? "", "Payment method": methodLabel(r.paymentMethod),
+        "Description": r.description ?? "", "Paid to / vendor": r.vendor ?? "", "Bill no.": r.billNumber ?? "", "Payment method": methodLabel(r.paymentMethod),
         "Amount (Rs.)": parseFloat(r.amount), "Recurring": r.isRecurring ? (r.frequency ?? "yes") : "One-time",
         "Receipts": r.attachmentCount, "Status": r.status === "void" ? `VOID: ${r.voidReason ?? ""}` : "Active", "Recorded by": r.createdBy,
       }));
@@ -263,6 +263,7 @@ export default function Expenses() {
                         <td className="px-4 py-3 max-w-64">
                           <div className="text-xs">{r.description ?? "—"}</div>
                           {r.vendor && <div className="text-xs text-muted-foreground">Paid to: {r.vendor}</div>}
+                          {r.billNumber && <div className="text-xs text-muted-foreground">Bill no.: {r.billNumber}</div>}
                           {r.status === "void" && <div className="text-xs text-red-600">VOID: {r.voidReason}</div>}
                           {r.attachmentCount > 0 && <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Paperclip className="w-3 h-3" /> {r.attachmentCount} receipt{r.attachmentCount === 1 ? "" : "s"}</div>}
                         </td>

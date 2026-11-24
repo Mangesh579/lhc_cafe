@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Response } from "express";
-import { db, cashDaysTable, cashMovementsTable, expensesTable } from "@workspace/db";
+import { db, cashDaysTable, cashMovementsTable, expensesTable, creditNotesTable, loyaltyCustomersTable } from "@workspace/db";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { isDay, dayRangeUtc, paidOrdersBetween, modeOf, nepalDay, addDays, collectionsByDay, receiptsBetween, type CollectionRow } from "../lib/ledgerData";
@@ -112,6 +112,14 @@ async function modeLedger(mode: string, from: string, to: string) {
       const who = r.customerName ?? `customer #${r.customerId}`;
       if (mode === "credit") items.push({ t: r.createdAt.getTime(), day: r.receiptDate, type: "receipt", ref: r.voucherNo, description: `Received from ${who} (${MODE_LABEL[r.mode] ?? (r.mode === "bank" ? "Bank" : r.mode)})`, inAmt: 0, outAmt: r.amount });
       else items.push({ t: r.createdAt.getTime(), day: r.receiptDate, type: "receipt", ref: r.voucherNo, description: `Received from ${who}`, inAmt: r.amount, outAmt: 0 });
+    }
+  }
+  if (mode === "credit") {
+    const notes = await db.select({ noteNo: creditNotesTable.noteNo, noteDate: creditNotesTable.noteDate, total: creditNotesTable.total, createdAt: creditNotesTable.createdAt, customerName: loyaltyCustomersTable.name, reason: creditNotesTable.reason })
+      .from(creditNotesTable).leftJoin(loyaltyCustomersTable, eq(creditNotesTable.customerId, loyaltyCustomersTable.id))
+      .where(and(eq(creditNotesTable.status, "active"), gte(creditNotesTable.noteDate, from), lte(creditNotesTable.noteDate, to)));
+    for (const n of notes) {
+      items.push({ t: new Date(n.createdAt).getTime(), day: n.noteDate, type: "credit_note", ref: n.noteNo, description: `Credit note · ${n.customerName ?? ""} · ${n.reason}`, inAmt: 0, outAmt: num(n.total) });
     }
   }
   items.sort((a, b) => a.day.localeCompare(b.day) || a.t - b.t);

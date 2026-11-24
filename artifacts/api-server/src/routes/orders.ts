@@ -12,8 +12,8 @@ import { hideCosts } from "../middlewares/hideCosts";
 import { expandRecipeLines } from "../lib/ingredientUsage";
 import { nextInvoiceNumber } from "../lib/fiscal";
 import { validateSplit, partsFor, summaryMethod, creditAmountOf, round2, PAYMENT_MODES, MODE_LABEL } from "../lib/payments";
-import { allocatedByOrder, customerBalances } from "../lib/receivables";
-import { creditLimitWarning } from "../lib/receivableRules";
+import { allocatedByOrder, customerBalances, creditNotesByOrder, syncLoyaltyForOrder } from "../lib/receivables";
+import { creditLimitWarning, outstandingOf } from "../lib/receivableRules";
 
 const router = Router();
 router.use(hideCosts);
@@ -32,14 +32,16 @@ async function paymentInfo(orders: { id: number; totalAmount: unknown; paymentMe
   const settled = orders.filter(o => o.paymentStatus === "paid" && !o.isNc);
   const creditIds = settled.filter(o => creditAmountOf(partsFor(o, byOrder.get(o.id))) > 0).map(o => o.id);
   const alloc = await allocatedByOrder(creditIds);
-  const info = new Map<number, { payments: { mode: string; label: string; amount: number; reference: string | null }[]; creditAmount: number; creditPaid: number; creditOutstanding: number }>();
+  const notes = await creditNotesByOrder(creditIds);
+  const info = new Map<number, { payments: { mode: string; label: string; amount: number; reference: string | null }[]; creditAmount: number; creditPaid: number; creditNotes: number; creditOutstanding: number }>();
   for (const o of orders) {
     const parts = o.paymentStatus === "paid" && !o.isNc ? partsFor(o, byOrder.get(o.id)) : [];
     const creditAmount = creditAmountOf(parts);
     const creditPaid = alloc.get(o.id) ?? 0;
+    const cn = notes.get(o.id) ?? 0;
     info.set(o.id, {
       payments: parts.map(p => ({ mode: p.mode, label: MODE_LABEL[p.mode] ?? p.mode, amount: p.amount, reference: p.reference ?? null })),
-      creditAmount, creditPaid, creditOutstanding: round2(Math.max(0, creditAmount - creditPaid)),
+      creditAmount, creditPaid, creditNotes: cn, creditOutstanding: outstandingOf(creditAmount, cn, creditPaid),
     });
   }
   return info;
@@ -434,8 +436,8 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   if (creditPart > 0) {
     const [cust] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, customerId!));
     if (!cust) { res.status(400).json({ error: "Credit needs a customer from the loyalty list." }); return; }
-    const [bal] = await customerBalances(cust.id);
-    creditWarning = creditLimitWarning(cust.creditLimit != null ? parseFloat(String(cust.creditLimit)) : null, bal?.balance ?? 0, creditPart);
+    const [bal] = await customerBalances(cust.id); // creditLimit there is the customer's own limit, or the default for everyone
+    creditWarning = creditLimitWarning(bal?.creditLimit ?? null, bal?.balance ?? 0, creditPart);
   }
 
   const paidAt = new Date();
@@ -454,17 +456,10 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
     // Only assign an invoice number once — reprints/edits must never get a new one
     if (!order.invoiceNumber) set.invoiceNumber = await getNextInvoiceNumber(tx);
 
+    // Loyalty: the visit counts now; points and total spent follow the money paid (none on a credit part
+    // until the customer pays it). See syncLoyaltyForOrder below.
     if (customerId) {
-      const points = Math.floor(parseFloat(String(order.totalAmount)) / 10);
-      set.loyaltyPointsEarned = points;
-      const [customer] = await tx.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, customerId));
-      if (customer) {
-        await tx.update(loyaltyCustomersTable).set({
-          totalPoints: customer.totalPoints + points,
-          totalOrders: customer.totalOrders + 1,
-          totalSpent: String(parseFloat(String(customer.totalSpent)) + parseFloat(String(order.totalAmount))),
-        }).where(eq(loyaltyCustomersTable.id, customerId));
-      }
+      await tx.update(loyaltyCustomersTable).set({ totalOrders: sql`${loyaltyCustomersTable.totalOrders} + 1` }).where(eq(loyaltyCustomersTable.id, customerId));
     }
 
     // Clear table session so the next guest gets a fresh start
@@ -476,6 +471,7 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
         await tx.insert(orderPaymentsTable).values({ orderId: id, mode: p.mode, amount: String(p.amount), reference: p.reference ?? null, paidAt, createdBy: username });
       }
     }
+    if (customerId && !nc) await syncLoyaltyForOrder(tx, id, "Points for the amount paid", username ?? "staff");
   });
 
   const result = await getOrderWithItems(id);
@@ -527,6 +523,8 @@ router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req: any, 
   // A credit invoice that has customer receipts allocated to it cannot be cancelled until those receipts are voided
   const allocated = (await allocatedByOrder([id])).get(id) ?? 0;
   if (allocated > 0) { res.status(400).json({ error: `Receipts of Rs. ${allocated.toFixed(2)} are allocated to this credit invoice. Void those receipt vouchers first.` }); return; }
+  const cnTotal = (await creditNotesByOrder([id])).get(id) ?? 0;
+  if (cnTotal > 0) { res.status(400).json({ error: "This invoice has credit notes. Void them first." }); return; }
   if (orderBeforeCancel.paymentStatus === "paid") {
     await db.insert(orderCorrectionsTable).values({
       originalOrderId: id,

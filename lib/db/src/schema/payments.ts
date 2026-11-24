@@ -61,3 +61,48 @@ export const voucherSequencesTable = pgTable("voucher_sequences", {
 }, (t) => ({
   pk: primaryKey({ columns: [t.voucherType, t.fiscalYear] }),
 }));
+
+// One row (id = 1): credit terms for every customer unless the customer has their own.
+// default_credit_limit is blank (no limit warning) until the owner sets it; the limit only ever warns.
+export const creditSettingsTable = pgTable("credit_settings", {
+  id: integer("id").primaryKey(),
+  defaultCreditDays: integer("default_credit_days").notNull().default(15),
+  defaultCreditLimit: numeric("default_credit_limit", { precision: 12, scale: 2 }),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
+});
+
+// Customer credit note (CN) against a credit invoice: item-wise, lowers what the customer owes.
+// Never deleted; voided with a reason. (Debit notes are supplier-side and come with purchases.)
+export const creditNotesTable = pgTable("credit_notes", {
+  id: serial("id").primaryKey(),
+  noteNo: text("note_no").notNull().unique(),
+  orderId: integer("order_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  noteDate: date("note_date").notNull(),
+  reason: text("reason").notNull(),
+  subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull(),
+  vatAmount: numeric("vat_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+  total: numeric("total", { precision: 12, scale: 2 }).notNull(),
+  status: text("status").notNull().default("active"),
+  voidReason: text("void_reason"),
+  voidedBy: text("voided_by"),
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  byOrder: index("credit_notes_order_idx").on(t.orderId),
+  byCustomer: index("credit_notes_customer_idx").on(t.customerId),
+}));
+
+export const creditNoteItemsTable = pgTable("credit_note_items", {
+  id: serial("id").primaryKey(),
+  noteId: integer("note_id").notNull(),
+  orderItemId: integer("order_item_id").notNull(),
+  description: text("description").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+}, (t) => ({
+  byNote: index("credit_note_items_note_idx").on(t.noteId),
+}));
