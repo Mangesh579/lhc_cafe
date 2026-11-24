@@ -21,6 +21,8 @@ import CashDrawer from "@/pages/cash-drawer";
 import Ledgers from "@/pages/ledgers";
 import Receivables from "@/pages/receivables";
 import Settlements from "@/pages/settlements";
+import Suppliers from "@/pages/suppliers";
+import PurchaseBill from "@/pages/purchase-bill";
 import AccountConversion from "@/pages/account-conversion";
 import Tables from "@/pages/tables";
 import Loyalty from "@/pages/loyalty";
@@ -101,6 +103,8 @@ function Router() {
         <Route path="/ledgers" component={Ledgers} />
         <Route path="/receivables" component={Receivables} />
         <Route path="/settlements" component={Settlements} />
+        <Route path="/suppliers" component={Suppliers} />
+        <Route path="/purchases/new" component={PurchaseBill} />
         <Route path="/tables" component={Tables} />
         <Route path="/loyalty" component={Loyalty} />
         <Route path="/users" component={Users} />

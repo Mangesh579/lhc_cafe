@@ -13,6 +13,9 @@ export const expensesTable = pgTable("expenses", {
   isRecurring: boolean("is_recurring").notNull().default(false),
   paidFromDrawer: boolean("paid_from_drawer").notNull().default(false),
   billNumber: text("bill_number"), // required for petty cash payouts from the drawer (since 2026-11-23)
+  // Set when the expense was booked by a purchase bill line: edit or void the bill, not the expense
+  purchaseBillId: integer("purchase_bill_id"),
+  purchaseBillItemId: integer("purchase_bill_item_id"),
   frequency: text("frequency"),
   inventoryItemId: integer("inventory_item_id"),
   purchaseQuantity: numeric("purchase_quantity", { precision: 12, scale: 4 }),

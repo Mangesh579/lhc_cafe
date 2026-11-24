@@ -18,7 +18,7 @@ import OperatingCosts from "@/components/OperatingCosts";
 import ProfitLoss from "@/components/ProfitLoss";
 
 const money = (n: number) => `Rs. ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-const methodLabel = (v: string) => PAYMENT_METHODS.find(m => m.value === v)?.label ?? v;
+const methodLabel = (v: string) => v === "credit" ? "Credit (supplier bill)" : PAYMENT_METHODS.find(m => m.value === v)?.label ?? v;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const EMPTY = { type: "indirect", category: INDIRECT_CATEGORIES[0], subcategory: "", expenseDate: "", amount: "", paymentMethod: "cash", vendor: "", description: "", isRecurring: false, frequency: "monthly", paidFromDrawer: false };
 
@@ -270,7 +270,8 @@ export default function Expenses() {
                         <td className="px-4 py-3 text-xs">{methodLabel(r.paymentMethod)}</td>
                         <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">{money(parseFloat(r.amount))}</td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
-                          {r.status === "active" && (
+                          {r.status === "active" && r.purchaseBillId && <span className="text-xs text-muted-foreground">From a purchase bill (Suppliers)</span>}
+                          {r.status === "active" && !r.purchaseBillId && (
                             <>
                               <Button size="sm" variant="ghost" onClick={() => openEdit(r)}>Edit</Button>
                               <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { setVoidTarget(r); setVoidReason(""); }}>Void</Button>

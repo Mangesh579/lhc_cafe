@@ -61,6 +61,7 @@ Purchases and expenses
 - Purchase bills: supplier PAN mandatory, bill number mandatory, no purchase without a bill. Duplicate check is per supplier: the same bill number from the same PAN is refused. Record supplier credit days when a purchase is on credit.
 - Purchase returns are item-wise and vendor-wise, with a debit note.
 - Every expense and purchase needs a bill, including small cash expenses paid from the drawer. No bill, no payout. Cash expenses are recorded on a CV (cash voucher) with the bill number and, where the supplier has one, the PAN.
+- Owner, 2026-11-24 (docs/specs/step2-suppliers.md): purchases of stock are entered only as purchase bills (the quick one-ingredient "Record purchase" is closed). One supplier record per PAN. A bill paid when bought is paid from the cash drawer, by cheque or by online transfer. Items not kept in stock stay on Expenses, with a bill number, until vouchers. The bill form's supplier dropdown fills in the PAN/VAT number and credit days, which can be edited on the bill.
 
 Vouchers and period lock
 - Vouchers: RV (receipt voucher, money received from customers), CV (cash voucher, for cash and petty-cash expenses), JV (journal voucher), PV (payment voucher). Purchases and payments have separate series (purchase journal PJ and PV). Prefixes are editable.
@@ -78,7 +79,7 @@ Chart of accounts
 ## Roadmap, in order
 Done so far: cash drawer and payment-mode ledgers; payment modes, split payment, credit sales, receipt vouchers, credit rules and credit notes (migrations 001, 002); card and QR settlements (003); monthly-account conversion (004). See docs/CHANGELOG.md.
 1. Monthly accounts retired (2026-11-24): all open monthly bills converted into credit invoices; "Make monthly account", the Add-customer merge into an account bill and the QR "charge to my account" option removed (the API answers with a clear error); the Monthly Accounts page replaced by Receivables (conversion history under Receivables > Converted monthly bills). No migration. Old data stays readable.
-2. Suppliers, purchases, payables, supplier ledger, payments (PV), returns with debit notes, supplier on each ingredient, price history.
+2. Suppliers, purchases, payables, supplier ledger, payments (PV), returns with debit notes, supplier on each ingredient, price history. Plan: docs/specs/step2-suppliers.md. Part A (suppliers, ingredient links, purchase bills, supplier ledger, price history) built 2026-11-24, migration 005 NOT yet run. Part B (payments PV/CV, allocation, aging) and part C (returns, debit notes) to do.
 3. Chart of accounts, vouchers RV/CV/JV/PV, double-entry posting, next-day posting, period lock.
 4. Day Book, Trial Balance, Balance Sheet, ledger P&L, aging.
 5. VAT (off until registration) and TDS.

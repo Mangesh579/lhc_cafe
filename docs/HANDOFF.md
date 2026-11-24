@@ -19,6 +19,8 @@
 
 16. Monthly-account conversion (2026-11-24). Monthly Accounts > Conversion dry run: read-only report of every open bill; the admin previews one customer's bill (exactly the invoices that will be created, the balance before and after) and confirms. Each visit (same Nepal day and table) becomes a normal credit invoice dated at the visit, numbered in the visit's fiscal-year series, with an order_payments credit row, items copied with their KOT numbers, the bill's discount shared to the paisa and no loyalty points. The old bill becomes payment_status 'converted' (kept, with its items, linked through account_conversions and orders.converted_from_order_id). One transaction per bill; refused if the dry run blocks it, a visit is in another fiscal year, the bill has VAT, the bill changed since the preview, or it was already converted. Order routes refuse to pay, discount, cancel, correct, re-note or reopen a converted bill. Migration 004 applied 2026-11-24; all 3 open bills converted the same day (see CHANGELOG).
 
+17. Suppliers and purchase bills (roadmap step 2, part A), 2026-11-24. Suppliers page (/suppliers): supplier master (PAN mandatory and unique, credit days, type goods/service, active), ingredient-supplier links with a preferred supplier and a "no supplier linked" banner (also on Inventory), purchase bills (/purchases/new) with the PAN and bill number required and duplicates refused per PAN, supplier ledger (billed, paid, balance, due, overdue, unpaid items), price history. Saving a bill, in one transaction: stock up in the ingredient's own inventory, cost per unit and last purchase (same formula as before), Stock Log, one direct expense per line (read-only on Expenses), price history, payable. Void reverses all of it. The old one-ingredient Record purchase is closed (410); Inventory's cart button opens the bill form. Needs migration 005 (below). Plan: docs/specs/step2-suppliers.md.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -26,7 +28,7 @@
 - 004_account_conversion.sql (2026-11-24, by the owner): account_conversions, account_conversion_invoices, orders.converted_from_order_id.
 
 # Not yet applied on the server
-- None.
+- db/migrations/005_suppliers_purchases.sql (suppliers, ingredient_suppliers, purchase_bills, purchase_bill_items, ingredient_price_history; expenses.purchase_bill_id and purchase_bill_item_id). Run after a backup, BEFORE deploy.sh and before pushing to main.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
@@ -35,7 +37,8 @@
 - Customer credit notes exist only for credit invoices and cannot exceed what is still owed. Refunds of money already received are not modelled (accountant: avoid refunds; when needed, void with a reason). Supplier debit notes come with purchases (roadmap step 4).
 - Credit notes do not yet change sales, profit or VAT reports (VAT credit-note register is roadmap step 6).
 - The default credit limit is blank until the owner sets it (Receivables > Change defaults).
-- Cash vouchers (CV) with supplier PAN for cash expenses are not built yet; drawer payouts only require a bill number for now (roadmap step 5).
+- Cash vouchers (CV) with supplier PAN for cash expenses are not built yet; drawer payouts only require a bill number for now (roadmap step 3).
+- Purchase bills (item 17): payments of credit bills (PV/CV), allocation and aging are part B; returns and debit notes are part C. Until part B, a credit bill stays fully owed. Line units must be the ingredient's own unit (no unit conversion). Bills dated in an earlier fiscal year are refused. Existing purchases (from the old Record purchase) are not bills and are not payables.
 - Settlements: one per machine and sales day, only for days that have ended. Older "Card" payments with no machine recorded are listed but cannot be settled. A day's sales that change after settling (late or cancelled bill) are flagged on the Settlements page; the settled figures are not changed.
 - The OpenAPI spec and generated client still list only cash/nabil_qr for payment methods.
 - scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.

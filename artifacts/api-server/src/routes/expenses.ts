@@ -9,6 +9,8 @@ import { authenticate, requireAdminOrAccountant, type AuthRequest } from "../mid
 import { isDrawerClosed } from "../lib/ledgerData";
 
 const router = Router();
+const PURCHASE_BILL_MSG = "This expense was booked by a purchase bill. Open the bill under Suppliers and void it there instead.";
+
 
 // Receipts are stored on this server (stays in Nepal). Include this folder in your backups.
 const UPLOAD_DIR = process.env.UPLOAD_DIR ?? path.resolve(process.cwd(), "uploads", "receipts");
@@ -160,6 +162,7 @@ router.patch("/expenses/:id", authenticate, requireAdminOrAccountant, async (req
   const id = idOf(req.params.id);
   const [ex] = await db.select().from(expensesTable).where(eq(expensesTable.id, id));
   if (!ex) { res.status(404).json({ error: "Expense not found" }); return; }
+  if ((ex as any).purchaseBillId) { res.status(400).json({ error: PURCHASE_BILL_MSG }); return; }
   if (ex.status === "void") { res.status(400).json({ error: "A voided expense can't be edited." }); return; }
 
   const b = req.body ?? {};
@@ -205,6 +208,7 @@ router.post("/expenses/:id/void", authenticate, requireAdminOrAccountant, async 
   const [ex] = await db.select().from(expensesTable).where(eq(expensesTable.id, id));
   if (!ex) { res.status(404).json({ error: "Expense not found" }); return; }
   if (ex.status === "void") { res.status(400).json({ error: "This expense is already voided." }); return; }
+  if ((ex as any).purchaseBillId) { res.status(400).json({ error: PURCHASE_BILL_MSG }); return; }
   if ((ex as any).paidFromDrawer && await isDrawerClosed(ex.expenseDate)) { res.status(400).json({ error: "This was paid from the cash drawer and that day is closed. Ask the admin to reopen the day first." }); return; }
   const user = req.user?.username ?? "user";
 
@@ -286,49 +290,10 @@ router.delete("/expenses/attachments/:aid", authenticate, requireAdminOrAccounta
   res.json({ success: true });
 });
 
-// ── Record a purchase: stock + Stock Log + cost per unit + direct expense, all at once ──
-router.post("/inventory/:id/purchase", authenticate, requireAdminOrAccountant, async (req: AuthRequest, res: Response): Promise<void> => {
-  const id = idOf(req.params.id);
-  const b = req.body ?? {};
-  const qty = num(b.quantity), total = num(b.totalPrice);
-  if (!(qty > 0) || !(total > 0)) { res.status(400).json({ error: "Enter a quantity and a total price above 0." }); return; }
-  const date = isDate(b.date) ? b.date : new Date().toISOString().slice(0, 10);
-  const method = METHODS.includes(b.paymentMethod) ? b.paymentMethod : "cash";
-  const supplier = clean(b.supplier, 120);
-  const category = clean(b.expenseCategory, 80) ?? "Food ingredients (meat, vegetables, fruits)";
-  const user = req.user?.username ?? "user";
-
-  const [item] = await db.select().from(inventoryItemsTable).where(eq(inventoryItemsTable.id, id));
-  if (!item) { res.status(404).json({ error: "Ingredient not found" }); return; }
-  const [comp] = await db.select().from(ingredientComponentsTable).where(eq(ingredientComponentsTable.parentItemId, id)).limit(1);
-  if (comp) { res.status(400).json({ error: "This ingredient is made from other ingredients. Record purchases for its basic ingredients instead." }); return; }
-
-  const stockBefore = parseFloat(String(item.currentStock));
-  const stockAfter = stockBefore + qty;
-  const oldCost = item.costPerUnit != null ? parseFloat(String(item.costPerUnit)) : null;
-  let newCost = total / qty;
-  if (b.costMethod !== "last" && oldCost != null && stockBefore > 0) newCost = (stockBefore * oldCost + total) / (stockBefore + qty);
-
-  let expenseId = 0;
-  await db.transaction(async (tx) => {
-    const [exp] = await tx.insert(expensesTable).values({
-      expenseDate: date, type: "direct", category, subcategory: item.category ?? null,
-      description: `${item.name}: ${qty} ${item.unit} purchased${clean(b.description, 300) ? " — " + clean(b.description, 300) : ""}`,
-      vendor: supplier, amount: String(round2(total)), paymentMethod: method,
-      inventoryItemId: id, purchaseQuantity: String(qty), createdBy: user,
-    }).returning();
-    expenseId = exp.id;
-    await tx.update(inventoryItemsTable).set({
-      currentStock: String(stockAfter), costPerUnit: String(Math.round(newCost * 10000) / 10000),
-      lastPurchasePrice: String(round2(total)), lastPurchaseQty: String(qty), lastPurchaseDate: date, lastSupplier: supplier,
-    }).where(eq(inventoryItemsTable.id, id));
-    await tx.insert(inventoryLogsTable).values({
-      inventoryItemId: id, changeAmount: String(qty), stockBefore: String(stockBefore), stockAfter: String(stockAfter),
-      reason: `Purchase: ${qty} ${item.unit} for Rs. ${round2(total)}${supplier ? ` from ${supplier}` : ""} (expense #${exp.id})`, changedBy: user,
-    });
-    await tx.insert(expenseChangesTable).values({ expenseId: exp.id, action: "created", details: "Recorded from a stock purchase", changedBy: user });
-  });
-  res.status(201).json({ expenseId, stockAfter, costPerUnit: Math.round(newCost * 10000) / 10000 });
+// ── The one-ingredient "Record purchase" path is closed (2026-11-24): every purchase needs a supplier PAN and a
+// bill number, so purchases are entered as purchase bills (routes/purchases.ts). Past purchases stay as they are. ──
+router.post("/inventory/:id/purchase", authenticate, requireAdminOrAccountant, async (_req: AuthRequest, res: Response): Promise<void> => {
+  res.status(410).json({ error: "Purchases are now entered as purchase bills (Suppliers > New purchase bill), with the supplier's PAN and bill number." });
 });
 
 export default router;

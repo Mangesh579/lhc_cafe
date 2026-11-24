@@ -38,8 +38,9 @@ export async function nextInvoiceNumber(ex: Exec = db, at: Date = new Date()): P
 }
 
 // Next voucher number for a voucher type, e.g. RV-2082/83-00001. The prefix is stored per type and year and can be edited.
-export async function nextVoucherNumber(ex: Exec, voucherType: string, defaultPrefix = voucherType): Promise<string> {
-  const fy = fiscalLabel();
+// `at` picks the fiscal-year series (a backdated purchase bill takes its own date's year).
+export async function nextVoucherNumber(ex: Exec, voucherType: string, defaultPrefix = voucherType, at: Date = new Date()): Promise<string> {
+  const fy = fiscalLabel(at);
   const [row] = await (ex as typeof db).insert(voucherSequencesTable).values({ voucherType, fiscalYear: fy, prefix: defaultPrefix, lastNumber: 1 })
     .onConflictDoUpdate({ target: [voucherSequencesTable.voucherType, voucherSequencesTable.fiscalYear], set: { lastNumber: sql`${voucherSequencesTable.lastNumber} + 1` } })
     .returning();

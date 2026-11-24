@@ -293,3 +293,67 @@ All open monthly-account bills were converted on 2026-11-24 (3 bills). Checked l
 - pays_monthly is ignored rather than cleared, so the data still shows who used to pay monthly.
 - The conversion page and its API stay (admin only), reachable only through the Receivables check, in case an old bill is ever found open.
 - Old account bills in Active Orders still show their "Monthly account" label if one were ever open, so old data reads correctly.
+
+
+## 2026-11-24: Suppliers and purchase bills (roadmap step 2, part A)
+
+Plan approved by the owner the same day: docs/specs/step2-suppliers.md (audit, how bills fit the existing purchase and expense flow, roles, existing data, and the owner's answers).
+
+### Delivered
+- Supplier master (Suppliers page): name, PAN/VAT number (9 digits, mandatory, unique), address, phone, contact person, credit days, notes, active flag, type (goods or service; stored for TDS later). Admin and accountant edit; supervisors and the kitchen and drink heads can view (no amounts).
+- Ingredient-supplier links: one or more suppliers per ingredient, at most one preferred. Unmapped ingredients (not made from other ingredients) are listed, with a banner on Suppliers and Inventory like the existing unlinked-ingredient banners. Saving a bill links its supplier to each ingredient automatically (preferred if there was none).
+- Purchase bill (GRN), admin and accountant (/purchases/new):
+  - Supplier dropdown fills in the PAN/VAT number and credit days; both can be edited on the bill (a warning shows if the PAN differs). The supplier's bill number and the bill date (as printed; backdating allowed within the fiscal year, never the future, Nepal time) are required.
+  - Lines: ingredient, quantity (in its own unit), amount or rate, VAT per line or one VAT for the bill (shared over the lines to the paisa). VAT is stored but not claimed: it is part of the cost while the cafe is not VAT registered.
+  - Credit (due = bill date + credit days) or paid now from the cash drawer, by cheque (number required) or online (reference required).
+  - Refused: no PAN, no bill number, a duplicate bill number from the same PAN (any case or spacing; also enforced by a unique index; a voided bill's number may be entered again), composite ingredients, service-provider suppliers, an earlier fiscal year, a closed drawer day for drawer-paid bills.
+  - Each bill gets a purchase-journal number (PJ-2083/84-00001, editable prefix, fiscal year of the bill date).
+- Saving a bill runs in one transaction. For each line:
+  - stock goes up in the ingredient's own inventory (kitchen or drink), with a Stock Log line;
+  - cost per unit uses the same formula as before (weighted average by default, or the bill's price);
+  - the last-purchase fields update. An older (backdated) bill never replaces a newer last purchase or price, and uses the average;
+  - one direct expense is booked (same categories as before, linked to the bill, read-only on Expenses). So the accounting P&L memo, cash profit and the Expenses page count the purchase once;
+  - a price-history row is stored.
+  The supplier payable goes up for credit bills. A drawer-paid bill shows as a payout in that day's cash drawer.
+- Bills are immutable. Void (with a reason), in one transaction:
+  - takes the stock back out;
+  - voids the linked expenses and price-history rows;
+  - clears the payable;
+  - restores cost per unit and the last-purchase fields only where nothing has changed them since (otherwise they are left and the void says which).
+  Bills are never deleted.
+- Supplier ledger: every bill with number, date, items, total, paid, balance, due date and overdue flag; totals billed, paid, balance and overdue; the items of each unpaid bill. Purchase-bills list for all suppliers. Price history per ingredient and supplier.
+- The old one-ingredient Record purchase (no PAN, no bill number) returns 410; Inventory's cart button opens the bill form for that ingredient. Existing purchases and expenses are untouched and readable; they are not turned into bills or payables.
+
+### Files
+- New: db/migrations/005_suppliers_purchases.sql; lib/db/src/schema/purchases.ts; api-server src/lib/purchaseRules.ts, src/lib/purchasePosting.ts, src/routes/purchases.ts, tests purchaseRules, purchaseBills, migration005 (.test.ts); lhc-cafe src/pages/suppliers.tsx, src/pages/purchase-bill.tsx, src/components/SupplierGapsBanner.tsx; docs/specs/step2-suppliers.md.
+- Changed: lib/db/src/schema/index.ts, expenses.ts (purchase_bill_id, purchase_bill_item_id); api-server src/lib/fiscal.ts (nextVoucherNumber takes a date), src/routes/expenses.ts (bill-linked expenses read-only; Record purchase closed), src/routes/index.ts; lhc-cafe App.tsx, Sidebar.tsx (Suppliers), pages/inventory.tsx (cart button opens the bill form; old dialog removed; banner), pages/expenses.tsx (bill-linked rows read-only; "Credit (supplier bill)" label); CLAUDE.md (owner decisions, roadmap step 2); docs/HANDOFF.md.
+
+### Tables
+- New: suppliers, ingredient_suppliers, purchase_bills, purchase_bill_items, ingredient_price_history. Changed: expenses (+purchase_bill_id, +purchase_bill_item_id). No existing row is changed.
+
+### Migration
+db/migrations/005_suppliers_purchases.sql: NOT YET RUN on the server.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 135 tests pass. New:
+  - purchaseRules (11): totals and due date, PAN and bill number required, bill VAT shared to the paisa, cash payment details, backdating and the Nepal day boundary (11:50 pm / 12:10 am), earlier fiscal year refused, zero lines refused, weighted and last cost, backdated bills not "latest", overdue days on the Nepal day, PAN and bill-number normalising, supplier checks.
+  - purchaseBills (16, real routes on PGlite with the clock fixed):
+    - suppliers and PAN uniqueness; other roles get no amounts and cannot edit;
+    - the unmapped list;
+    - refusals; a credit bill's stock in the right department, cost (111.8667 = (10 x 100 + 678) / 15), last purchase, Stock Log, two linked expenses, price history, auto-link, ledger and due date;
+    - the P&L memo counting it once (1,808); the duplicate refused (case and spacing) with nothing posted; composite, service supplier, future and earlier-year dates refused;
+    - a drawer-paid bill in the cash drawer; a backdated bill not overwriting the last purchase; bill expenses read-only; the old path closed (410);
+    - void reversing stock, expenses, price history and payable, with cost left where later bills changed it, and restored where untouched; a voided number re-entered; overdue on the Nepal day; voided bills still listed.
+  - migration005 (1): runs twice, PAN unique and 9 digits, duplicate active bill refused, voided number re-enterable.
+- Typecheck of all three artifacts clean; API and frontend build.
+- Not run: the screens in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- Bills dated in an earlier fiscal year are refused (as for the monthly-account conversion).
+- An older (backdated) bill never replaces a newer last purchase or, with "this bill's price", the cost; it uses the weighted average.
+- Service-provider suppliers cannot have purchase bills (their bills stay on Expenses until vouchers and TDS).
+- Unlinking a supplier from an ingredient deletes the link row (a setting; no bill or stock is affected).
+- Line units must be the ingredient's own unit; unit conversion is not built.
+
+### Next
+- Part B (payments PV/CV, partial and full, allocation to bills, aging) and part C (returns with item-wise debit notes): later prompts.

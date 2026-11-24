@@ -17,6 +17,7 @@ import tableRequestsRouter from "./tableRequests";
 import receivablesRouter from "./receivables";
 import settlementsRouter from "./settlements";
 import accountConversionRouter from "./accountConversion";
+import purchasesRouter from "./purchases";
 
 const router: IRouter = Router();
 
@@ -38,5 +39,6 @@ router.use(tableRequestsRouter);
 router.use(receivablesRouter);
 router.use(settlementsRouter);
 router.use(accountConversionRouter);
+router.use(purchasesRouter);
 
 export default router;
