@@ -11,7 +11,8 @@ import { round2 } from "../lib/payments";
 
 const router = Router();
 const VIEW_ROLES = ["admin", "accountant", "supervisor", "head_barista"];
-const WRITE_ROLES = ["admin", "accountant", "supervisor"];
+// Recording a receipt and allocating it: the head barista also takes payments at the counter (owner, 2026-11-24)
+const WRITE_ROLES = ["admin", "accountant", "supervisor", "head_barista"];
 const ADMIN_ROLES = ["admin", "accountant"];
 const roleOf = (req: AuthRequest) => (req.user?.role as string | undefined) ?? "";
 const idOf = (raw: string | string[]) => parseInt(Array.isArray(raw) ? raw[0] : raw, 10);
@@ -173,7 +174,7 @@ async function openInvoiceMap(tx: any, customerId: number) {
 }
 
 router.post("/receipts", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  if (!can(req, res, WRITE_ROLES, "Only the admin, a supervisor or the accountant can record receipts.")) return;
+  if (!can(req, res, WRITE_ROLES, "Only the admin, the accountant, a supervisor or the head barista can record receipts.")) return;
   const b = req.body ?? {};
   const customerId = Number(b.customerId);
   const amount = round2(num(b.amount));

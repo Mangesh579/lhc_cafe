@@ -241,3 +241,21 @@ db/migrations/004_account_conversion.sql: NOT YET RUN on the server.
 ### Open questions
 - Accountant: confirm the above, especially earlier-fiscal-year visits.
 - Owner: after all open bills are converted, remove the monthly-account screens, the account-bill merge and the QR "charge to my account" option (not done yet).
+
+
+## 2026-11-24: Head barista can receive payments; migration 004 run and open monthly bills converted
+
+### Head barista records receipts
+- Owner decision: the head barista also makes bills and takes payments, so they can now record receipts (Receivables > New receipt / Receive payment) and allocate a receipt's remainder. Supervisors, the admin and the accountant could already.
+- Unchanged: voiding a receipt, credit notes and credit terms stay with the admin and the accountant.
+- Files: artifacts/api-server/src/routes/receivables.ts (WRITE_ROLES), artifacts/lhc-cafe/src/pages/receivables.tsx (canWrite); CLAUDE.md (decision recorded). No tables, no migration.
+- Tests: typecheck of api-server and lhc-cafe clean. No new unit test (a role list only).
+
+### Migration 004 and the conversions
+- The owner ran db/migrations/004_account_conversion.sql and deployed commit e484f60. Recorded as run in CLAUDE.md and docs/HANDOFF.md.
+- Checked live (read-only, accountant login): the audit list loads, and the dry run shows 0 open monthly-account bills.
+- Converted by the admin on 2026-11-24, one invoice each, no discounts; each balance went up by exactly the bill total:
+  - Rajesh Shrestha, bill #703 -> 2083/84-00301, Rs. 220 (balance 0 -> 220)
+  - Samir Shrestha, bill #770 -> 2083/84-00302, Rs. 150 (balance 1,270 -> 1,420)
+  - Saroj Maharjan, bill #809 -> 2083/84-00303, Rs. 150 (balance 1,350 -> 1,500)
+- Still to do: remove the monthly-account screens, the account-bill merge and the QR "charge to my account" option. Until then, a customer still marked as a monthly account can start a new monthly bill.

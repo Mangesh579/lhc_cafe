@@ -76,7 +76,7 @@ export default function Receivables() {
   const { toast } = useToast();
   const role = (user?.role as string | undefined) ?? "";
   const canView = ["admin", "accountant", "supervisor", "head_barista"].includes(role);
-  const canWrite = ["admin", "accountant", "supervisor"].includes(role);
+  const canWrite = ["admin", "accountant", "supervisor", "head_barista"].includes(role);
   const canAdmin = ["admin", "accountant"].includes(role);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
