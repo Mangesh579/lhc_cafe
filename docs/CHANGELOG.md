@@ -110,3 +110,13 @@ db/migrations/002_credit_rules_billno.sql: NOT YET RUN on the server.
 ### Open questions
 - Owner: the default credit limit amount.
 - Accountant: should credit notes reach the sales/VAT reports before VAT registration?
+
+
+## 2026-11-24: Migration 002 run; credit rules verified live
+
+- The owner ran db/migrations/002_credit_rules_billno.sql on the server and deployed commit 7260b07 (API and frontend). Recorded as run in CLAUDE.md and docs/HANDOFF.md.
+- Default credit terms set in production: 15 days, default limit Rs. 5,000 (owner's choice).
+- Live test against https://api.sulimhadurbar.com with a temporary accountant login and a test customer ("ZZ Test Customer (Claude)", id 13): 43 checks passed. Covered default and per-customer terms, the over-limit warning (not blocking), credit sale (own invoice, leaves Active Orders, no points), points per receipt and their reversal on void, a cash bill earning points at once, a credit note (and its refusals and void), the Credit ledger and Order Log figures, receipts refused for non-loyalty customers, and a payout refused without a bill number. Real customers' balances were unchanged (total 2,660 before and after).
+- Not tested live: saving a payout with a bill number (today's drawer was not open); the admin-only cancel guard; the screens themselves (API only).
+- Test records left for the owner to clean up: orders #771 (2083/84-00295, credit 120), #772 (2083/84-00296, credit 60), #773 (2083/84-00297, cash 30) to cancel as admin; voided RV-2083/84-00004, RV-2083/84-00005 and CN-2083/84-00001 stay as audit records; the test customer keeps 3 points (cancelling does not reverse points); disable the temporary `test` user.
+- Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.

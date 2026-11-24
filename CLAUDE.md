@@ -12,7 +12,7 @@ Cafe management system for LHC Cafe & Barista School (Sulimha Durbar, Patan, Nep
 - Server PC (Windows + WSL2 Ubuntu) at /mnt/e/lhc_cafe. API runs under PM2 (cafe-nexus-api), env in artifacts/api-server/.env. PostgreSQL is local, database `cafenexus` (server timezone Etc/UTC). Cloudflare Tunnel exposes https://api.sulimhadurbar.com. Nightly backups go to Google Drive.
 - Deploy: push to GitHub, then on the server run /mnt/e/lhc_cafe/deploy.sh (git pull, pnpm install, build api-server, pm2 restart). Pushing to main also auto-deploys the frontend on Vercel, so the API and its SQL must be ready first.
 - Migrations are NOT automatic. Write each as db/migrations/NNN_name.sql (idempotent, IF NOT EXISTS). The owner runs it on the server after a backup. Never run SQL against production yourself.
-- Migrations run on the server so far: 001_payments_credit.sql (2026-11-22, by the owner).
+- Migrations run on the server so far: 001_payments_credit.sql (2026-11-22, by the owner); 002_credit_rules_billno.sql (2026-11-24, by the owner).
 - The dev machine is remote and has no direct DB access.
 
 ## Working agreement
@@ -76,7 +76,7 @@ Chart of accounts
 
 ## Roadmap, in order
 1. DONE: Cash drawer, payment-mode ledgers, rename "Nabil QR" to "QR Payment".
-2. DONE 2026-11-22 (migration 001 run on the server): payment modes and split payment (order_payments); credit sales, receipt vouchers with allocation, credit limit and overdue. Credit rules from the 2026-11-23 answers built 2026-11-23 (migration 002 NOT yet run): 15 days, default limit setting, item-wise customer credit notes, points on payment, bill number on drawer payouts. STILL TO DO: retire the monthly-account merge (dry run first).
+2. DONE 2026-11-22 (migration 001 run on the server): payment modes and split payment (order_payments); credit sales, receipt vouchers with allocation, credit limit and overdue. Credit rules from the 2026-11-23 answers built 2026-11-23 (migration 002 run on the server 2026-11-24): 15 days, default limit setting, item-wise customer credit notes, points on payment, bill number on drawer payouts. STILL TO DO: retire the monthly-account merge (dry run first).
 3. Settlements of QR and card to the bank, per day, with the bank charge.
 4. Suppliers, purchase bills (supplier invoice no., PAN, VAT), supplier ledgers, payments, returns with debit notes, supplier on each ingredient, price history.
 5. Chart of accounts, vouchers (RV, CV, JV, PV), next-day Sales/Purchase/Consumption posting, trial balance, balance sheet, day book, period lock.
