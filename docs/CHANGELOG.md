@@ -357,3 +357,10 @@ db/migrations/005_suppliers_purchases.sql: NOT YET RUN on the server.
 
 ### Next
 - Part B (payments PV/CV, partial and full, allocation to bills, aging) and part C (returns with item-wise debit notes): later prompts.
+
+
+## 2026-11-24: Migration 005 run
+
+- The owner ran db/migrations/005_suppliers_purchases.sql on the server and deployed commit aab299d (suppliers and purchase bills, part A). Recorded as run in CLAUDE.md and docs/HANDOFF.md.
+- Checked live (read-only, accountant login): the Suppliers, Purchase bills and unmapped-ingredient routes answer from the new tables. At the time: 0 suppliers, 0 bills, 293 ingredients with no supplier linked.
+- Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
