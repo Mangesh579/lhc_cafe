@@ -47,6 +47,8 @@ async function paymentInfo(orders: { id: number; totalAmount: unknown; paymentMe
   return info;
 }
 
+const CONVERTED_MSG = "This monthly-account bill was converted into separate credit invoices and is closed. Work with those invoices instead.";
+
 function parseId(raw: string | string[]): number {
   return parseInt(Array.isArray(raw) ? raw[0] : raw, 10);
 }
@@ -354,6 +356,8 @@ router.patch("/orders/:id/status", authenticate, async (req, res): Promise<void>
   const id = parseId(req.params.id);
   const { status } = req.body;
   if (!status) { res.status(400).json({ error: "status required" }); return; }
+  const [current] = await db.select({ paymentStatus: ordersTable.paymentStatus }).from(ordersTable).where(eq(ordersTable.id, id));
+  if (current?.paymentStatus === "converted") { res.status(400).json({ error: CONVERTED_MSG }); return; }
 
   if (status === "completed") {
     const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
@@ -404,6 +408,7 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   // Already paid (double press or retry): return it as is, so points and totals are never counted twice
   if (order.paymentStatus === "paid") { res.json(await getOrderWithItems(id)); return; }
   if (order.paymentStatus === "cancelled") { res.status(400).json({ error: "This order was cancelled." }); return; }
+  if (order.paymentStatus === "converted") { res.status(400).json({ error: CONVERTED_MSG }); return; }
 
   const billTotal = round2(parseFloat(String(finalTotal !== undefined ? finalTotal : order.totalAmount)));
   const customerId: number | null = loyaltyCustomerId ? Number(loyaltyCustomerId) : order.loyaltyCustomerId;
@@ -490,6 +495,7 @@ router.patch("/orders/:id/discount", authenticate, async (req, res): Promise<voi
 
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+  if (order.paymentStatus === "converted") { res.status(400).json({ error: CONVERTED_MSG }); return; }
   if (order.paymentStatus === "paid") {
     res.status(400).json({ error: "This order is already paid. Use a correction instead of editing it directly." });
     return;
@@ -520,6 +526,7 @@ router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req: any, 
   const [orderBeforeCancel] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!orderBeforeCancel) { res.status(404).json({ error: "Order not found" }); return; }
   if (orderBeforeCancel.paymentStatus === "cancelled") { res.status(400).json({ error: "This order is already cancelled." }); return; }
+  if (orderBeforeCancel.paymentStatus === "converted") { res.status(400).json({ error: CONVERTED_MSG }); return; }
   // A credit invoice that has customer receipts allocated to it cannot be cancelled until those receipts are voided
   const allocated = (await allocatedByOrder([id])).get(id) ?? 0;
   if (allocated > 0) { res.status(400).json({ error: `Receipts of Rs. ${allocated.toFixed(2)} are allocated to this credit invoice. Void those receipt vouchers first.` }); return; }
@@ -850,6 +857,7 @@ router.patch("/orders/:id/notes", authenticate, async (req, res): Promise<void> 
   const { notes } = req.body;
   const [existing] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!existing) { res.status(404).json({ error: "Order not found" }); return; }
+  if (existing.paymentStatus === "converted") { res.status(400).json({ error: CONVERTED_MSG }); return; }
   if (existing.paymentStatus === "paid") {
     res.status(400).json({ error: "This order is already paid. Use a correction instead of editing it directly." });
     return;
@@ -869,6 +877,7 @@ router.post("/orders/:id/corrections", authenticate, requireAdmin, async (req: a
   }
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+  if (order.paymentStatus === "converted") { res.status(400).json({ error: CONVERTED_MSG }); return; }
 
   const [correction] = await db.insert(orderCorrectionsTable).values({
     originalOrderId: id,

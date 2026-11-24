@@ -1,24 +1,27 @@
-// READ-ONLY dry run: lists every open monthly-account bill and the individual credit invoices (one per visit)
-// it would become. This route only runs SELECT queries. It changes no data and converts nothing.
+// Monthly-account conversion.
+//  GET  /accounts/conversion-preview  READ-ONLY dry run of every open bill (admin, accountant)
+//  GET  /accounts/conversion/customers/:id/preview  exactly what converting this customer's bill will create (admin)
+//  POST /accounts/conversion/customers/:id/convert  converts ONE bill of ONE customer, after its preview (admin)
+//  GET  /accounts/conversions  audit trail (admin, accountant)
 import { Router } from "express";
 import type { Response } from "express";
-import { db, ordersTable, orderItemsTable, menuItemsTable, loyaltyCustomersTable, orderKotCancellationsTable, loyaltyRedemptionsTable, orderPaymentsTable } from "@workspace/db";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { db, ordersTable, orderItemsTable, menuItemsTable, loyaltyCustomersTable, orderKotCancellationsTable, loyaltyRedemptionsTable, orderPaymentsTable, accountConversionsTable, accountConversionInvoicesTable } from "@workspace/db";
+import { and, eq, inArray, sql, desc } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { planBill, summarise, type GroupBy } from "../lib/accountConversion";
 import { fiscalLabel } from "../lib/fiscal";
 import { creditDefaults } from "../lib/receivables";
 import { nepalDay } from "../lib/ledgerData";
 import { daysBetween } from "../lib/receivableRules";
+import { previewConversion, convertBill, ConversionError } from "../lib/accountConversionRun";
 
 const router = Router();
 const num = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
 
 // Questions the owner and accountant must answer before any conversion is built; shown with every report
 const DECISIONS = [
-  "Grouping: is one invoice per visit = same Nepal day and same table (the default here)? The report can also group per KOT or per day (?groupBy=kot|day).",
-  "Invoice numbers: new invoices would take the next numbers in today's sequence but be dated at the visit, so numbers would be out of date order with bills issued since. Is that acceptable to the accountant and IRD, or should the invoices be dated the conversion day?",
-  "Reports: if invoices are dated at the visit, past days' Collections (credit column) and the customer's due dates change; with 15 credit days, older visits are overdue at once.",
+  "Decided (accountant, 2026-11-24): one invoice per visit = same Nepal day and same table, dated on the visit day, in that day's fiscal-year number series. Other groupings (?groupBy=kot|day) are for comparison only.",
+  "Invoices dated at the visit change past days' Collections (credit column) and the customers' due dates; with 15 credit days, older visits are overdue at once.",
   "Discounts recorded for a whole bill are shared across its invoices in proportion; confirm, or say which visit each discount belongs to.",
   "Loyalty: account bills have earned no points yet. Under the new rule, points come when the customer pays each invoice.",
   "The monthly-account bill itself: after conversion it would be closed (cancelled as 'converted', never deleted) with a link to the new invoices.",
@@ -93,6 +96,60 @@ router.get("/accounts/conversion-preview", authenticate, async (req: AuthRequest
     bills: planned,
     decisionsNeeded: DECISIONS,
   });
+});
+
+// ── Conversion, one customer at a time (admin only) ──
+const idOf = (raw: string | string[]) => parseInt(Array.isArray(raw) ? raw[0] : raw, 10);
+function adminOnly(req: AuthRequest, res: Response): boolean {
+  if ((req.user?.role as string | undefined) !== "admin") { res.status(403).json({ error: "Only the admin can convert monthly-account bills." }); return false; }
+  return true;
+}
+
+// Exactly what converting will create, for each open monthly-account bill of this customer. Read-only.
+router.get("/accounts/conversion/customers/:id/preview", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!adminOnly(req, res)) return;
+  const customerId = idOf(req.params.id);
+  const bills = await db.select({ id: ordersTable.id }).from(ordersTable).where(and(
+    eq(ordersTable.loyaltyCustomerId, customerId), eq(ordersTable.accountBill, true), eq(ordersTable.paymentStatus, "pending"), sql`${ordersTable.orderStatus} <> 'cancelled'`,
+  )).orderBy(ordersTable.createdAt);
+  const out = [];
+  for (const b of bills) {
+    const p = await previewConversion(db, b.id);
+    out.push({
+      billId: b.id, plan: p.plan, refusals: p.refusals, checks: p.checks, canConvert: p.canConvert, fingerprint: p.fingerprint,
+      currentFiscalYear: p.currentFiscalYear, balanceBefore: p.balanceBefore, expectedBalanceAfter: p.expectedBalanceAfter,
+    });
+  }
+  res.json({ customerId, bills: out });
+});
+
+router.post("/accounts/conversion/customers/:id/convert", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!adminOnly(req, res)) return;
+  const customerId = idOf(req.params.id);
+  const billId = Number(req.body?.billId);
+  const fingerprint = String(req.body?.fingerprint ?? "");
+  if (!Number.isInteger(billId) || billId <= 0 || !fingerprint) { res.status(400).json({ error: "Preview the bill first, then confirm it." }); return; }
+  if (req.body?.confirm !== true) { res.status(400).json({ error: "Confirm the conversion." }); return; }
+  try {
+    const r = await convertBill(db, { billId, customerId, fingerprint, user: req.user?.username ?? "admin" });
+    res.status(201).json(r);
+  } catch (e: any) {
+    if (e instanceof ConversionError) { res.status(e.status).json({ error: e.message, details: e.details }); return; }
+    if (String(e?.code) === "23505") { res.status(409).json({ error: "This bill has already been converted." }); return; }
+    throw e;
+  }
+});
+
+// Audit trail: who converted which bill, when, into which invoices
+router.get("/accounts/conversions", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  const role = (req.user?.role as string | undefined) ?? "";
+  if (!["admin", "accountant"].includes(role)) { res.status(403).json({ error: "Not allowed" }); return; }
+  const rows = await db.select({ c: accountConversionsTable, name: loyaltyCustomersTable.name })
+    .from(accountConversionsTable).leftJoin(loyaltyCustomersTable, eq(accountConversionsTable.customerId, loyaltyCustomersTable.id))
+    .orderBy(desc(accountConversionsTable.id)).limit(200);
+  const ids = rows.map(r => r.c.id);
+  const invs = ids.length ? await db.select().from(accountConversionInvoicesTable).where(inArray(accountConversionInvoicesTable.conversionId, ids)).orderBy(accountConversionInvoicesTable.id) : [];
+  res.json(rows.map(r => ({ ...r.c, customerName: r.name, invoices: invs.filter(i => i.conversionId === r.c.id) })));
 });
 
 export default router;

@@ -1,6 +1,7 @@
 import { db, invoiceSequencesTable, voucherSequencesTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { nepalDay } from "./ledgerData";
+import { createRequire } from "node:module";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Exec = Tx | typeof db;
@@ -8,7 +9,8 @@ type Exec = Tx | typeof db;
 let NepaliDate: any = null;
 function nepaliDateClass(): any {
   if (!NepaliDate) {
-    const lib = require("nepali-date-converter");
+    // The production bundle provides a global require; tests (plain ESM) use createRequire.
+    const lib = typeof require !== "undefined" ? require("nepali-date-converter") : createRequire(import.meta.url)("nepali-date-converter");
     NepaliDate = lib.default ?? lib;
   }
   return NepaliDate;
@@ -26,8 +28,9 @@ export function fiscalLabel(at: Date = new Date()): string {
 }
 
 // Next invoice number, e.g. 2082/83-00001. One atomic statement, so two tills paying at once never share a number.
-export async function nextInvoiceNumber(ex: Exec = db): Promise<string> {
-  const fy = fiscalLabel();
+// `at` picks the fiscal-year series: normally now; an invoice dated on an earlier day takes that day's fiscal year.
+export async function nextInvoiceNumber(ex: Exec = db, at: Date = new Date()): Promise<string> {
+  const fy = fiscalLabel(at);
   const [row] = await (ex as typeof db).insert(invoiceSequencesTable).values({ fiscalYear: fy, lastNumber: 1 })
     .onConflictDoUpdate({ target: invoiceSequencesTable.fiscalYear, set: { lastNumber: sql`${invoiceSequencesTable.lastNumber} + 1` } })
     .returning();

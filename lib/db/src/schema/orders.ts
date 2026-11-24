@@ -27,6 +27,8 @@ export const ordersTable = pgTable("orders", {
   paidAt: timestamp("paid_at"),
   // Pre-VAT amount already counted towards loyalty points and total spent (points follow money paid)
   loyaltyPaidBasis: numeric("loyalty_paid_basis", { precision: 12, scale: 2 }),
+  // On a credit invoice made by converting a monthly-account bill: that bill's id
+  convertedFromOrderId: integer("converted_from_order_id"),
   accountBill: boolean("account_bill").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

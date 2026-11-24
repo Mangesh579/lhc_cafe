@@ -198,3 +198,46 @@ db/migrations/003_settlements.sql: NOT YET RUN on the server.
 - Is "one per visit" = same Nepal day and same table?
 - Invoice numbers today but dated at the visit (out of date order), or dated the conversion day?
 - How to treat whole-bill discounts and redemptions.
+
+
+## 2026-11-24: Monthly-account conversion (preview and confirm, one customer at a time)
+
+Following the accountant's confirmation of 2026-11-24 (one credit invoice per visit, a visit = same Nepal day and same table, dated on the visit day; old bill closed as "converted" and linked).
+
+### Delivered
+- Admin only. On Monthly Accounts > Conversion dry run, each bill has "Preview conversion for <customer>". The preview shows exactly the invoices that will be created (visit day and time, table, KOTs and items, discount share, total), the customer's balance before and after, anything that refuses the bill, and the points to check. Converting needs a tick ("I have checked these invoices") and the Convert button for that one bill. There is no "convert all".
+- The confirm step sends back a fingerprint of the preview; if the bill changed in between (a new or cancelled KOT, a discount), conversion is refused and must be previewed again.
+- Each visit becomes a normal credit sale: invoice number in the visit's own fiscal-year series (nextInvoiceNumber now takes a date), payment_method credit with one order_payments credit row, paid_at and backdated_at = the visit's first KOT time, paid, completed, linked to the customer and to the old bill (orders.converted_from_order_id). Due date = visit day + credit days (from the existing receivables logic). Items are copied with their KOT numbers, times, tables, staff and cost snapshot; stock is not deducted again. Whole-bill discounts are shared in proportion, to the paisa, as in the dry run. No loyalty points at conversion (basis 0, so points follow each receipt); the customer's visit count goes up by the number of invoices.
+- The old bill gets payment_status 'converted' (order status completed, so it leaves Active Orders), keeps its items, cancelled KOTs and redemptions, and its notes list the new invoice numbers. account_conversions (unique per old bill) and account_conversion_invoices record who, when, which bill, which invoices, the totals and the balance before and after.
+- Everything for one bill runs in one transaction with the bill and customer rows locked. Inside it, the customer's balance after must equal the balance before plus the bill total (items minus the shared discount); otherwise everything is rolled back.
+- Refused: anything the dry run marks as a block; a visit in a fiscal year other than the current one (an earlier year's register may be filed); the bill carries VAT; already converted (also enforced by a unique index); the bill belongs to another customer; the bill changed since the preview.
+- Order routes now refuse to pay, discount, cancel, correct, change status of, or edit notes on a converted bill.
+- Audit list "Conversions done" on the same page (admin, accountant); GET /api/accounts/conversions.
+- API: GET /api/accounts/conversion/customers/:id/preview, POST /api/accounts/conversion/customers/:id/convert {billId, fingerprint, confirm: true}.
+
+### Files
+- New: db/migrations/004_account_conversion.sql; lib/db/src/schema/accountConversions.ts; api-server src/lib/accountConversionRun.ts; tests src/__tests__/accountConversionRun.test.ts, migration004.test.ts, pgliteDb.ts (test helper).
+- Changed: lib/db/src/schema/index.ts, orders.ts (converted_from_order_id); api-server src/lib/fiscal.ts (nextInvoiceNumber(ex, at); require fallback for tests), src/routes/accountConversion.ts (preview, convert, audit routes), src/routes/orders.ts (converted guards), package.json (dev: @electric-sql/pglite 0.3.16, drizzle-kit); pnpm-lock.yaml; lhc-cafe src/pages/account-conversion.tsx; CLAUDE.md (roadmap line); docs/HANDOFF.md.
+- Not removed: the monthly-account screens and merge code.
+
+### Tables
+- New: account_conversions, account_conversion_invoices. Changed: orders (+converted_from_order_id). Running the migration converts nothing.
+
+### Migration
+db/migrations/004_account_conversion.sql: NOT YET RUN on the server.
+
+### Tests
+- Run on the dev machine: `pnpm test` (ESBUILD_BINARY_PATH set), 96 tests pass. New database tests on PGlite (in-memory PostgreSQL): preview grouping and discount split (69.63 / 24.23 / 6.14 of Rs. 100); full conversion (three invoices 2083/84-00291 to 00293 continuing the series, credit rows, visit-time paid_at, items with KOT numbers and cost, due dates visit + 15, old bill converted with items kept, audit rows, no points, visits +3); balance check against an existing balance; double conversion refused (409, one audit row); rollback when the transaction fails at the end (no orders, items, payments or audit rows, invoice numbers not used up, bill still open, and it converts cleanly afterwards); a visit in fiscal year 2082/83 refused with nothing changed; a bill changed after preview refused; a dry-run block refused; another customer's bill refused. Migration 004 applied twice without error; its unique index refuses a second conversion and its check refuses mismatched totals.
+- Typecheck of all three artifacts clean; API and frontend build. The API bundle contains no test code.
+- Not run: against production or any real database; the page in a browser.
+
+### Decisions made (by Claude; please confirm)
+- Visits in an earlier fiscal year are refused rather than numbered into that year's series (its sales register may already be filed). The generator supports any year if the accountant wants otherwise.
+- A bill with VAT is refused (VAT is not split per invoice yet; the cafe is not VAT registered).
+- Loyalty redemptions and cancelled-KOT records stay on the old bill; prep-waste and stock logs also stay on the old bill (stock was deducted once, at ordering).
+- Each new invoice counts as a visit (total_orders), as for a normal credit sale; no points.
+- createdBy of each invoice is the staff member on its first KOT.
+
+### Open questions
+- Accountant: confirm the above, especially earlier-fiscal-year visits.
+- Owner: after all open bills are converted, remove the monthly-account screens, the account-bill merge and the QR "charge to my account" option (not done yet).
