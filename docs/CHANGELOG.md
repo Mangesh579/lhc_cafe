@@ -161,3 +161,15 @@ db/migrations/003_settlements.sql: NOT YET RUN on the server.
 ### Open questions
 - Accountant: does the card fee apply to the gross including VAT once VAT is on? (No change needed now; the charge is whatever the bank deducted.)
 - Owner: start tracking from 2026-11-22, or from another date?
+
+
+## 2026-11-24: Migration 003 run; settlements checked live
+
+- The owner ran db/migrations/003_settlements.sql on the server and deployed commit 01ae1bc. Recorded as run in CLAUDE.md and docs/HANDOFF.md.
+- Live check with the temporary accountant login (read-only, plus requests the server must refuse; nothing saved): 24 checks passed.
+  - Machines and fee ranges as seeded (Nabil POS 2.75%, HBL POS 3.00-3.25%, QR no fee; QR and Nabil to the Nabil account); start date 2026-11-22; Rs. 0.50 allowance; today not listed.
+  - Unsettled on 2026-11-24: Nabil POS Rs. 1,000 (23 Nov, 1 bill); QR Rs. 5,651 (22 Nov Rs. 3,780, 23 Nov Rs. 1,871, including QR receipt vouchers); HBL POS nothing. Every machine-day matches Ledgers > Collections.
+  - One older "Card" payment with no machine (22 Nov, Rs. 250) is listed as not settleable, matching Collections.
+  - Preview: no warning at the expected fee, a warning at 10% short. Refused: more than sales, no reference, bank date before the sales day, sales changed since loading (409), today, a day before the start date; void is admin-only. Card, QR and Bank ledgers load.
+- Not checked: recording a real settlement (needs the bank statement amounts) and the screens in a browser.
+- Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
