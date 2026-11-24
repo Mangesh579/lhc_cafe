@@ -173,3 +173,28 @@ db/migrations/003_settlements.sql: NOT YET RUN on the server.
   - Preview: no warning at the expected fee, a warning at 10% short. Refused: more than sales, no reference, bank date before the sales day, sales changed since loading (409), today, a day before the start date; void is admin-only. Card, QR and Bank ledgers load.
 - Not checked: recording a real settlement (needs the bank statement amounts) and the screens in a browser.
 - Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
+
+
+## 2026-11-24: Monthly-account conversion dry run (read-only)
+
+### Delivered
+- A read-only report of how every open monthly-account bill would become individual credit invoices. Nothing is converted, no data is changed and no monthly-account code was removed.
+- API: GET /api/accounts/conversion-preview (admin and accountant). SELECT queries only. Option ?groupBy=visit (default: same Nepal day and same table), kot (one invoice per KOT) or day.
+- Page: Monthly Accounts > "Conversion dry run" (/accounts/conversion), with an Excel export (planned invoices, issues, decisions).
+- For each open bill: customer, KOT count, total; the planned invoices with day, table, time, KOTs and items, subtotal, share of the bill's discount, total and fiscal year; cancelled KOTs and loyalty redemptions for information. Summary: bills, customers, KOTs, invoices to create, totals, how many invoices would already be past the 15 credit days.
+- Problems are listed per bill. "Blocks" (cannot convert cleanly): no loyalty customer, already invoiced, NC, payment rows, a total that does not equal items minus discount (plus VAT), an invoice that would be 0 or less, an empty bill with a total, bad item lines. "Check" (converts, but confirm): discount recorded for the whole bill (shared in proportion, to the paisa), items without a KOT time or table, a KOT spread over days or tables, price x quantity not matching the line, redemptions, more than one open bill for a customer, VAT on the bill, a backdated bill, a visit in an earlier fiscal year, a customer no longer marked monthly.
+- The report also lists the decisions needed before conversion: the grouping, invoice numbering and dating, effect on past reports and due dates, discount split, loyalty points, and closing the old bill.
+
+### Files
+- New: artifacts/api-server/src/lib/accountConversion.ts, src/routes/accountConversion.ts, src/__tests__/accountConversion.test.ts; artifacts/lhc-cafe/src/pages/account-conversion.tsx.
+- Changed: artifacts/api-server/src/routes/index.ts (mount); artifacts/lhc-cafe/src/App.tsx (route), pages/accounts.tsx (link only); docs/HANDOFF.md.
+- Tables: none. Migration: none.
+
+### Tests
+- Run: `pnpm test` (with ESBUILD_BINARY_PATH), 86 tests pass (12 new: grouping per visit/KOT/day, Nepal day boundary, discount split to the paisa, total mismatch, blockers, missing KOT time/table, checks, cancelled KOTs, summary). Typecheck of all three artifacts clean; API and frontend builds succeed. A search of the new report code found no insert, update, delete or transaction calls.
+- Not run: against any database. Not run against production, as asked. It runs on production only once deployed and opened by the admin or accountant; it is read-only.
+
+### Open questions (shown in the report)
+- Is "one per visit" = same Nepal day and same table?
+- Invoice numbers today but dated at the visit (out of date order), or dated the conversion day?
+- How to treat whole-bill discounts and redemptions.

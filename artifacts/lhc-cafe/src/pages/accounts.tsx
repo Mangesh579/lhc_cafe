@@ -56,6 +56,7 @@ export default function Accounts() {
         <div>
           <h1 className="text-2xl md:text-3xl font-serif font-bold">Monthly Accounts</h1>
           <p className="text-sm text-muted-foreground">Loyalty customers who pay once a month. All their orders go on one open bill.</p>
+          {(role === "admin" || role === "accountant") && <Link href="/accounts/conversion" className="text-sm text-primary underline">Conversion dry run: see how open bills would become credit invoices</Link>}
         </div>
         <Card className="bg-primary text-primary-foreground border-none"><CardContent className="p-4"><p className="text-xs opacity-80">Outstanding</p><p className="text-xl font-bold">{money(outstanding)}</p>
           <p className="text-xs opacity-80">{rows.filter(r => r.openBill && (Date.now() - new Date(r.openBill.since).getTime()) / 86400000 >= 30).length} open 30+ days</p></CardContent></Card>

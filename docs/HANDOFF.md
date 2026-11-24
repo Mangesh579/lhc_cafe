@@ -39,4 +39,4 @@
 - Server PostgreSQL timezone is Etc/UTC (confirmed in CLAUDE.md); the ledger code is safe either way.
 
 # Next work
-Rest of step 2: retire the monthly-account merge (convert open monthly-account bills into one credit invoice per visit, dry run first), then steps 3 to 9 in the CLAUDE.md roadmap. Each task must end with a docs/CHANGELOG.md entry.
+Rest of step 2: retire the monthly-account merge (convert open monthly-account bills into one credit invoice per visit). The read-only dry run exists (Monthly Accounts > Conversion dry run, GET /api/accounts/conversion-preview); review it with the accountant and answer its "decisions needed" before any conversion is built, then steps 3 to 9 in the CLAUDE.md roadmap. Each task must end with a docs/CHANGELOG.md entry.
