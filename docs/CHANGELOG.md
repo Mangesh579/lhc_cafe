@@ -399,3 +399,10 @@ db/migrations/006_purchase_bank_account.sql: NOT YET RUN on the server.
   - migration006: runs twice; an old cheque bill without an account is kept; cheque/online need nabil or hbl; drawer and credit refuse an account.
 - Typecheck of all three artifacts clean; API and frontend build.
 - Not run: the screens in a browser; anything against production.
+
+
+## 2026-11-24: Migration 006 run
+
+- The owner ran db/migrations/006_purchase_bank_account.sql on the server and deployed commit 535451b. Recorded as run in CLAUDE.md and docs/HANDOFF.md.
+- Checked live (accountant login): the purchase-bill list loads (it selects the new paid_from_account column), and a cheque bill without a bank account is refused by the API ("Choose the bank account that paid: Nabil or HBL.") before anything is saved. No purchase bills exist yet.
+- Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.

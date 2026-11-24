@@ -27,9 +27,10 @@
 - 003_settlements.sql (2026-11-24, by the owner): settlement_machines, settlement_settings, settlements.
 - 004_account_conversion.sql (2026-11-24, by the owner): account_conversions, account_conversion_invoices, orders.converted_from_order_id.
 - 005_suppliers_purchases.sql (2026-11-24, by the owner): suppliers, ingredient_suppliers, purchase_bills, purchase_bill_items, ingredient_price_history; expenses.purchase_bill_id and purchase_bill_item_id.
+- 006_purchase_bank_account.sql (2026-11-24, by the owner): purchase_bills.paid_from_account (Nabil or HBL, required for cheque and online bills).
 
 # Not yet applied on the server
-- db/migrations/006_purchase_bank_account.sql (purchase_bills.paid_from_account, Nabil or HBL, required for cheque and online bills). Run after a backup, BEFORE deploy.sh and before pushing to main.
+- None.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
