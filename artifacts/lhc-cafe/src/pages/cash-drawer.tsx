@@ -108,7 +108,7 @@ export default function CashDrawer() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Opening cash</p><p className="text-lg font-bold">{money(d.opening)}</p></CardContent></Card>
             <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Cash sales</p><p className="text-lg font-bold">{money(d.salesTotal)}</p><p className="text-xs text-muted-foreground">{d.cashSales.length} bills{(d.receiptsTotal ?? 0) > 0 ? ` · + ${money(d.receiptsTotal)} from credit customers` : ""}</p></CardContent></Card>
-            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Paid out of the drawer</p><p className="text-lg font-bold">{money(d.payoutsTotal + d.otherOut)}</p></CardContent></Card>
+            <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Paid out of the drawer</p><p className="text-lg font-bold">{money(d.payoutsTotal + (d.supplierPaymentsTotal ?? 0) + d.otherOut)}</p>{(d.supplierPaymentsTotal ?? 0) > 0 && <p className="text-xs text-muted-foreground">incl. {money(d.supplierPaymentsTotal)} to suppliers</p>}</CardContent></Card>
             <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Bank deposits and owner</p><p className="text-lg font-bold">{money(d.deposits + d.ownerDraws)}</p></CardContent></Card>
           </div>
           <Card className="bg-primary text-primary-foreground border-none"><CardContent className="p-4 flex flex-wrap items-end justify-between gap-3">
@@ -162,6 +162,9 @@ export default function CashDrawer() {
               <tbody className="divide-y">
                 {(d.cashReceipts ?? []).map((r: any) => (
                   <tr key={`r${r.id}`}><td className="px-4 py-2">Customer receipt</td><td className="px-4 py-2">{r.voucherNo} · {r.customer}{r.reference ? ` · ${r.reference}` : ""}</td><td className="px-4 py-2 text-right text-green-700">+ {money(r.amount)}</td><td /></tr>
+                ))}
+                {(d.supplierPayments ?? []).map((p: any) => (
+                  <tr key={`s${p.id}`}><td className="px-4 py-2">Supplier payment</td><td className="px-4 py-2">{p.voucherNo} · {p.supplier}</td><td className="px-4 py-2 text-right text-red-600">- {money(p.amount)}</td><td /></tr>
                 ))}
                 {d.payouts.map((p: any) => (
                   <tr key={`p${p.id}`}><td className="px-4 py-2">Payout</td><td className="px-4 py-2">{p.category}{p.vendor ? ` · ${p.vendor}` : ""}{p.description ? ` · ${p.description}` : ""}{p.billNumber ? <span className="text-muted-foreground"> · Bill {p.billNumber}</span> : null}</td><td className="px-4 py-2 text-right text-red-600">- {money(p.amount)}</td><td /></tr>

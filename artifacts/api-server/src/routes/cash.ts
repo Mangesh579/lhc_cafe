@@ -4,6 +4,7 @@ import { db, cashDaysTable, cashMovementsTable, expensesTable, expenseChangesTab
 import { eq, and, lt, gte, lte, desc } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { validatePayout } from "../lib/cashRules";
+import { supplierPaymentsBetween } from "../lib/supplierPaymentsRead";
 import { isDay, dayRangeUtc, paidOrdersBetween, nepalDay, cashSalesOf, receiptsBetween } from "../lib/ledgerData";
 
 const router = Router();
@@ -37,6 +38,10 @@ async function computeDay(day: string) {
   const cashReceipts = (await receiptsBetween(day, day, "cash")).map(r => ({ id: r.id, voucherNo: r.voucherNo, customer: r.customerName ?? `Customer #${r.customerId}`, reference: r.reference ?? null, amount: r.amount }));
   const receiptsTotal = cashReceipts.reduce((s, r) => s + r.amount, 0);
 
+  // Suppliers paid in cash from the drawer (CV). Not expenses: the purchase bill already booked the cost.
+  const supplierPayments = (await supplierPaymentsBetween(day, day, ["drawer"])).map(p => ({ id: p.id, voucherNo: p.voucherNo, supplier: p.supplierName, amount: p.amount }));
+  const supplierPaymentsTotal = supplierPayments.reduce((s, p) => s + p.amount, 0);
+
   const exp = await db.select().from(expensesTable)
     .where(and(eq(expensesTable.expenseDate, day), eq(expensesTable.status, "active"), eq(expensesTable.paidFromDrawer, true)))
     .orderBy(expensesTable.id);
@@ -49,7 +54,7 @@ async function computeDay(day: string) {
   const sum = (kind: string) => moves.filter(m => m.kind === kind).reduce((s, m) => s + num(m.amount), 0);
   const deposits = sum("deposit"), ownerDraws = sum("owner_draw"), otherIn = sum("other_in"), otherOut = sum("other_out");
 
-  const expected = round2(opening + salesTotal + receiptsTotal + otherIn - payoutsTotal - deposits - ownerDraws - otherOut);
+  const expected = round2(opening + salesTotal + receiptsTotal + otherIn - payoutsTotal - supplierPaymentsTotal - deposits - ownerDraws - otherOut);
   return {
     date: day,
     record: row ?? null,
@@ -58,6 +63,7 @@ async function computeDay(day: string) {
     cashSales, salesTotal: round2(salesTotal),
     cashReceipts, receiptsTotal: round2(receiptsTotal),
     payouts, payoutsTotal: round2(payoutsTotal),
+    supplierPayments, supplierPaymentsTotal: round2(supplierPaymentsTotal),
     movements: moves, deposits: round2(deposits), ownerDraws: round2(ownerDraws), otherIn: round2(otherIn), otherOut: round2(otherOut),
     expected,
   };

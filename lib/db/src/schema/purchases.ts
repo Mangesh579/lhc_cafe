@@ -40,7 +40,9 @@ export const ingredientSuppliersTable = pgTable("ingredient_suppliers", {
 // terms: cash (paid at purchase, via drawer | cheque | online) or credit (payable until paid, due = bill date + credit days).
 export const purchaseBillsTable = pgTable("purchase_bills", {
   id: serial("id").primaryKey(),
-  pjNumber: text("pj_number").notNull(),
+  pjNumber: text("pj_number").notNull(), // PJ-… for purchase bills, OB-… for opening bills
+  // purchase: a GRN with stock lines | opening: an unpaid bill from before the opening-balance date (no lines, no stock, no expense)
+  kind: text("kind").notNull().default("purchase"),
   supplierId: integer("supplier_id").notNull(),
   supplierName: text("supplier_name").notNull(),
   supplierPan: text("supplier_pan").notNull(),
@@ -115,4 +117,50 @@ export const ingredientPriceHistoryTable = pgTable("ingredient_price_history", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   byItem: index("ingredient_price_history_item_idx").on(t.inventoryItemId, t.billDate),
+}));
+
+// One row (id = 1): the date supplier ledgers start from. Opening bills are dated on or before it.
+export const payablesSettingsTable = pgTable("payables_settings", {
+  id: integer("id").primaryKey(),
+  openingDate: date("opening_date"),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
+});
+
+// Payment to a supplier: CV (cash from the drawer) or PV (cheque or online, from Nabil or HBL).
+// Immutable; corrected by void with a reason. Never creates an expense: the bill's expense is the cost record.
+// Money not allocated to bills is an advance to the supplier, allocatable later.
+export const supplierPaymentsTable = pgTable("supplier_payments", {
+  id: serial("id").primaryKey(),
+  voucherNo: text("voucher_no").notNull(),
+  voucherType: text("voucher_type").notNull(), // CV | PV
+  supplierId: integer("supplier_id").notNull(),
+  paymentDate: date("payment_date").notNull(),
+  paidVia: text("paid_via").notNull(), // drawer | cheque | online
+  paidFromAccount: text("paid_from_account"), // nabil | hbl for cheque and online
+  reference: text("reference"),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  notes: text("notes"),
+  status: text("status").notNull().default("active"),
+  voidReason: text("void_reason"),
+  voidedBy: text("voided_by"),
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  oneVoucher: uniqueIndex("supplier_payments_voucher_idx").on(t.voucherNo),
+  bySupplier: index("supplier_payments_supplier_idx").on(t.supplierId),
+  byDate: index("supplier_payments_date_idx").on(t.paymentDate),
+}));
+
+export const supplierPaymentAllocationsTable = pgTable("supplier_payment_allocations", {
+  id: serial("id").primaryKey(),
+  paymentId: integer("payment_id").notNull(),
+  billId: integer("bill_id").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  byPayment: index("supplier_payment_allocations_payment_idx").on(t.paymentId),
+  byBill: index("supplier_payment_allocations_bill_idx").on(t.billId),
 }));

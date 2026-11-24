@@ -406,3 +406,61 @@ db/migrations/006_purchase_bank_account.sql: NOT YET RUN on the server.
 - The owner ran db/migrations/006_purchase_bank_account.sql on the server and deployed commit 535451b. Recorded as run in CLAUDE.md and docs/HANDOFF.md.
 - Checked live (accountant login): the purchase-bill list loads (it selects the new paid_from_account column), and a cheque bill without a bank account is refused by the API ("Choose the bank account that paid: Nabil or HBL.") before anything is saved. No purchase bills exist yet.
 - Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
+
+
+## 2026-11-24: Supplier payments, opening balances and aging (roadmap step 2, part B)
+
+### Delivered
+1. Supplier payments (Suppliers > Payments, and "Pay <supplier>" on each ledger; admin and accountant):
+   - How paid:
+     - cash from the drawer, which gets a **CV** number;
+     - by cheque (cheque number + Nabil or HBL) or online transfer (reference + Nabil or HBL), which get a **PV** number.
+     Numbers come from the existing voucher sequences with editable prefixes, in the fiscal year of the payment date.
+   - The payment date is the real date: backdating within the fiscal year, never the future (Nepal day).
+   - A payment can be partial or full and allocated across that supplier's open bills (including opening bills), with an "Oldest first" helper. Anything not allocated stays as an advance to the supplier (account 1350 in step 3) and can be allocated later. Over-allocation, another supplier's bills and paid bills are refused.
+   - No payment ever creates an expense: the bill's expense is already the cost record.
+   - A CV payment reduces that day's expected drawer cash, read from its own table the same way the drawer already reads customer cash receipts. It is shown on the Cash Drawer and in the cash ledger. It is refused when that drawer day is closed, the same rule as cash receipts and drawer-paid bills.
+   - PV payments, and bills paid by cheque or online when bought, now show as money out in the Bank ledger.
+   - Payments are immutable. Void with a reason (admin or accountant) restores the bills' balances and the drawer; it is refused on a closed drawer day.
+   - Voucher shown on screen and printed (Cash voucher / Payment voucher, with the allocations and any advance).
+   - A purchase bill with payments allocated cannot be voided until those payments are voided.
+2. Opening supplier balances (Suppliers > Opening balances):
+   - The accountant sets the opening-balance date, then enters each supplier's unpaid bills at that date: bill number, bill date (on or before the opening date; any fiscal year), due date and amount.
+   - They are purchase_bills of kind "opening" with an OB number: no lines, no stock change, no expense, no drawer effect.
+   - They show in the supplier ledger as "opening", count in the payable, are paid, aged and voided like bills, and follow the same duplicate rule (supplier PAN + bill number) both ways.
+3. Aging and ledger:
+   - Payables aging by supplier on the Nepal day: not yet due, 1-15, 16-30, 31-60, over 60 days past due, with total owed, advance and net.
+   - Bills due this week (today to today + 6) and overdue bills. Excel export (aging, due this week, overdue).
+   - The supplier ledger now shows payments and a running balance (bills and opening bills add; paid-at-purchase and payments subtract; negative = advance), with Excel export (ledger, bills, payments). The supplier list shows net payable and any advance.
+4. Roles: payments, aging, ledgers, opening bills and the opening date are admin and accountant only. The API refuses all other roles, and their supplier list has no amounts.
+
+### Files
+- New: db/migrations/007_supplier_payments.sql; api-server src/lib/payableRules.ts, src/lib/payables.ts, src/lib/supplierPaymentsRead.ts, tests payableRules, supplierPayments, migration007 (.test.ts); lhc-cafe src/components/SupplierPayables.tsx.
+- Changed: lib/db/src/schema/purchases.ts (kind, payables_settings, supplier_payments, supplier_payment_allocations); api-server src/lib/purchasePosting.ts (void refused with allocations), src/routes/purchases.ts (payments, opening bills, settings, aging, ledger), src/routes/cash.ts (CV payments in the drawer), src/routes/ledgers.ts (cash and bank ledgers); lhc-cafe pages/suppliers.tsx, pages/cash-drawer.tsx; CLAUDE.md (roadmap step 2); docs/HANDOFF.md; docs/specs/step2-suppliers.md.
+
+### Tables
+- New: payables_settings (one row, opening date empty), supplier_payments, supplier_payment_allocations. Changed: purchase_bills (+kind, default 'purchase'). No existing row is changed.
+
+### Migration
+db/migrations/007_supplier_payments.sql: NOT YET RUN on the server.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 166 tests pass. New:
+  - payableRules (11): CV/PV rules and the bank account; real payment date (backdating, no future, no earlier year, Nepal midnight); allocation (partial, several bills, advance, refusals); oldest first; opening bills (date needed, on or before it, any fiscal year, due after bill); every aging bucket edge (0, 1, 15, 16, 30, 31, 60, 61 days) and Nepal midnight (11:50 pm not due, 12:10 am 1 day late); per-supplier totals with advance; due this week; the running-balance ledger.
+  - supplierPayments (15, real routes on PGlite, clock fixed):
+    - partial PV with no new expense; one payment over two bills leaving a 100 advance (ledger net -100); refused allocations;
+    - the advance allocated later; a CV lowering the drawer's expected cash with no expense and appearing in the cash ledger;
+    - a closed drawer day refusing a CV and its void; void restoring balances and the drawer (supervisor refused, reason needed, never deleted);
+    - bill void refused with allocations; voucher fetch for print and the PV in the bank ledger;
+    - opening date needed (admin/accountant, not future); an opening bill with no stock, expense or drawer effect, in the ledger as opening; duplicates both ways; opening bills paid and void refused when paid;
+    - aging buckets (not due, 1, 30, 61 days) with due this week and overdue; roles (supervisor, head chef, staff refused; no amounts in their supplier list).
+  - migration007 (1): runs twice; an old bill becomes 'purchase'; CV/PV and account checks; duplicate voucher refused; an opening bill must be credit.
+- The migration test caught a check that let an online payment without a bank account through (SQL treats NULL as passing); fixed before finishing.
+- Typecheck of all three artifacts clean; API and frontend build.
+- Not run: the screens in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- Opening bills live in purchase_bills (kind 'opening') so the duplicate check, ledger, payments and aging need no second path. They are dated on or before the opening-balance date (a setting) and may be in an earlier fiscal year. Their numbers (OB) use the entry date's fiscal year.
+- "Not yet due" includes bills due today; 1-15 starts the day after the due date (Nepal day).
+- Payments dated in an earlier fiscal year are refused, like bills.
+- The supplier's net payable = owed on bills - advances; a negative running balance is shown as an advance.

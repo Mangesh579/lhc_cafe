@@ -15,6 +15,8 @@ import { SearchableSelect } from "@/components/SearchableSelect";
 import { apiJson } from "@/lib/expenseApi";
 import { rs } from "@/lib/payments";
 import { ArrowLeft, Plus } from "lucide-react";
+import * as XLSX from "xlsx";
+import { PaymentDialog, PaymentsTab, AgingTab, OpeningTab, printSupplierVoucher, VIA_LABEL, BANK_LABEL } from "@/components/SupplierPayables";
 
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
 const PAID_VIA: Record<string, string> = { drawer: "Cash drawer", cheque: "Cheque", online: "Online transfer" };
@@ -44,6 +46,7 @@ export default function Suppliers() {
   const [history, setHistory] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
+  const [payFor, setPayFor] = useState<number | null>(null);
 
   const fail = (e: any, title: string) => toast({ title, description: e?.error, variant: "destructive" });
 
@@ -97,6 +100,15 @@ export default function Suppliers() {
     apiJson(`/price-history?inventoryItemId=${historyItem}`).then(setHistory).catch(() => setHistory([]));
   }, [historyItem]);
 
+  const exportLedger = (l: any) => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(l.entries.map((e: any) => ({ Date: e.date, Entry: e.description, Billed: e.billed || "", Paid: e.paid || "", Balance: e.balance }))), "Ledger");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(l.bills.map((b: any) => ({ Type: b.kind === "opening" ? "Opening" : "Purchase", "Bill no.": b.billNumber, Number: b.pjNumber, Date: b.billDate, Due: b.dueDate, Status: b.status,
+      Items: b.items.map((i: any) => `${i.quantity} ${i.unit} ${i.itemName}`).join("; "), Total: b.total, Paid: b.paid, Balance: b.balance, "Days late": b.daysOverdue || "" }))), "Bills");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(l.payments.map((p: any) => ({ Voucher: p.voucherNo, Date: p.paymentDate, "Paid by": VIA_LABEL[p.paidVia], Reference: p.reference ?? "", Account: p.paidFromAccount ? BANK_LABEL[p.paidFromAccount] : "", Amount: p.amount, Advance: p.unallocated, Status: p.status }))), "Payments");
+    XLSX.writeFile(wb, `supplier-ledger-${l.supplier.name.replace(/[^a-z0-9]+/gi, "-")}.xlsx`);
+  };
+
   if (!canView) return <div className="p-8 text-center text-muted-foreground">Suppliers are for the admin, the accountant, supervisors and the kitchen and drink heads.</div>;
 
   const BillRows = ({ list, showSupplier }: { list: any[]; showSupplier?: boolean }) => (
@@ -146,13 +158,21 @@ export default function Suppliers() {
 
       {ledger ? (
         <div className="space-y-4">
-          <Button variant="ghost" size="sm" className="gap-1" onClick={() => setLedger(null)}><ArrowLeft className="w-4 h-4" /> All suppliers</Button>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <Button variant="ghost" size="sm" className="gap-1" onClick={() => setLedger(null)}><ArrowLeft className="w-4 h-4" /> All suppliers</Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => exportLedger(ledger)}>Export Excel</Button>
+              <Button size="sm" onClick={() => setPayFor(ledger.supplier.id)}>Pay {ledger.supplier.name}</Button>
+            </div>
+          </div>
           <Card><CardContent className="p-4 flex flex-wrap gap-x-8 gap-y-2 text-sm">
             <div><p className="text-xs text-muted-foreground">Supplier</p><p className="font-semibold">{ledger.supplier.name} <span className="font-normal text-muted-foreground">PAN {ledger.supplier.pan}</span></p></div>
             <div><p className="text-xs text-muted-foreground">Credit days</p><p className="font-semibold">{ledger.supplier.creditDays}</p></div>
             <div><p className="text-xs text-muted-foreground">Billed</p><p className="font-semibold">{rs(ledger.totals.billed)}</p></div>
             <div><p className="text-xs text-muted-foreground">Paid</p><p className="font-semibold">{rs(ledger.totals.paid)}</p></div>
-            <div><p className="text-xs text-muted-foreground">Balance owed</p><p className="font-semibold">{rs(ledger.totals.balance)}</p></div>
+            <div><p className="text-xs text-muted-foreground">Owed on bills</p><p className="font-semibold">{rs(ledger.totals.balance)}</p></div>
+            {ledger.totals.advance > 0 && <div><p className="text-xs text-muted-foreground">Advance with them</p><p className="font-semibold">{rs(ledger.totals.advance)}</p></div>}
+            <div><p className="text-xs text-muted-foreground">Net payable</p><p className="font-semibold">{rs(ledger.totals.net)}</p></div>
             <div><p className="text-xs text-muted-foreground">Overdue</p><p className={`font-semibold ${ledger.totals.overdue > 0 ? "text-red-600" : ""}`}>{rs(ledger.totals.overdue)}</p></div>
           </CardContent></Card>
           {ledger.unpaid.length > 0 && (
@@ -164,8 +184,37 @@ export default function Suppliers() {
               ))}
             </CardContent></Card>
           )}
+          <Card><CardContent className="p-0">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-4 py-3 bg-muted/40">Ledger (running balance)</p>
+            <div className="overflow-x-auto"><table className="w-full text-sm">
+              <thead className="text-xs text-muted-foreground"><tr><th className="px-3 py-2 text-left">Date</th><th className="px-3 py-2 text-left">Entry</th><th className="px-3 py-2 text-right">Billed</th><th className="px-3 py-2 text-right">Paid</th><th className="px-3 py-2 text-right">Balance</th></tr></thead>
+              <tbody className="divide-y">
+                {ledger.entries.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-muted-foreground">No entries yet.</td></tr>}
+                {ledger.entries.map((e: any, i: number) => (
+                  <tr key={i} className={e.type === "opening" ? "bg-amber-50/40" : ""}><td className="px-3 py-1.5 whitespace-nowrap">{e.date}</td><td className="px-3 py-1.5">{e.description}</td>
+                    <td className="px-3 py-1.5 text-right">{e.billed ? rs(e.billed) : ""}</td><td className="px-3 py-1.5 text-right">{e.paid ? rs(e.paid) : ""}</td>
+                    <td className={`px-3 py-1.5 text-right font-medium ${e.balance < 0 ? "text-green-700" : ""}`}>{e.balance < 0 ? `${rs(-e.balance)} advance` : rs(e.balance)}</td></tr>
+                ))}
+              </tbody>
+            </table></div>
+          </CardContent></Card>
+          {ledger.payments.length > 0 && (
+            <Card><CardContent className="p-0">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-4 py-3 bg-muted/40">Payments</p>
+              <table className="w-full text-sm"><tbody className="divide-y">
+                {ledger.payments.map((p: any) => (
+                  <tr key={p.id} className={p.status === "void" ? "opacity-50" : ""}>
+                    <td className="px-3 py-1.5 font-medium whitespace-nowrap">{p.voucherNo}</td><td className="px-3 py-1.5">{p.paymentDate}</td>
+                    <td className="px-3 py-1.5 text-xs">{VIA_LABEL[p.paidVia]}{p.reference ? ` · ${p.reference}` : ""}{p.paidFromAccount ? ` · ${BANK_LABEL[p.paidFromAccount]}` : ""}{p.status === "void" ? ` · VOID: ${p.voidReason}` : ""}</td>
+                    <td className="px-3 py-1.5 text-right">{rs(p.amount)}{p.status === "active" && p.unallocated > 0 && <span className="block text-xs text-amber-700">{rs(p.unallocated)} advance</span>}</td>
+                    <td className="px-3 py-1.5 text-right"><Button size="sm" variant="ghost" onClick={async () => printSupplierVoucher(await apiJson(`/supplier-payments/${p.id}`))}>Print</Button></td>
+                  </tr>
+                ))}
+              </tbody></table>
+            </CardContent></Card>
+          )}
           <Card><CardContent className="p-0"><div className="overflow-x-auto"><BillRows list={ledger.bills} /></div></CardContent></Card>
-          <p className="text-xs text-muted-foreground">Bills paid when bought (cash drawer, cheque or online) count as paid. Payments of credit bills are added in the next part.</p>
+          <p className="text-xs text-muted-foreground">Bills paid when bought (cash drawer, cheque or online) count as paid. Pay credit bills with "Pay {ledger.supplier.name}"; money not set against a bill stays as an advance. Void or allocate payments on the Payments tab.</p>
         </div>
       ) : (
         <Tabs value={tab} onValueChange={setTab}>
@@ -174,6 +223,9 @@ export default function Suppliers() {
             {fin && <TabsTrigger value="bills">Purchase bills</TabsTrigger>}
             <TabsTrigger value="ingredients">Ingredients {unmapped.length > 0 && <Badge variant="destructive" className="ml-1.5 h-5 px-1.5">{unmapped.length}</Badge>}</TabsTrigger>
             {fin && <TabsTrigger value="prices">Price history</TabsTrigger>}
+            {fin && <TabsTrigger value="payments">Payments</TabsTrigger>}
+            {fin && <TabsTrigger value="aging">Aging</TabsTrigger>}
+            {fin && <TabsTrigger value="opening">Opening balances</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="suppliers" className="mt-4 space-y-3">
@@ -182,7 +234,7 @@ export default function Suppliers() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-xs text-muted-foreground uppercase tracking-wider"><tr>
                   <th className="px-3 py-2 text-left">Supplier</th><th className="px-3 py-2 text-left">PAN/VAT</th><th className="px-3 py-2 text-left">Contact</th><th className="px-3 py-2 text-right">Credit days</th>
-                  {fin && <><th className="px-3 py-2 text-right">Billed</th><th className="px-3 py-2 text-right">Balance</th><th className="px-3 py-2 text-right">Overdue</th></>}<th className="px-3 py-2" />
+                  {fin && <><th className="px-3 py-2 text-right">Billed</th><th className="px-3 py-2 text-right">Net payable</th><th className="px-3 py-2 text-right">Overdue</th></>}<th className="px-3 py-2" />
                 </tr></thead>
                 <tbody className="divide-y">
                   {shown.length === 0 && <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">No suppliers yet.</td></tr>}
@@ -192,7 +244,7 @@ export default function Suppliers() {
                       <td className="px-3 py-2">{s.pan}</td>
                       <td className="px-3 py-2 text-xs">{[s.contactPerson, s.phone].filter(Boolean).join(" · ")}</td>
                       <td className="px-3 py-2 text-right">{s.creditDays}</td>
-                      {fin && <><td className="px-3 py-2 text-right">{rs(s.billed ?? 0)}</td><td className="px-3 py-2 text-right font-medium">{rs(s.balance ?? 0)}</td>
+                      {fin && <><td className="px-3 py-2 text-right">{rs(s.billed ?? 0)}</td><td className="px-3 py-2 text-right font-medium">{rs(s.net ?? s.balance ?? 0)}{(s.advance ?? 0) > 0 && <span className="block text-[11px] text-green-700">advance {rs(s.advance)}</span>}</td>
                         <td className={`px-3 py-2 text-right ${(s.overdue ?? 0) > 0 ? "text-red-600 font-medium" : ""}`}>{(s.overdue ?? 0) > 0 ? rs(s.overdue) : "—"}</td></>}
                       <td className="px-3 py-2 text-right">{fin && <Button size="sm" variant="ghost" onClick={e => { e.stopPropagation(); setEdit({ ...s, creditDays: String(s.creditDays) }); }}>Edit</Button>}</td>
                     </tr>
@@ -259,8 +311,14 @@ export default function Suppliers() {
               )}
             </TabsContent>
           )}
+          {fin && <TabsContent value="payments" className="mt-4">{tab === "payments" && <PaymentsTab suppliers={suppliers} reloadAll={load} />}</TabsContent>}
+          {fin && <TabsContent value="aging" className="mt-4">{tab === "aging" && <AgingTab />}</TabsContent>}
+          {fin && <TabsContent value="opening" className="mt-4">{tab === "opening" && <OpeningTab suppliers={suppliers} reloadAll={load} />}</TabsContent>}
         </Tabs>
       )}
+
+      <PaymentDialog open={payFor != null} onClose={() => setPayFor(null)} suppliers={suppliers} supplierId={payFor}
+        onSaved={async p => { await load(); if (ledger) openLedger(ledger.supplier.id); if (confirm("Print the voucher?")) printSupplierVoucher(await apiJson(`/supplier-payments/${p.id}`)); }} />
 
       <Dialog open={!!edit} onOpenChange={o => !o && setEdit(null)}>
         <DialogContent className="sm:max-w-md">

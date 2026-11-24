@@ -5,6 +5,7 @@ import { and, eq, gte, lte } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { isDay, dayRangeUtc, paidOrdersBetween, modeOf, nepalDay, addDays, collectionsByDay, receiptsBetween, type CollectionRow } from "../lib/ledgerData";
 import { MODE_LABEL } from "../lib/payments";
+import { supplierPaymentsBetween, bankPaidBillsBetween } from "../lib/supplierPaymentsRead";
 
 const router = Router();
 const LEDGER_ROLES = ["admin", "accountant", "supervisor"];
@@ -50,6 +51,7 @@ async function cashLedger(from: string, to: string) {
     .map(o => ({ o, amount: round2(o.parts.filter(p => modeOf(p.mode) === "cash").reduce((s, p) => s + p.amount, 0)) }))
     .filter(x => x.amount > 0);
   const receipts = await receiptsBetween(from, to, "cash");
+  const supplierCash = await supplierPaymentsBetween(from, to, ["drawer"]);
   const exps = await db.select().from(expensesTable).where(and(
     gte(expensesTable.expenseDate, from), lte(expensesTable.expenseDate, to), eq(expensesTable.status, "active"), eq(expensesTable.paidFromDrawer, true)));
   const moves = await db.select().from(cashMovementsTable).where(and(
@@ -62,6 +64,7 @@ async function cashLedger(from: string, to: string) {
     const items: { t: number; type: string; ref: string; description: string; amount: number; dir: "in" | "out" }[] = [
       ...sales.filter(x => nepalDay(x.o.at) === day).map(x => ({ t: x.o.at.getTime(), type: "sale", ref: saleRef(x.o), description: x.o.parts.length > 1 ? "Cash part of a split bill" : "Cash sale", amount: x.amount, dir: "in" as const })),
       ...receipts.filter(r => r.receiptDate === day).map(r => ({ t: r.createdAt.getTime(), type: "receipt", ref: r.voucherNo, description: `Received from ${r.customerName ?? `customer #${r.customerId}`}`, amount: r.amount, dir: "in" as const })),
+      ...supplierCash.filter(p => p.paymentDate === day).map(p => ({ t: new Date(p.createdAt).getTime(), type: "supplier_payment", ref: p.voucherNo, description: `Paid to ${p.supplierName}`, amount: p.amount, dir: "out" as const })),
       ...exps.filter(e => e.expenseDate === day).map(e => ({ t: new Date(e.createdAt).getTime(), type: "payout", ref: `Expense #${e.id}`, description: `${e.category}${e.vendor ? ` · ${e.vendor}` : ""}`, amount: num(e.amount), dir: "out" as const })),
       ...moves.filter(m => m.day === day).map(m => ({ t: new Date(m.createdAt).getTime(), type: m.kind, ref: m.reference ?? "", description: `${KIND_LABEL[m.kind] ?? m.kind}${m.description ? ` · ${m.description}` : ""}`, amount: num(m.amount), dir: (IN_KINDS.includes(m.kind) ? "in" : "out") as "in" | "out" })),
     ].sort((a, b) => a.t - b.t);
@@ -120,6 +123,16 @@ async function modeLedger(mode: string, from: string, to: string) {
       .where(and(eq(creditNotesTable.status, "active"), gte(creditNotesTable.noteDate, from), lte(creditNotesTable.noteDate, to)));
     for (const n of notes) {
       items.push({ t: new Date(n.createdAt).getTime(), day: n.noteDate, type: "credit_note", ref: n.noteNo, description: `Credit note · ${n.customerName ?? ""} · ${n.reason}`, inAmt: 0, outAmt: num(n.total) });
+    }
+  }
+  if (mode === "bank") {
+    // Money out of the bank: supplier payments by cheque or online (PV) and bills paid by cheque or online when bought
+    const bankName = (a: string | null) => a === "hbl" ? "HBL" : a === "nabil" ? "Nabil Bank" : "bank";
+    for (const p of await supplierPaymentsBetween(from, to, ["cheque", "online"])) {
+      items.push({ t: new Date(p.createdAt).getTime(), day: p.paymentDate, type: "supplier_payment", ref: p.voucherNo, description: `Paid to ${p.supplierName} by ${p.paidVia === "cheque" ? "cheque" : "online transfer"} ${p.reference ?? ""} from ${bankName(p.paidFromAccount)}`, inAmt: 0, outAmt: p.amount });
+    }
+    for (const b of await bankPaidBillsBetween(from, to)) {
+      items.push({ t: new Date(b.createdAt).getTime(), day: b.billDate, type: "purchase", ref: b.pjNumber, description: `Purchase bill ${b.billNumber} from ${b.supplierName}, ${b.paidVia === "cheque" ? "cheque" : "online"} ${b.paymentReference ?? ""} from ${bankName(b.paidFromAccount)}`, inAmt: 0, outAmt: b.total });
     }
   }
   if (mode === "card" || mode === "qr" || mode === "bank") {

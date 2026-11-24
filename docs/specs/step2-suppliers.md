@@ -123,7 +123,7 @@ On PGlite, like the conversion tests:
 1. **Closed cash drawer.** A bill paid from the cash drawer is refused when that bill date's drawer is already closed, with a clear message. This is the same rule as cash receipts. It was built in part A; a test was added.
 2. **Bank account for cheque and online bills.** A cheque or online-transfer bill also stores which bank account paid it, Nabil or HBL (`purchase_bills.paid_from_account`), next to the cheque number or transaction reference. It is required for those bills and empty for drawer and credit bills. Added by migration 006 (005 had already been run).
 
-## 12. Opening supplier balances (part B; not built in part A)
+## 12. Opening supplier balances (built in part B, 2026-11-24)
 
 When the cafe starts using supplier ledgers, suppliers are already owed money for bills from before. The accountant enters those unpaid bills once, per supplier, so balances, due dates and aging are right from the start date.
 

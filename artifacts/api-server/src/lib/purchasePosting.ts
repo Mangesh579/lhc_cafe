@@ -3,6 +3,7 @@
 import {
   suppliersTable, purchaseBillsTable, purchaseBillItemsTable, ingredientPriceHistoryTable, ingredientSuppliersTable,
   inventoryItemsTable, inventoryLogsTable, ingredientComponentsTable, expensesTable, expenseChangesTable, cashDaysTable,
+  supplierPaymentsTable, supplierPaymentAllocationsTable,
 } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { costAfterPurchase, isLatestPurchase, type BillInput } from "./purchaseRules";
@@ -122,6 +123,11 @@ export async function voidPurchaseBill(dbx: Db, billId: number, opts: { reason: 
     const [bill] = await tx.select().from(purchaseBillsTable).where(eq(purchaseBillsTable.id, billId));
     if (!bill) throw new PurchaseError(404, "Purchase bill not found.");
     if (bill.status !== "active") throw new PurchaseError(400, "This bill is already void.");
+    // Part B: a bill with payments allocated to it cannot be voided until those payments are voided
+    const [alloc] = await tx.select({ n: sql<string>`COUNT(*)` }).from(supplierPaymentAllocationsTable)
+      .innerJoin(supplierPaymentsTable, and(eq(supplierPaymentsTable.id, supplierPaymentAllocationsTable.paymentId), eq(supplierPaymentsTable.status, "active")))
+      .where(eq(supplierPaymentAllocationsTable.billId, billId));
+    if (Number(alloc?.n ?? 0) > 0) throw new PurchaseError(400, "Payments are allocated to this bill. Void those payments first.");
     if (bill.paidVia === "drawer" && await drawerClosed(tx, bill.billDate)) {
       throw new PurchaseError(400, `It was paid from the cash drawer and ${bill.billDate} is closed. Ask the admin to reopen that day first.`);
     }

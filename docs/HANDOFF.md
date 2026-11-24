@@ -21,6 +21,13 @@
 
 17. Suppliers and purchase bills (roadmap step 2, part A), 2026-11-24. Suppliers page (/suppliers): supplier master (PAN mandatory and unique, credit days, type goods/service, active), ingredient-supplier links with a preferred supplier and a "no supplier linked" banner (also on Inventory), purchase bills (/purchases/new) with the PAN and bill number required and duplicates refused per PAN, supplier ledger (billed, paid, balance, due, overdue, unpaid items), price history. Saving a bill, in one transaction: stock up in the ingredient's own inventory, cost per unit and last purchase (same formula as before), Stock Log, one direct expense per line (read-only on Expenses), price history, payable. Void reverses all of it. The old one-ingredient Record purchase is closed (410); Inventory's cart button opens the bill form. Migration 005 applied 2026-11-24; checked live the same day (see CHANGELOG). Plan: docs/specs/step2-suppliers.md.
 
+18. Supplier payments, opening balances and aging (roadmap step 2, part B), 2026-11-24. Suppliers page, tabs Payments, Aging, Opening balances, and "Pay <supplier>" on each ledger:
+   - Payments: cash from the drawer (CV number) or cheque/online from Nabil or HBL (PV number), dated on the real payment day. Partial or full, allocated across the supplier's open bills; the rest is an advance, allocatable later. No expense is ever created. A CV reduces that day's expected drawer cash (refused on a closed drawer day). Immutable; void with a reason (admin or accountant) restores bill balances (refused on a closed drawer day). Voucher on screen and printed.
+   - Opening bills: purchase_bills kind 'opening' (OB numbers), dated on or before the opening-balance date (a setting), with their own due date; no stock, expense or drawer effect; same duplicate rule; paid, aged and voided like bills.
+   - Aging by supplier on the Nepal day (not yet due, 1-15, 16-30, 31-60, over 60), bills due this week, overdue list, Excel export. Supplier ledger with payments and a running balance, Excel export.
+   - Cash ledger shows CV payments; Bank ledger shows PV payments and bills paid by cheque/online when bought. A purchase bill with payments allocated cannot be voided.
+   Needs migration 007 (below).
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -30,7 +37,7 @@
 - 006_purchase_bank_account.sql (2026-11-24, by the owner): purchase_bills.paid_from_account (Nabil or HBL, required for cheque and online bills).
 
 # Not yet applied on the server
-- None.
+- db/migrations/007_supplier_payments.sql (purchase_bills.kind, payables_settings, supplier_payments, supplier_payment_allocations). Run after a backup, BEFORE deploy.sh and before pushing to main.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
@@ -40,7 +47,7 @@
 - Credit notes do not yet change sales, profit or VAT reports (VAT credit-note register is roadmap step 6).
 - The default credit limit is blank until the owner sets it (Receivables > Change defaults).
 - Cash vouchers (CV) with supplier PAN for cash expenses are not built yet; drawer payouts only require a bill number for now (roadmap step 3).
-- Purchase bills (item 17): payments of credit bills (PV/CV), allocation and aging are part B; returns and debit notes are part C. Until part B, a credit bill stays fully owed. Opening supplier balances (unpaid bills from before the start date, no stock change) are specified for part B (spec section 12). Step 3 must post purchases to inventory and only consumption to cost of sales, never the purchase expenses again (spec section 13). Line units must be the ingredient's own unit (no unit conversion). Bills dated in an earlier fiscal year are refused. Existing purchases (from the old Record purchase) are not bills and are not payables.
+- Purchase bills (item 17): payments, allocation, advances and aging are built (item 18); returns and debit notes are part C. The opening-balance date must be set before opening bills can be entered. Opening supplier balances (unpaid bills from before the start date, no stock change) are specified for part B (spec section 12). Step 3 must post purchases to inventory and only consumption to cost of sales, never the purchase expenses again (spec section 13). Line units must be the ingredient's own unit (no unit conversion). Bills dated in an earlier fiscal year are refused. Existing purchases (from the old Record purchase) are not bills and are not payables.
 - Settlements: one per machine and sales day, only for days that have ended. Older "Card" payments with no machine recorded are listed but cannot be settled. A day's sales that change after settling (late or cancelled bill) are flagged on the Settlements page; the settled figures are not changed.
 - The OpenAPI spec and generated client still list only cash/nabil_qr for payment methods.
 - scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
