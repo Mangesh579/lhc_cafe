@@ -31,7 +31,7 @@
    - A debit note (DN-<FY>-00001, voucher series DN, prefix editable) is raised against an active purchase bill, never an opening bill. Lines come from that bill: quantity up to bought minus already returned, value = the same share of the line's amount and VAT (the last units take the exact remainder). Dated on the real return day: backdating to the bill date, no future, current fiscal year (Nepal day).
    - One transaction: stock down in the ingredient's own inventory with a Stock Log line; set against its own bill up to what the bill still owes, the rest is a credit (advance) with the supplier, allocatable to other bills; a linked negative direct expense per line (the original expense is untouched; read-only on Expenses); price history records the returned quantity (void when the whole line is returned). Cost per unit is not recalculated (spec section 14). No cash or drawer effect.
    - Immutable; void with a reason (admin or accountant) puts the stock, payable, price history and expenses back. A purchase bill with an active debit note cannot be voided until the note is voided.
-   Needs migration 008 (below).
+   Migration 008 applied 2026-11-25 (see CHANGELOG).
 
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
@@ -41,9 +41,10 @@
 - 005_suppliers_purchases.sql (2026-11-24, by the owner): suppliers, ingredient_suppliers, purchase_bills, purchase_bill_items, ingredient_price_history; expenses.purchase_bill_id and purchase_bill_item_id.
 - 006_purchase_bank_account.sql (2026-11-24, by the owner): purchase_bills.paid_from_account (Nabil or HBL, required for cheque and online bills).
 - 007_supplier_payments.sql (2026-11-24, by the owner): purchase_bills.kind, payables_settings, supplier_payments, supplier_payment_allocations.
+- 008_debit_notes.sql (2026-11-25, by the owner): debit_notes, debit_note_items, debit_note_allocations; expenses.debit_note_id; ingredient_price_history.returned_quantity.
 
 # Not yet applied on the server
-- 008_debit_notes.sql (written 2026-11-24): debit_notes, debit_note_items, debit_note_allocations; expenses.debit_note_id; ingredient_price_history.returned_quantity. Run before deploying item 19.
+- None.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.

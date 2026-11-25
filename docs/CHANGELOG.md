@@ -507,3 +507,10 @@ db/migrations/008_debit_notes.sql: NOT YET RUN on the server.
 
 ### Open questions
 - Before running 008, confirm that expenses.amount accepts negative amounts on the server (query in the server steps).
+
+
+## 2026-11-25: Migration 008 run
+
+- The owner ran db/migrations/008_debit_notes.sql on the server (after a backup) and deployed part C (purchase returns with item-wise debit notes). Recorded as run in CLAUDE.md and docs/HANDOFF.md. Roadmap step 2 is complete.
+- After the restart the API logged "Server listening" and /api/healthz answered 200. An older "Failed query ... order_items" entry in the pm2 error log came from a dropped database connection in orders.ts, which this change did not touch. If it shows up again in new logs, look into it separately.
+- Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
