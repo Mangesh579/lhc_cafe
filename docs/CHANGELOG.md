@@ -471,3 +471,39 @@ db/migrations/007_supplier_payments.sql: NOT YET RUN on the server.
 - The owner ran db/migrations/007_supplier_payments.sql on the server and deployed commit b567f0e (supplier payments, opening balances and aging, part B). Recorded as run in CLAUDE.md and docs/HANDOFF.md.
 - Checked live (read-only, accountant login): the opening-balance settings, supplier payments, aging and purchase-bill routes answer from the new tables. At the time: opening-balance date not set, 0 payments, 0 bills, nothing owed.
 - Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
+
+
+## 2026-11-24: Purchase returns with item-wise debit notes (roadmap step 2, part C)
+
+### Summary
+- Plan written first: docs/specs/step2-suppliers.md section 14. Nothing needed stopping.
+- Debit notes (DN-<FY>-00001, voucher series DN, editable prefix) against an existing active purchase bill. Opening bills are refused with a clear message. Lines are chosen from the bill: quantity up to bought minus already returned, an optional reason per line, a reason for the note. Date: real return day, backdating to the bill date allowed, no future, current fiscal year, Nepal day.
+- Effects, in one transaction with row locks: stock down in the ingredient's own inventory with a Stock Log line; the payable down by the returned value including its share of VAT (applied to its own bill up to what it still owes; the rest is a credit (advance) with the supplier, allocatable to other bills or left); one linked negative direct expense per line (category of the original expense; the original is never edited; read-only on Expenses); the price-history row records the returned quantity (and is voided when the whole line is returned). No cash or drawer effect.
+- Void with a reason (admin or accountant) puts back stock (with a Stock Log line), the payable, price history and voids the negative expenses. Never deleted. A purchase bill with an active debit note cannot be voided until the note is voided.
+- Shown in: the supplier ledger (running balance, "Returned" total, Excel sheet "Debit notes"), aging (lower owed or a larger advance), the bill detail (returns, "Return items"), price history (net, bought and returned quantity), a printable debit note, and Suppliers > Returns (list, print, allocate, void, Excel export with notes and items). Admin and accountant only.
+
+### Files
+- New: db/migrations/008_debit_notes.sql; api-server src/lib/debitNoteRules.ts, src/lib/debitNotes.ts, tests debitNoteRules, debitNotes, migration008 (.test.ts); lhc-cafe src/components/DebitNotes.tsx.
+- Changed: lib/db/src/schema/purchases.ts (debit_notes, debit_note_items, debit_note_allocations, price history returned_quantity), lib/db/src/schema/expenses.ts (debit_note_id); api-server src/lib/payables.ts (bill balances and advances include debit notes), src/lib/payableRules.ts (ledger entries), src/lib/purchasePosting.ts (bill void refused with an active debit note), src/routes/purchases.ts (debit-note routes, ledger, bill detail, price history); lhc-cafe pages/suppliers.tsx; CLAUDE.md (roadmap step 2); docs/HANDOFF.md; docs/specs/step2-suppliers.md.
+
+### Tables
+- New: debit_notes, debit_note_items, debit_note_allocations. Changed: expenses (+debit_note_id), ingredient_price_history (+returned_quantity, default 0). No existing row is changed.
+
+### Migration
+db/migrations/008_debit_notes.sql: NOT YET RUN on the server.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 23 files, 182 tests pass. New:
+  - debitNoteRules (6): partial value with VAT share (4 kg of 10 kg rice = 400 + 52); exact remainder (33.33 + 66.67); limits (bought minus returned, same line twice); refusals; own bill then advance; date rules (backdating, no future, not before the bill, earlier fiscal year) and Nepal midnight (12:10 am).
+  - debitNotes (9, real routes on PGlite, clock fixed): partial return (kitchen stock down, Stock Log, negative expense, original expense untouched, bill balance, price history, cost per unit unchanged); limits and a second partial return taking the remainder (price history voided); a return against a paid bill becoming an advance and then allocated (over-allocation refused); ledger running balance and totals; aging and the P&L memo; opening bill, future date and pre-bill date refused; bill void refused while a note is active; void (supervisor refused, reason needed, stock, expense, price history, payable and P&L restored, second void refused, never deleted); fetch for print; the negative expense cannot be voided on Expenses; supervisor and head barista refused on every route.
+  - migration008 (1): runs twice; total = subtotal + VAT, line_total = amount + VAT, quantity > 0, allocation > 0, unique number; a negative expense with debit_note_id is accepted.
+- Typecheck: api-server, lhc-cafe, db clean (`pnpm run typecheck` still fails only in scripts/src/seed.ts, as before). Both artifacts build.
+- Not run: the screens in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- Cost per unit is NOT recalculated on a return. Taking the returned value out of the average ((stock x average - value) / (stock - qty)) jumps or goes negative when little stock is left or stock is already used. Past sales profit never changes either way. Step 3 posting: Dr 2100 Accounts Payable, Cr 1400/1410 Inventory at the returned value.
+- The note is applied to its own bill first; only the part above that bill's balance becomes an advance.
+- A bill line can be returned even if its stock was already used (within the bought quantity); stock may go negative as elsewhere.
+
+### Open questions
+- Before running 008, confirm that expenses.amount accepts negative amounts on the server (query in the server steps).

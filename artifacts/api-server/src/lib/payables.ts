@@ -12,6 +12,7 @@ import { nextVoucherNumber } from "./fiscal";
 import { nepalDay } from "./ledgerData";
 import { round2 } from "./payments";
 import { PurchaseError, findDuplicate } from "./purchasePosting";
+import { dnAllocatedByBill, dnAdvancesBySupplier, returnedByBillItem } from "./debitNotes";
 
 type Db = any;
 const num = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
@@ -41,22 +42,27 @@ export async function allocatedByBill(ex: Db, billIds: number[]): Promise<Map<nu
 
 // Bills with items, paid (at purchase for cash bills, plus allocated payments), balance, due and overdue on the Nepal day
 export async function loadBills(ex: Db, where: any, today = nepalDay(new Date())) {
+  // paid = at purchase (cash bills) + payments allocated; balance also takes off debit notes set against the bill
   const bills = await ex.select().from(purchaseBillsTable).where(where).orderBy(desc(purchaseBillsTable.billDate), desc(purchaseBillsTable.id));
   const ids = bills.map((b: any) => b.id);
   const items = ids.length ? await ex.select().from(purchaseBillItemsTable).where(inArray(purchaseBillItemsTable.billId, ids)).orderBy(purchaseBillItemsTable.id) : [];
   const alloc = await allocatedByBill(ex, ids);
+  const dnAlloc = await dnAllocatedByBill(ex, ids); // part C: debit notes set against the bill
+  const returned = await returnedByBillItem(ex, items.map((i: any) => i.id));
   return bills.map((b: any) => {
     const total = round2(num(b.total));
     const paidAtPurchase = b.status === "active" && b.terms === "cash" ? total : 0;
     const allocated = alloc.get(b.id) ?? 0;
+    const debitNotes = b.status === "active" ? (dnAlloc.get(b.id) ?? 0) : 0;
     const paid = b.status === "active" ? round2(paidAtPurchase + allocated) : 0;
-    const balance = b.status === "active" ? round2(total - paid) : 0;
+    const balance = b.status === "active" ? round2(total - paid - debitNotes) : 0;
     const daysOverdue = overdueDays(b.dueDate, today, balance);
     return {
-      ...b, subtotal: round2(num(b.subtotal)), vatAmount: round2(num(b.vatAmount)), total, paid, allocated, balance, daysOverdue, overdue: daysOverdue > 0,
+      ...b, subtotal: round2(num(b.subtotal)), vatAmount: round2(num(b.vatAmount)), total, paid, allocated, debitNotes, balance, daysOverdue, overdue: daysOverdue > 0,
       items: items.filter((i: any) => i.billId === b.id).map((i: any) => ({
         id: i.id, inventoryItemId: i.inventoryItemId, itemName: i.itemName, department: i.department, quantity: num(i.quantity), unit: i.unit,
         rate: num(i.rate), amount: num(i.amount), vatAmount: num(i.vatAmount), lineTotal: num(i.lineTotal),
+        returnedQty: returned.get(i.id)?.qty ?? 0,
       })),
     };
   });
@@ -83,6 +89,8 @@ export async function advancesBySupplier(ex: Db, supplierId?: number): Promise<M
   const pays = await loadPayments(ex, and(eq(supplierPaymentsTable.status, "active"), ...(supplierId ? [eq(supplierPaymentsTable.supplierId, supplierId)] : [])));
   const map = new Map<number, number>();
   for (const p of pays) map.set(p.supplierId, round2((map.get(p.supplierId) ?? 0) + p.unallocated));
+  // part C: a debit note's credit not set against a bill is also an advance with the supplier
+  for (const [id, v] of await dnAdvancesBySupplier(ex, supplierId)) map.set(id, round2((map.get(id) ?? 0) + v));
   return map;
 }
 
@@ -91,7 +99,7 @@ async function lockSupplier(tx: Db, supplierId: number) {
   if (!((r as any).rows ?? r).length) throw new PurchaseError(404, "Supplier not found.");
 }
 
-async function openBillsOf(tx: Db, supplierId: number): Promise<Map<number, OpenBill>> {
+export async function openBillsOf(tx: Db, supplierId: number): Promise<Map<number, OpenBill>> {
   const bills = await loadBills(tx, and(eq(purchaseBillsTable.supplierId, supplierId), eq(purchaseBillsTable.status, "active")));
   return new Map(bills.filter((b: any) => b.balance > 0.004).map((b: any) => [b.id, { billId: b.id, supplierId: b.supplierId, balance: b.balance }]));
 }

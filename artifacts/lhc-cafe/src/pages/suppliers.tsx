@@ -17,6 +17,7 @@ import { rs } from "@/lib/payments";
 import { ArrowLeft, Plus } from "lucide-react";
 import * as XLSX from "xlsx";
 import { PaymentDialog, PaymentsTab, AgingTab, OpeningTab, printSupplierVoucher, VIA_LABEL, BANK_LABEL } from "@/components/SupplierPayables";
+import { DebitNoteDialog, DebitNotesTab, printDebitNote } from "@/components/DebitNotes";
 
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
 const PAID_VIA: Record<string, string> = { drawer: "Cash drawer", cheque: "Cheque", online: "Online transfer" };
@@ -47,6 +48,7 @@ export default function Suppliers() {
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
   const [payFor, setPayFor] = useState<number | null>(null);
+  const [returnFrom, setReturnFrom] = useState<any | null>(null);
 
   const fail = (e: any, title: string) => toast({ title, description: e?.error, variant: "destructive" });
 
@@ -106,6 +108,8 @@ export default function Suppliers() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(l.bills.map((b: any) => ({ Type: b.kind === "opening" ? "Opening" : "Purchase", "Bill no.": b.billNumber, Number: b.pjNumber, Date: b.billDate, Due: b.dueDate, Status: b.status,
       Items: b.items.map((i: any) => `${i.quantity} ${i.unit} ${i.itemName}`).join("; "), Total: b.total, Paid: b.paid, Balance: b.balance, "Days late": b.daysOverdue || "" }))), "Bills");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(l.payments.map((p: any) => ({ Voucher: p.voucherNo, Date: p.paymentDate, "Paid by": VIA_LABEL[p.paidVia], Reference: p.reference ?? "", Account: p.paidFromAccount ? BANK_LABEL[p.paidFromAccount] : "", Amount: p.amount, Advance: p.unallocated, Status: p.status }))), "Payments");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet((l.debitNotes ?? []).map((n: any) => ({ "Debit note": n.noteNo, Date: n.noteDate, "Bill no.": n.billNumber, Reason: n.reason,
+      Items: n.items.map((i: any) => `${i.quantity} ${i.unit} ${i.itemName}`).join("; "), Subtotal: n.subtotal, VAT: n.vatAmount, Total: n.total, Advance: n.unallocated, Status: n.status }))), "Debit notes");
     XLSX.writeFile(wb, `supplier-ledger-${l.supplier.name.replace(/[^a-z0-9]+/gi, "-")}.xlsx`);
   };
 
@@ -170,6 +174,7 @@ export default function Suppliers() {
             <div><p className="text-xs text-muted-foreground">Credit days</p><p className="font-semibold">{ledger.supplier.creditDays}</p></div>
             <div><p className="text-xs text-muted-foreground">Billed</p><p className="font-semibold">{rs(ledger.totals.billed)}</p></div>
             <div><p className="text-xs text-muted-foreground">Paid</p><p className="font-semibold">{rs(ledger.totals.paid)}</p></div>
+            {ledger.totals.returned > 0 && <div><p className="text-xs text-muted-foreground">Returned (debit notes)</p><p className="font-semibold">{rs(ledger.totals.returned)}</p></div>}
             <div><p className="text-xs text-muted-foreground">Owed on bills</p><p className="font-semibold">{rs(ledger.totals.balance)}</p></div>
             {ledger.totals.advance > 0 && <div><p className="text-xs text-muted-foreground">Advance with them</p><p className="font-semibold">{rs(ledger.totals.advance)}</p></div>}
             <div><p className="text-xs text-muted-foreground">Net payable</p><p className="font-semibold">{rs(ledger.totals.net)}</p></div>
@@ -191,7 +196,7 @@ export default function Suppliers() {
               <tbody className="divide-y">
                 {ledger.entries.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-muted-foreground">No entries yet.</td></tr>}
                 {ledger.entries.map((e: any, i: number) => (
-                  <tr key={i} className={e.type === "opening" ? "bg-amber-50/40" : ""}><td className="px-3 py-1.5 whitespace-nowrap">{e.date}</td><td className="px-3 py-1.5">{e.description}</td>
+                  <tr key={i} className={e.type === "opening" ? "bg-amber-50/40" : e.type === "debit_note" ? "bg-sky-50/40" : ""}><td className="px-3 py-1.5 whitespace-nowrap">{e.date}</td><td className="px-3 py-1.5">{e.description}</td>
                     <td className="px-3 py-1.5 text-right">{e.billed ? rs(e.billed) : ""}</td><td className="px-3 py-1.5 text-right">{e.paid ? rs(e.paid) : ""}</td>
                     <td className={`px-3 py-1.5 text-right font-medium ${e.balance < 0 ? "text-green-700" : ""}`}>{e.balance < 0 ? `${rs(-e.balance)} advance` : rs(e.balance)}</td></tr>
                 ))}
@@ -213,6 +218,21 @@ export default function Suppliers() {
               </tbody></table>
             </CardContent></Card>
           )}
+          {(ledger.debitNotes ?? []).length > 0 && (
+            <Card><CardContent className="p-0">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-4 py-3 bg-muted/40">Returns (debit notes)</p>
+              <table className="w-full text-sm"><tbody className="divide-y">
+                {ledger.debitNotes.map((n: any) => (
+                  <tr key={n.id} className={n.status === "void" ? "opacity-50" : ""}>
+                    <td className="px-3 py-1.5 font-medium whitespace-nowrap">{n.noteNo}</td><td className="px-3 py-1.5">{n.noteDate}</td>
+                    <td className="px-3 py-1.5 text-xs">Bill {n.billNumber} · {n.items.map((i: any) => `${i.quantity} ${i.unit} ${i.itemName}`).join(", ")}{n.status === "void" ? ` · VOID: ${n.voidReason}` : ""}</td>
+                    <td className="px-3 py-1.5 text-right">{rs(n.total)}{n.status === "active" && n.unallocated > 0 && <span className="block text-xs text-amber-700">{rs(n.unallocated)} advance</span>}</td>
+                    <td className="px-3 py-1.5 text-right"><Button size="sm" variant="ghost" onClick={() => printDebitNote(n)}>Print</Button></td>
+                  </tr>
+                ))}
+              </tbody></table>
+            </CardContent></Card>
+          )}
           <Card><CardContent className="p-0"><div className="overflow-x-auto"><BillRows list={ledger.bills} /></div></CardContent></Card>
           <p className="text-xs text-muted-foreground">Bills paid when bought (cash drawer, cheque or online) count as paid. Pay credit bills with "Pay {ledger.supplier.name}"; money not set against a bill stays as an advance. Void or allocate payments on the Payments tab.</p>
         </div>
@@ -224,6 +244,7 @@ export default function Suppliers() {
             <TabsTrigger value="ingredients">Ingredients {unmapped.length > 0 && <Badge variant="destructive" className="ml-1.5 h-5 px-1.5">{unmapped.length}</Badge>}</TabsTrigger>
             {fin && <TabsTrigger value="prices">Price history</TabsTrigger>}
             {fin && <TabsTrigger value="payments">Payments</TabsTrigger>}
+            {fin && <TabsTrigger value="returns">Returns</TabsTrigger>}
             {fin && <TabsTrigger value="aging">Aging</TabsTrigger>}
             {fin && <TabsTrigger value="opening">Opening balances</TabsTrigger>}
           </TabsList>
@@ -302,7 +323,7 @@ export default function Suppliers() {
                   <tbody className="divide-y">
                     {history.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">No purchase bills for this ingredient yet.</td></tr>}
                     {history.map(h => (
-                      <tr key={h.id}><td className="px-3 py-2">{h.billDate}</td><td className="px-3 py-2">{h.supplierName}</td><td className="px-3 py-2 text-right">{h.quantity} {h.unit}</td>
+                      <tr key={h.id}><td className="px-3 py-2">{h.billDate}</td><td className="px-3 py-2">{h.supplierName}</td><td className="px-3 py-2 text-right">{h.quantity} {h.unit}{h.returnedQuantity > 0 && <span className="block text-xs text-amber-700">bought {h.boughtQuantity}, returned {h.returnedQuantity}</span>}</td>
                         <td className="px-3 py-2 text-right">Rs. {h.rate.toFixed(2)}</td><td className="px-3 py-2 text-right">Rs. {h.landedUnitCost.toFixed(2)}</td>
                         <td className="px-3 py-2"><button className="underline text-xs" onClick={() => openBill(h.billId)}>{h.pjNumber}</button></td></tr>
                     ))}
@@ -312,6 +333,7 @@ export default function Suppliers() {
             </TabsContent>
           )}
           {fin && <TabsContent value="payments" className="mt-4">{tab === "payments" && <PaymentsTab suppliers={suppliers} reloadAll={load} />}</TabsContent>}
+          {fin && <TabsContent value="returns" className="mt-4">{tab === "returns" && <DebitNotesTab reloadAll={load} />}</TabsContent>}
           {fin && <TabsContent value="aging" className="mt-4">{tab === "aging" && <AgingTab />}</TabsContent>}
           {fin && <TabsContent value="opening" className="mt-4">{tab === "opening" && <OpeningTab suppliers={suppliers} reloadAll={load} />}</TabsContent>}
         </Tabs>
@@ -319,6 +341,9 @@ export default function Suppliers() {
 
       <PaymentDialog open={payFor != null} onClose={() => setPayFor(null)} suppliers={suppliers} supplierId={payFor}
         onSaved={async p => { await load(); if (ledger) openLedger(ledger.supplier.id); if (confirm("Print the voucher?")) printSupplierVoucher(await apiJson(`/supplier-payments/${p.id}`)); }} />
+
+      <DebitNoteDialog bill={returnFrom} onClose={() => setReturnFrom(null)}
+        onSaved={async n => { await load(); if (ledger) openLedger(ledger.supplier.id); openBill(n.billId); if (confirm("Print the debit note?")) printDebitNote(n); }} />
 
       <Dialog open={!!edit} onOpenChange={o => !o && setEdit(null)}>
         <DialogContent className="sm:max-w-md">
@@ -355,13 +380,23 @@ export default function Suppliers() {
                 ))}
               </tbody></table>
               <p className="text-right">Subtotal {rs(billDetail.subtotal)}{billDetail.vatAmount > 0 ? ` · VAT ${rs(billDetail.vatAmount)}` : ""} · <strong>Total {rs(billDetail.total)}</strong></p>
-              {billDetail.status === "active" && <p className="text-right">Paid {rs(billDetail.paid)} · <strong>Balance {rs(billDetail.balance)}</strong>{billDetail.overdue && <span className="text-red-600"> · {billDetail.daysOverdue} days late</span>}</p>}
+              {billDetail.status === "active" && <p className="text-right">Paid {rs(billDetail.paid)}{billDetail.debitNotes > 0 ? ` · Returned ${rs(billDetail.debitNotes)}` : ""} · <strong>Balance {rs(billDetail.balance)}</strong>{billDetail.overdue && <span className="text-red-600"> · {billDetail.daysOverdue} days late</span>}</p>}
+              {(billDetail.debitNoteList ?? []).length > 0 && (
+                <div className="border rounded p-2 text-xs space-y-1"><p className="font-semibold uppercase tracking-wider text-muted-foreground">Returns</p>
+                  {billDetail.debitNoteList.map((n: any) => (
+                    <div key={n.id} className={`flex items-center gap-2 ${n.status === "void" ? "opacity-50" : ""}`}>
+                      <span className="flex-1">{n.noteNo} · {n.noteDate} · {n.items.map((i: any) => `${i.quantity} ${i.unit} ${i.itemName}`).join(", ")} · {rs(n.total)}{n.status === "void" ? " (void)" : ""}</span>
+                      <button type="button" className="underline text-primary" onClick={() => printDebitNote(n)}>Print</button>
+                    </div>
+                  ))}</div>
+              )}
               {billDetail.notes && <p className="text-xs text-muted-foreground">Note: {billDetail.notes}</p>}
               <p className="text-xs text-muted-foreground">Entered by {billDetail.createdBy}. Bills cannot be edited; void a wrong bill and enter it again.</p>
             </div>
           )}
           <DialogFooter>
             {billDetail?.status === "active" && <Button variant="ghost" className="text-destructive mr-auto" onClick={() => voidBill(billDetail)}>Void bill</Button>}
+            {billDetail?.status === "active" && billDetail.kind !== "opening" && <Button variant="outline" onClick={() => setReturnFrom(billDetail)}>Return items</Button>}
             <Button variant="outline" onClick={() => setBillDetail(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>

@@ -5,7 +5,7 @@ import { Router } from "express";
 import type { Response } from "express";
 import {
   db, suppliersTable, ingredientSuppliersTable, purchaseBillsTable, purchaseBillItemsTable, ingredientPriceHistoryTable,
-  inventoryItemsTable, ingredientComponentsTable, supplierPaymentsTable, payablesSettingsTable,
+  inventoryItemsTable, ingredientComponentsTable, supplierPaymentsTable, payablesSettingsTable, debitNotesTable,
 } from "@workspace/db";
 import { and, eq, gte, lte, desc, inArray, sql } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
@@ -16,6 +16,8 @@ import { safeFiscalLabel } from "../lib/accountConversionRun";
 import { round2 } from "../lib/payments";
 import { loadBills, loadPayments, advancesBySupplier, createSupplierPayment, allocateSupplierPayment, voidSupplierPayment, createOpeningBill, openingDate } from "../lib/payables";
 import { validatePayment, validateOpeningBill, agingBySupplier, dueThisWeek, supplierLedger, BUCKETS, BUCKET_LABEL } from "../lib/payableRules";
+import { createDebitNote, allocateDebitNote, voidDebitNote, loadDebitNotes, returnableLines } from "../lib/debitNotes";
+import { openBillsOf } from "../lib/payables";
 
 const router = Router();
 const FIN = ["admin", "accountant"];
@@ -92,16 +94,19 @@ router.get("/suppliers/:id/ledger", authenticate, async (req: AuthRequest, res: 
   if (!supplier) { res.status(404).json({ error: "Supplier not found" }); return; }
   const bills = await billsWithBalances(eq(purchaseBillsTable.supplierId, id));
   const payments = await loadPayments(db, eq(supplierPaymentsTable.supplierId, id));
+  const debitNotes = await loadDebitNotes(db, eq(debitNotesTable.supplierId, id));
   const active = payments.filter((p: any) => p.status === "active");
-  const advance = round2(active.reduce((s: number, p: any) => s + p.unallocated, 0));
+  const activeDn = debitNotes.filter((d: any) => d.status === "active");
+  const advance = round2(active.reduce((s: number, p: any) => s + p.unallocated, 0) + activeDn.reduce((s: number, d: any) => s + d.unallocated, 0));
   const t = totalsOf(bills);
   const entries = supplierLedger(
     bills.filter((b: any) => b.status === "active").map((b: any) => ({ id: b.id, kind: b.kind, pjNumber: b.pjNumber, billNumber: b.billNumber, billDate: b.billDate, total: b.total, terms: b.terms, paidVia: b.paidVia, createdAt: new Date(b.createdAt).toISOString() })),
     active.map((p: any) => ({ id: p.id, voucherNo: p.voucherNo, paymentDate: p.paymentDate, paidVia: p.paidVia, amount: p.amount, reference: p.reference, createdAt: new Date(p.createdAt).toISOString() })),
+    activeDn.map((d: any) => ({ id: d.id, noteNo: d.noteNo, noteDate: d.noteDate, billNumber: d.billNumber, total: d.total, createdAt: new Date(d.createdAt).toISOString() })),
   );
   res.json({
-    supplier, bills, payments, entries,
-    totals: { ...t, paid: round2(t.paid + active.reduce((s: number, p: any) => s + p.unallocated, 0)), advance, net: round2(t.balance - advance) },
+    supplier, bills, payments, debitNotes, entries,
+    totals: { ...t, paid: round2(t.paid + active.reduce((s: number, p: any) => s + p.unallocated, 0)), returned: round2(activeDn.reduce((s: number, d: any) => s + d.total, 0)), advance, net: round2(t.balance - advance) },
     unpaid: bills.filter((b: any) => b.status === "active" && b.balance > 0),
   });
 });
@@ -177,7 +182,7 @@ router.get("/purchase-bills/:id", authenticate, async (req: AuthRequest, res: Re
   if (!can(req, res, FIN)) return;
   const [bill] = await billsWithBalances(eq(purchaseBillsTable.id, idOf(req.params.id)));
   if (!bill) { res.status(404).json({ error: "Purchase bill not found" }); return; }
-  res.json(bill);
+  res.json({ ...bill, debitNoteList: await loadDebitNotes(db, eq(debitNotesTable.billId, bill.id)) });
 });
 
 router.post("/purchase-bills", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
@@ -211,12 +216,13 @@ router.get("/price-history", authenticate, async (req: AuthRequest, res: Respons
     id: ingredientPriceHistoryTable.id, billDate: ingredientPriceHistoryTable.billDate, supplierId: ingredientPriceHistoryTable.supplierId, supplierName: suppliersTable.name,
     quantity: ingredientPriceHistoryTable.quantity, unit: ingredientPriceHistoryTable.unit, rate: ingredientPriceHistoryTable.rate,
     landedUnitCost: ingredientPriceHistoryTable.landedUnitCost, billId: ingredientPriceHistoryTable.billId, pjNumber: purchaseBillsTable.pjNumber,
+    returnedQuantity: ingredientPriceHistoryTable.returnedQuantity,
   }).from(ingredientPriceHistoryTable)
     .innerJoin(suppliersTable, eq(ingredientPriceHistoryTable.supplierId, suppliersTable.id))
     .innerJoin(purchaseBillsTable, eq(ingredientPriceHistoryTable.billId, purchaseBillsTable.id))
     .where(and(eq(ingredientPriceHistoryTable.inventoryItemId, itemId), eq(ingredientPriceHistoryTable.status, "active")))
     .orderBy(desc(ingredientPriceHistoryTable.billDate), desc(ingredientPriceHistoryTable.id)).limit(200);
-  res.json(rows.map(r => ({ ...r, quantity: num(r.quantity), rate: num(r.rate), landedUnitCost: num(r.landedUnitCost) })));
+  res.json(rows.map(r => ({ ...r, quantity: round2(num(r.quantity) - num(r.returnedQuantity)), boughtQuantity: num(r.quantity), returnedQuantity: num(r.returnedQuantity), rate: num(r.rate), landedUnitCost: num(r.landedUnitCost) })));
 });
 
 // ── Part B: opening-balance date and opening bills ──
@@ -296,6 +302,65 @@ router.post("/supplier-payments/:id/void", authenticate, async (req: AuthRequest
   if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
   try {
     await voidSupplierPayment(db, idOf(req.params.id), { reason, user: req.user?.username ?? "user" });
+    res.json({ success: true });
+  } catch (e) { fail(res, e); }
+});
+
+// ── Part C: purchase returns (debit notes) ──
+router.get("/purchase-bills/:id/returnable", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, FIN)) return;
+  const id = idOf(req.params.id);
+  const [bill] = await db.select().from(purchaseBillsTable).where(eq(purchaseBillsTable.id, id));
+  if (!bill) { res.status(404).json({ error: "Purchase bill not found" }); return; }
+  res.json({ billId: id, kind: bill.kind, status: bill.status, billDate: bill.billDate, lines: bill.kind === "opening" ? [] : await returnableLines(db, id) });
+});
+
+router.get("/debit-notes", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, FIN)) return;
+  const conds = [];
+  if (isDay(req.query.from)) conds.push(gte(debitNotesTable.noteDate, req.query.from));
+  if (isDay(req.query.to)) conds.push(lte(debitNotesTable.noteDate, req.query.to));
+  const supplierId = Number(req.query.supplierId);
+  if (Number.isInteger(supplierId) && supplierId > 0) conds.push(eq(debitNotesTable.supplierId, supplierId));
+  res.json((await loadDebitNotes(db, conds.length ? and(...conds) : undefined)).slice(0, 500));
+});
+
+router.get("/debit-notes/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, FIN)) return;
+  const [n] = await loadDebitNotes(db, eq(debitNotesTable.id, idOf(req.params.id)));
+  if (!n) { res.status(404).json({ error: "Debit note not found" }); return; }
+  res.json(n);
+});
+
+router.post("/debit-notes", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, FIN)) return;
+  const now = new Date();
+  try {
+    const id = await createDebitNote(db, req.body, { today: nepalDay(now), currentFiscalYear: safeFiscalLabel(now), fiscalYearOf: (d) => safeFiscalLabel(new Date(`${d}T06:00:00Z`)) }, {
+      user: req.user?.username ?? "user",
+      billBalance: async (tx, billId) => (await loadBills(tx, eq(purchaseBillsTable.id, billId)))[0]?.balance ?? 0,
+    });
+    const [n] = await loadDebitNotes(db, eq(debitNotesTable.id, id));
+    res.status(201).json(n);
+  } catch (e) { fail(res, e); }
+});
+
+router.post("/debit-notes/:id/allocate", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, FIN)) return;
+  const id = idOf(req.params.id);
+  try {
+    await allocateDebitNote(db, id, req.body?.allocations, { user: req.user?.username ?? "user", openBills: openBillsOf });
+    const [n] = await loadDebitNotes(db, eq(debitNotesTable.id, id));
+    res.json(n);
+  } catch (e) { fail(res, e); }
+});
+
+router.post("/debit-notes/:id/void", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, FIN)) return;
+  const reason = String(req.body?.reason ?? "").trim().slice(0, 300);
+  if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
+  try {
+    await voidDebitNote(db, idOf(req.params.id), { reason, user: req.user?.username ?? "user" });
     res.json({ success: true });
   } catch (e) { fail(res, e); }
 });

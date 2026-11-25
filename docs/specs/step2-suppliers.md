@@ -160,3 +160,50 @@ Account numbers are from the chart of accounts the accountant approved on 2026-1
 - **Purchase expenses must not be posted as costs again.** Each purchase-bill line also creates a direct expense row (`expenses.purchase_bill_id` set). That row keeps today's reports working (the P&L memo, cash profit, the Expenses page). The step-3 posting must skip those rows, and the older purchase expenses from Record purchase (`expenses.inventory_item_id` set), because the bill already posted them to inventory. Otherwise the same purchase would be a cost twice: once as an expense and again when consumed.
 - **Input VAT:** stays part of the inventory cost until the VAT switch (roadmap step 5). After registration, VAT on bills posts to **1450 Input VAT**.
 - **Opening supplier balances** (section 12) post to 2100 against an opening-balance entry in equity, as the accountant decides when step 3 is built.
+
+## 14. Part C plan: purchase returns with item-wise debit notes (2026-11-24)
+
+Accountant's rule: returns are item-wise and per supplier, with a debit note. A debit note reduces what we owe the supplier and reduces stock. Every point below can be done safely; the cost-per-unit decision is explained.
+
+- **Against what.** A debit note is raised on one active **purchase** bill, with lines picked from that bill's lines:
+  - each line is an ingredient, a quantity and an optional reason, plus one reason for the note;
+  - the quantity cannot exceed what was bought minus what active debit notes already returned for that line;
+  - **opening bills** have no lines and are refused with a clear message.
+- **Number and date.**
+  - Numbered from the voucher sequences, series `DN` (editable prefix), in the fiscal year of the return date.
+  - The return date is the real date: backdating allowed, never the future, not before the bill date, in the current fiscal year, on the Nepal day. These are the same rules as payments.
+- **Value of a returned line.**
+  - The value is the returned share of what the bill charged for that line: amount × qty / bought qty, plus the same share of the line's VAT, to the paisa.
+  - When a return takes the line's last remaining quantity, it uses the exact remainder (line total minus earlier returns), so the returns add up to the line exactly.
+- **Effects, in one transaction:**
+  1. Stock goes down in the ingredient's own department (kitchen or drink), with a Stock Log line. Negative stock is allowed, as elsewhere.
+  2. The payable goes down by the note's value:
+     - the note is applied first to its own bill, up to what that bill still owes;
+     - anything more (the bill was already paid, in full or in part) stays as a **credit (advance) with that supplier**. It can be allocated to the supplier's other open bills or left, exactly like a payment's advance (new table `debit_note_allocations`).
+     - Bill balance = total − paid at purchase − payments allocated − debit notes allocated. Supplier advance = unallocated payments + unallocated debit notes.
+  3. The cost record: **one negative direct expense per line**, linked to the bill, bill line and debit note. It uses the same category as the purchase, is not paid from the drawer, and is read-only on the Expenses page. The original expense is never edited, so cash profit and the P&L memo go down by exactly the returned value.
+  4. Price history: the bill line's row gets `returned_quantity` increased. If the whole line is returned the row is marked void; otherwise it stays, with its net quantity shown. The rate itself does not change.
+- **Cost per unit: not recalculated.**
+  - Stock is valued at a weighted average that already includes later purchases and consumption. Taking a return out at its own purchase price would need (stock × average − returned value) / (stock − qty). With little stock left, or negative stock (which the cafe allows), that gives very large, zero or negative costs.
+  - Leaving cost per unit unchanged keeps every future dish cost sensible. The difference stays small and corrects itself with the next purchase.
+  - Past sales profit never changes, because it uses the cost snapshot taken at each sale.
+- **No cash or drawer effect.** A debit note is a credit with the supplier, not a refund. If a supplier ever pays money back, that is a later decision for the accountant (refunds: avoid; void with a reason).
+- **Immutable.**
+  - Void a debit note with a reason (admin or accountant). In one transaction it puts the stock back with a Stock Log line, voids the negative expenses, restores the price-history quantity, and removes the payable reduction: its allocations stop counting.
+  - Notes are never deleted.
+  - A purchase bill with an active debit note cannot be voided until the note is voided.
+- **Where it shows:**
+  - the supplier ledger, with the running balance going down by the note's value;
+  - the bill itself (returned quantity per line, and the debit notes);
+  - a printable debit note;
+  - aging, through the lower bill balance and the advance;
+  - a Debit notes list;
+  - the Excel exports (ledger and the debit-note list).
+
+  All of it is admin and accountant only.
+- **Migration 008 (idempotent):**
+  - new tables: `debit_notes`, `debit_note_items`, `debit_note_allocations`;
+  - new columns: `expenses.debit_note_id` and `ingredient_price_history.returned_quantity` (default 0).
+
+  No existing row is changed. Before running it, the owner checks that `expenses.amount` has no check forbidding negative values. Neither the Drizzle schema nor any migration has one. If one did exist, saving a debit note would fail safely, with the whole transaction rolled back.
+- **Step 3 posting (section 13):** a debit note posts Dr 2100 Accounts Payable (or the supplier advance), Cr 1400/1410 Inventory. The negative expense rows are skipped like the purchase expenses.

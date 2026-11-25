@@ -128,6 +128,9 @@ export async function voidPurchaseBill(dbx: Db, billId: number, opts: { reason: 
       .innerJoin(supplierPaymentsTable, and(eq(supplierPaymentsTable.id, supplierPaymentAllocationsTable.paymentId), eq(supplierPaymentsTable.status, "active")))
       .where(eq(supplierPaymentAllocationsTable.billId, billId));
     if (Number(alloc?.n ?? 0) > 0) throw new PurchaseError(400, "Payments are allocated to this bill. Void those payments first.");
+    // Part C: a bill with an active debit note (purchase return) cannot be voided until the note is voided
+    const [dn] = await tx.execute(sql`SELECT note_no FROM debit_notes WHERE bill_id = ${billId} AND status = 'active' LIMIT 1`).then((r: any) => r.rows ?? r);
+    if (dn) throw new PurchaseError(400, `Debit note ${dn.note_no} returns items from this bill. Void the debit note first.`);
     if (bill.paidVia === "drawer" && await drawerClosed(tx, bill.billDate)) {
       throw new PurchaseError(400, `It was paid from the cash drawer and ${bill.billDate} is closed. Ask the admin to reopen that day first.`);
     }

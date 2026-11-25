@@ -113,6 +113,7 @@ export const ingredientPriceHistoryTable = pgTable("ingredient_price_history", {
   unit: text("unit").notNull(),
   rate: numeric("rate", { precision: 12, scale: 4 }).notNull(),
   landedUnitCost: numeric("landed_unit_cost", { precision: 12, scale: 4 }).notNull(), // (amount + VAT) / quantity
+  returnedQuantity: numeric("returned_quantity", { precision: 12, scale: 4 }).notNull().default("0"), // by debit notes (part C)
   status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -163,4 +164,63 @@ export const supplierPaymentAllocationsTable = pgTable("supplier_payment_allocat
 }, (t) => ({
   byPayment: index("supplier_payment_allocations_payment_idx").on(t.paymentId),
   byBill: index("supplier_payment_allocations_bill_idx").on(t.billId),
+}));
+
+// Debit note (DN): an item-wise purchase return against one purchase bill. Lowers stock and what we owe the supplier.
+// Applied first to its own bill; anything beyond what that bill still owes is a credit (advance) with the supplier.
+// Immutable; corrected by void with a reason. Never deleted.
+export const debitNotesTable = pgTable("debit_notes", {
+  id: serial("id").primaryKey(),
+  noteNo: text("note_no").notNull(),
+  supplierId: integer("supplier_id").notNull(),
+  billId: integer("bill_id").notNull(),
+  noteDate: date("note_date").notNull(),
+  reason: text("reason").notNull(),
+  subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull(),
+  vatAmount: numeric("vat_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+  total: numeric("total", { precision: 12, scale: 2 }).notNull(),
+  status: text("status").notNull().default("active"),
+  voidReason: text("void_reason"),
+  voidedBy: text("voided_by"),
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  oneNo: uniqueIndex("debit_notes_no_idx").on(t.noteNo),
+  bySupplier: index("debit_notes_supplier_idx").on(t.supplierId),
+  byBill: index("debit_notes_bill_idx").on(t.billId),
+}));
+
+export const debitNoteItemsTable = pgTable("debit_note_items", {
+  id: serial("id").primaryKey(),
+  debitNoteId: integer("debit_note_id").notNull(),
+  billItemId: integer("bill_item_id").notNull(),
+  inventoryItemId: integer("inventory_item_id").notNull(),
+  itemName: text("item_name").notNull(),
+  department: text("department").notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
+  unit: text("unit").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(), // before VAT
+  vatAmount: numeric("vat_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+  lineTotal: numeric("line_total", { precision: 12, scale: 2 }).notNull(),
+  reason: text("reason"),
+  stockBefore: numeric("stock_before", { precision: 12, scale: 4 }).notNull(),
+  stockAfter: numeric("stock_after", { precision: 12, scale: 4 }).notNull(),
+  expenseId: integer("expense_id"),
+}, (t) => ({
+  byNote: index("debit_note_items_note_idx").on(t.debitNoteId),
+  byBillItem: index("debit_note_items_bill_item_idx").on(t.billItemId),
+}));
+
+// How a debit note's value is set against bills (first its own bill; any rest is an advance, allocatable later)
+export const debitNoteAllocationsTable = pgTable("debit_note_allocations", {
+  id: serial("id").primaryKey(),
+  debitNoteId: integer("debit_note_id").notNull(),
+  billId: integer("bill_id").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  byNote: index("debit_note_allocations_note_idx").on(t.debitNoteId),
+  byBill: index("debit_note_allocations_bill_idx").on(t.billId),
 }));

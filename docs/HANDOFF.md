@@ -27,6 +27,11 @@
    - Aging by supplier on the Nepal day (not yet due, 1-15, 16-30, 31-60, over 60), bills due this week, overdue list, Excel export. Supplier ledger with payments and a running balance, Excel export.
    - Cash ledger shows CV payments; Bank ledger shows PV payments and bills paid by cheque/online when bought. A purchase bill with payments allocated cannot be voided.
    Migration 007 applied 2026-11-24; checked live the same day (see CHANGELOG).
+19. Purchase returns with item-wise debit notes (roadmap step 2, part C), 2026-11-24. Bill detail > "Return items"; Suppliers > Returns tab (list, print, allocate, void, Excel); debit notes in the supplier ledger (running balance, totals, Excel sheet), bill detail and price history. Admin and accountant only.
+   - A debit note (DN-<FY>-00001, voucher series DN, prefix editable) is raised against an active purchase bill, never an opening bill. Lines come from that bill: quantity up to bought minus already returned, value = the same share of the line's amount and VAT (the last units take the exact remainder). Dated on the real return day: backdating to the bill date, no future, current fiscal year (Nepal day).
+   - One transaction: stock down in the ingredient's own inventory with a Stock Log line; set against its own bill up to what the bill still owes, the rest is a credit (advance) with the supplier, allocatable to other bills; a linked negative direct expense per line (the original expense is untouched; read-only on Expenses); price history records the returned quantity (void when the whole line is returned). Cost per unit is not recalculated (spec section 14). No cash or drawer effect.
+   - Immutable; void with a reason (admin or accountant) puts the stock, payable, price history and expenses back. A purchase bill with an active debit note cannot be voided until the note is voided.
+   Needs migration 008 (below).
 
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
@@ -38,17 +43,17 @@
 - 007_supplier_payments.sql (2026-11-24, by the owner): purchase_bills.kind, payables_settings, supplier_payments, supplier_payment_allocations.
 
 # Not yet applied on the server
-- None.
+- 008_debit_notes.sql (written 2026-11-24): debit_notes, debit_note_items, debit_note_allocations; expenses.debit_note_id; ingredient_price_history.returned_quantity. Run before deploying item 19.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
 - Monthly accounts are retired in code (item 10). Until that code is deployed, the old code can still open a monthly bill; after deploying, Receivables > Converted monthly bills shows a live "no monthly bill is open" check (and a link to convert one if any appears).
 - Tests: the database tests (accountConversionRun, migration004) run on PGlite, an in-memory PostgreSQL, so `pnpm test` still needs no server. PGlite and drizzle-kit are dev dependencies of api-server.
-- Customer credit notes exist only for credit invoices and cannot exceed what is still owed. Refunds of money already received are not modelled (accountant: avoid refunds; when needed, void with a reason). Supplier debit notes come with purchases (roadmap step 4).
+- Customer credit notes exist only for credit invoices and cannot exceed what is still owed. Refunds of money already received are not modelled (accountant: avoid refunds; when needed, void with a reason). Supplier debit notes are built (item 19).
 - Credit notes do not yet change sales, profit or VAT reports (VAT credit-note register is roadmap step 6).
 - The default credit limit is blank until the owner sets it (Receivables > Change defaults).
 - Cash vouchers (CV) with supplier PAN for cash expenses are not built yet; drawer payouts only require a bill number for now (roadmap step 3).
-- Purchase bills (item 17): payments, allocation, advances and aging are built (item 18); returns and debit notes are part C. The opening-balance date must be set before opening bills can be entered. Opening supplier balances (unpaid bills from before the start date, no stock change) are specified for part B (spec section 12). Step 3 must post purchases to inventory and only consumption to cost of sales, never the purchase expenses again (spec section 13). Line units must be the ingredient's own unit (no unit conversion). Bills dated in an earlier fiscal year are refused. Existing purchases (from the old Record purchase) are not bills and are not payables.
+- Purchase bills (item 17): payments, allocation, advances and aging are built (item 18); returns and debit notes are item 19. The opening-balance date must be set before opening bills can be entered. Opening supplier balances (unpaid bills from before the start date, no stock change) are specified for part B (spec section 12). Step 3 must post purchases to inventory and only consumption to cost of sales, never the purchase expenses again (spec section 13). Line units must be the ingredient's own unit (no unit conversion). Bills dated in an earlier fiscal year are refused. Existing purchases (from the old Record purchase) are not bills and are not payables.
 - Settlements: one per machine and sales day, only for days that have ended. Older "Card" payments with no machine recorded are listed but cannot be settled. A day's sales that change after settling (late or cancelled bill) are flagged on the Settlements page; the settled figures are not changed.
 - The OpenAPI spec and generated client still list only cash/nabil_qr for payment methods.
 - scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
@@ -57,3 +62,4 @@
 
 # Next work
 Roadmap step 2 in CLAUDE.md: suppliers, purchases, payables, supplier ledger, payments (PV), returns with debit notes, supplier on each ingredient, price history. Then steps 3 to 9. Each task must end with a docs/CHANGELOG.md entry.
+- Debit notes (item 19): cost per unit is not changed by a return (the stock value may stay slightly high until consumption; step 3 posting will credit 1400/1410 at the returned value). A return of stock already used is allowed as long as the quantity is within the bill line; stock can then go negative, as with any stock movement. A debit note's credit is applied to its own bill first; allocation to other bills is manual. Debit notes in an earlier fiscal year are refused.

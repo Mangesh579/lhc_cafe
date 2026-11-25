@@ -138,13 +138,15 @@ export function dueThisWeek<T extends { dueDate: string; balance: number }>(bill
 // Supplier ledger with a running balance (positive = owed to the supplier, negative = advance with them)
 export type LedgerBill = { id: number; kind: string; pjNumber: string; billNumber: string; billDate: string; total: number; terms: string; paidVia: string | null; createdAt: string };
 export type LedgerPayment = { id: number; voucherNo: string; paymentDate: string; paidVia: string; amount: number; reference: string | null; createdAt: string };
-export function supplierLedger(bills: LedgerBill[], payments: LedgerPayment[]) {
+export type LedgerDebitNote = { id: number; noteNo: string; noteDate: string; billNumber: string; total: number; createdAt: string };
+export function supplierLedger(bills: LedgerBill[], payments: LedgerPayment[], debitNotes: LedgerDebitNote[] = []) {
   const items: { date: string; t: string; type: string; ref: string; description: string; billed: number; paid: number }[] = [];
   for (const b of bills) {
     items.push({ date: b.billDate, t: b.createdAt, type: b.kind === "opening" ? "opening" : "bill", ref: b.billNumber, description: b.kind === "opening" ? `Opening bill ${b.billNumber} (${b.pjNumber})` : `Bill ${b.billNumber} (${b.pjNumber})`, billed: b.total, paid: 0 });
     if (b.terms === "cash") items.push({ date: b.billDate, t: b.createdAt + "z", type: "paid_at_purchase", ref: b.billNumber, description: `Paid at purchase (${b.paidVia === "drawer" ? "cash drawer" : b.paidVia})`, billed: 0, paid: b.total });
   }
   for (const p of payments) items.push({ date: p.paymentDate, t: p.createdAt, type: "payment", ref: p.voucherNo, description: `Payment ${p.voucherNo} (${p.paidVia === "drawer" ? "cash drawer" : p.paidVia}${p.reference ? ` ${p.reference}` : ""})`, billed: 0, paid: p.amount });
+  for (const d of [...debitNotes].sort((a, b) => a.id - b.id)) items.push({ date: d.noteDate, t: d.createdAt, type: "debit_note", ref: d.noteNo, description: `Return ${d.noteNo} on bill ${d.billNumber}`, billed: 0, paid: d.total });
   items.sort((a, b) => a.date.localeCompare(b.date) || a.t.localeCompare(b.t));
   let bal = 0;
   return items.map(i => { bal = round2(bal + i.billed - i.paid); return { ...i, balance: bal }; });

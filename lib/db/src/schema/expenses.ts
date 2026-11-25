@@ -16,6 +16,7 @@ export const expensesTable = pgTable("expenses", {
   // Set when the expense was booked by a purchase bill line: edit or void the bill, not the expense
   purchaseBillId: integer("purchase_bill_id"),
   purchaseBillItemId: integer("purchase_bill_item_id"),
+  debitNoteId: integer("debit_note_id"), // set on the negative expense booked by a debit note (purchase return)
   frequency: text("frequency"),
   inventoryItemId: integer("inventory_item_id"),
   purchaseQuantity: numeric("purchase_quantity", { precision: 12, scale: 4 }),
