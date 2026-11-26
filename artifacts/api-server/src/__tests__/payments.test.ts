@@ -57,3 +57,18 @@ describe("validateSplit", () => {
       .toEqual([{ mode: "cash", amount: 200, reference: null }, { mode: "credit", amount: 250, reference: null }]);
   });
 });
+
+// Owner, 2026-11-26: a 100% discount (e.g. a loyalty reward) leaves a Rs 0 bill. Nothing is paid, so no mode and no card fee.
+describe("a Rs 0 bill", () => {
+  it("settles with no payment parts, whatever mode was picked", () => {
+    expect(validateSplit([{ mode: "card_nabil", amount: 0 }], 0, { hasCustomer: false })).toEqual({ parts: [] });
+    expect(validateSplit([], 0, { hasCustomer: false })).toEqual({ parts: [] });
+    expect(validateSplit([{ mode: "cash", amount: 0 }, { mode: "card_hbl", amount: "" }], 0.001, { hasCustomer: false })).toEqual({ parts: [] });
+    expect(summaryMethod([])).toBe("none");
+  });
+
+  it("still refuses money entered against a Rs 0 bill, and Rs 0 parts on a real bill", () => {
+    expect(validateSplit([{ mode: "cash", amount: 50 }], 0, { hasCustomer: false })).toHaveProperty("error");
+    expect(validateSplit([{ mode: "cash", amount: 0 }], 100, { hasCustomer: false })).toHaveProperty("error");
+  });
+});

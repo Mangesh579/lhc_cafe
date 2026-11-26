@@ -17,7 +17,7 @@ export const RECEIPT_MODES = [
 
 const LABELS: Record<string, string> = {
   cash: "Cash", nabil_qr: "QR Payment", card_nabil: "Card - LHC Nabil POS", card_hbl: "Card - LHC HBL POS", card_sulimha_nabil: "Card - Sulimha Nabil POS", card_sulimha_hbl: "Card - Sulimha HBL POS", credit: "Credit",
-  card: "Card", esewa: "Card", nc: "Not Chargeable", split: "Split", bank: "Bank",
+  card: "Card", esewa: "Card", nc: "Not Chargeable", split: "Split", bank: "Bank", none: "No payment (Rs 0)",
 };
 
 export const modeLabel = (m: string | null | undefined) => (m ? LABELS[m] ?? m.replace(/_/g, " ") : "");

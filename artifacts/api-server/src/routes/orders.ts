@@ -391,6 +391,16 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   const customerId: number | null = loyaltyCustomerId ? Number(loyaltyCustomerId) : order.loyaltyCustomerId;
   const nc = isNc !== undefined ? !!isNc : order.isNc;
 
+  // Complimentary chosen at the payment step (owner, 2026-11-26): the open bill becomes NC, booked like an NC order
+  // placed at the POS: at the ingredient cost of what was given, with the person's name, and no money received.
+  if (nc && !order.isNc) {
+    if (!String(ncPersonName ?? "").trim()) { res.status(400).json({ error: "Enter who the complimentary bill is for (name, room or reason)." }); return; }
+    const items = await db.select({ quantity: orderItemsTable.quantity, unitCost: orderItemsTable.unitCost }).from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
+    const cost = round2(items.reduce((s, i) => s + (parseFloat(String(i.unitCost ?? 0)) || 0) * i.quantity, 0));
+    Object.assign(updateData, { isNc: true, ncPersonName: String(ncPersonName).trim().slice(0, 120), ncReason: String(ncReason ?? "").trim().slice(0, 300) || null,
+      paymentMethod: "nc", totalAmount: String(cost), discountAmount: "0", vatAmount: "0", billType: "pan", nonTaxableAmount: "0" });
+  }
+
   // Work out the payment parts
   let parts: { mode: string; amount: number; reference?: string | null }[] = [];
   let writeRows = true;
