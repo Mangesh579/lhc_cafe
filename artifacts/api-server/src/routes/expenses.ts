@@ -7,6 +7,7 @@ import { db, expensesTable, expenseAttachmentsTable, expenseChangesTable, invent
 import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
 import { authenticate, requireAdminOrAccountant, type AuthRequest } from "../middlewares/auth";
 import { isDrawerClosed } from "../lib/ledgerData";
+import { nextVoucherNumber } from "../lib/fiscal";
 
 const router = Router();
 const PURCHASE_BILL_MSG = "This expense was booked by a purchase bill. Open the bill under Suppliers and void it there instead.";
@@ -145,15 +146,21 @@ router.post("/expenses", authenticate, requireAdminOrAccountant, async (req: Aut
   if (!isDate(b.expenseDate)) { res.status(400).json({ error: "A valid date is required." }); return; }
   if (b.paymentMethod === "cash" && b.paidFromDrawer && await isDrawerClosed(b.expenseDate)) { res.status(400).json({ error: "That day's cash drawer is already closed." }); return; }
   const user = req.user?.username ?? "user";
-  const [row] = await db.insert(expensesTable).values({
-    expenseDate: b.expenseDate, type: b.type, category: clean(b.category, 80)!, subcategory: clean(b.subcategory, 80),
-    description: clean(b.description, 500), vendor: clean(b.vendor, 120), amount: String(round2(amount)),
-    paymentMethod: METHODS.includes(b.paymentMethod) ? b.paymentMethod : "cash",
-    paidFromDrawer: b.paymentMethod === "cash" && !!b.paidFromDrawer,
-    isRecurring: !!b.isRecurring, frequency: b.isRecurring ? (FREQUENCIES.includes(b.frequency) ? b.frequency : "monthly") : null,
-    createdBy: user,
-  }).returning();
-  await logChange(row.id, "created", `Rs. ${row.amount} · ${row.category}`, user);
+  const fromDrawer = b.paymentMethod === "cash" && !!b.paidFromDrawer;
+  // Cash out of the drawer is petty cash: it gets a CV number, like a payout on the Cash Drawer page
+  const row = await db.transaction(async (tx) => {
+    const voucherNo = fromDrawer ? await nextVoucherNumber(tx, "CV", "CV", new Date(`${b.expenseDate}T06:00:00Z`)) : null;
+    const [r] = await tx.insert(expensesTable).values({
+      expenseDate: b.expenseDate, type: b.type, category: clean(b.category, 80)!, subcategory: clean(b.subcategory, 80),
+      description: clean(b.description, 500), vendor: clean(b.vendor, 120), amount: String(round2(amount)),
+      paymentMethod: METHODS.includes(b.paymentMethod) ? b.paymentMethod : "cash",
+      paidFromDrawer: fromDrawer, billNumber: clean(b.billNumber, 60), voucherNo,
+      isRecurring: !!b.isRecurring, frequency: b.isRecurring ? (FREQUENCIES.includes(b.frequency) ? b.frequency : "monthly") : null,
+      createdBy: user,
+    }).returning();
+    return r;
+  });
+  await logChange(row.id, "created", `Rs. ${row.amount} · ${row.category}${row.voucherNo ? ` · ${row.voucherNo}` : ""}`, user);
   res.status(201).json(row);
 });
 

@@ -36,6 +36,8 @@
 
 20. Cancel invoice and Wrong customer (Receivables), 2026-11-26. On each credit invoice in a customer's ledger (admin and accountant): Cancel = a full credit note (kind 'cancel') for what is still owed, with a reason and an optional "Not served: put the stock back" (Stock Log lines; voiding the note takes the stock out again). Wrong customer = a full credit note (kind 'reissue') plus a new credit invoice for the right customer: same items, KOTs and cost snapshot, dated on the visit day with a new number in that fiscal year, no stock change, points when paid. A reissue note cannot be voided (move it back with Wrong customer). Both refuse split bills and invoices with receipts allocated; Wrong customer also refuses an invoice with credit notes. Migration 010 run 2026-11-26.
 
+21. Petty cash CV numbers, 2026-11-26. Every cash payout from the drawer (Cash Drawer > Petty cash payout, or an expense on the Expenses page ticked "Paid from the cash drawer") gets its own CV number in the same CV series as suppliers paid from the drawer (CV-2083/84-00001...), numbered in the fiscal year of the payout day. The bill number is optional; without one, who was paid or what it was for is required. The CV prints after saving (cash voucher with Paid by, Received by and Approved by lines) and can be reprinted from the Cash Drawer and Expenses lists; Excel export has a CV no. column. Older payouts keep their bill number and have no CV. Needs migration 011 (below).
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -49,7 +51,7 @@
 - 010_credit_note_kinds.sql (2026-11-26, by the owner): credit_notes.kind, stock_restored, reissued_order_id.
 
 # Not yet applied on the server
-- None.
+- 011_petty_cash_cv.sql (written 2026-11-26): expenses.voucher_no with a unique index. Run before deploying item 21.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
@@ -70,5 +72,6 @@
 Roadmap step 2 in CLAUDE.md: suppliers, purchases, payables, supplier ledger, payments (PV), returns with debit notes, supplier on each ingredient, price history. Then steps 3 to 9. Each task must end with a docs/CHANGELOG.md entry.
 - Debit notes (item 19): cost per unit is not changed by a return (the stock value may stay slightly high until consumption; step 3 posting will credit 1400/1410 at the returned value). A return of stock already used is allowed as long as the quantity is within the bill line; stock can then go negative, as with any stock movement. A debit note's credit is applied to its own bill first; allocation to other bills is manual. Debit notes in an earlier fiscal year are refused.
 - Sulimha card machines: until a Sulimha settlement is recorded, the money shows as unsettled on Settlements (it is owed by Sulimha Durbar). The chart of accounts has no "Receivable - Sulimha Durbar" account yet; step 3 posting needs one (ask the accountant). Older bills keep the LHC machines; nothing is moved between machines.
-- Still to do from the owner's testing of 2026-11-25: petty cash with a CV number and an optional bill number; hotel room stays (breakfast at cost billed to Sulimha Durbar, extras paid at checkout), plan first.
+- Still to do from the owner's testing of 2026-11-25: hotel room stays (breakfast at cost billed to Sulimha Durbar, extras paid at checkout), plan first.
 - Cancel invoice with "Not served" puts back stock by today's recipe, not the recipe on the day of the sale (same as cancelling an order). Wrong customer: until credit notes reduce sales reports, the original and the re-issued invoice both count in sales totals (the existing credit-note limit).
+- Petty cash CV: a voided payout keeps its CV number (shown as void on the Expenses page); numbers are never reused. Payouts recorded before migration 011 have no CV number.

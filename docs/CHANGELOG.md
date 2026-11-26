@@ -591,3 +591,34 @@ db/migrations/010_credit_note_kinds.sql: NOT YET RUN on the server.
 
 - The owner ran db/migrations/010_credit_note_kinds.sql on the server (after a backup) and deployed Cancel invoice and Wrong customer. The code had already reached main in commit d271248 ("commits for handoff 9") instead of its own branch. Recorded as run in CLAUDE.md and docs/HANDOFF.md.
 - Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
+
+
+## 2026-11-26: Petty cash, CV number with an optional bill number
+
+### Summary
+- Skills used: ponytail, tdd, backend-patterns, react-patterns, database-migrations.
+- Every petty cash payout from the drawer gets its own CV number (owner, 2026-11-25), in the same CV series as suppliers paid in cash from the drawer, in the fiscal year of the payout day. This covers the Cash Drawer payout and an expense on the Expenses page ticked "Paid from the cash drawer". Other expenses get no CV.
+- The bill number is now optional on payouts. The Expenses page add form has a "Bill no. (if any)" field (the API now saves it).
+- "Record payout and print CV" prints the cash voucher (CV no., date, paid to, bill no. or "No bill", what for, amount, Paid by / Received by / Approved by). Reprint from the Cash Drawer entries and the Expenses list. Excel export gains a CV no. column.
+
+### Files
+- New: db/migrations/011_petty_cash_cv.sql; api-server src/__tests__/pettyCashVoucher.test.ts; lhc-cafe src/lib/pettyCash.ts.
+- Changed: lib/db/src/schema/expenses.ts (voucher_no, unique index); api-server src/lib/cashRules.ts, src/routes/cash.ts, src/routes/expenses.ts, src/__tests__/pettyCash.test.ts; lhc-cafe pages/cash-drawer.tsx, pages/expenses.tsx; CLAUDE.md; docs/HANDOFF.md.
+
+### Tables
+- Changed: expenses (+voucher_no text, unique index expenses_voucher_no_idx). Existing rows unchanged (no CV). New CV numbers use voucher_sequences type 'CV' (already used by supplier payments).
+
+### Migration
+db/migrations/011_petty_cash_cv.sql: NOT YET RUN on the server.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 27 files, 202 tests pass. New or changed:
+  - pettyCash (4): payout without a bill accepted; bill kept trimmed; amount and category checked; no bill and nothing about who or what refused.
+  - pettyCashVoucher (3, real routes on PGlite): payouts continue the CV series after a supplier CV (00002, 00003), with and without a bill, shown on the drawer day with the right expected cash; an Expenses-page drawer expense gets the next CV and its bill number, a bank expense none; migration 011 runs twice, keeps old rows, refuses a duplicate CV.
+- Typecheck api-server, lhc-cafe, libs clean; both artifacts build.
+- Not run: the screens or the print in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- Petty cash shares the CV series with supplier cash payments (both are cash vouchers from the drawer).
+- Without a bill, the payout must say who was paid or what it was for.
+- Old payouts are not given CV numbers afterwards (numbers would be out of date order).
