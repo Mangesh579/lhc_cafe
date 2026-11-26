@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/auth";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { format, addDays } from "date-fns";
 import { DIRECT_CATEGORIES, INDIRECT_CATEGORIES, apiJson } from "@/lib/expenseApi";
+import { printPettyCashVoucher } from "@/lib/pettyCash";
 
 const money = (n: number) => `Rs. ${(Math.round(n * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
@@ -65,6 +66,7 @@ export default function CashDrawer() {
 
   const isOpen = d.status === "open";
   const isClosed = d.status === "closed";
+  const noBillNoWhat = !payout.billNumber.trim() && !payout.vendor.trim() && !payout.description.trim();
   const diffLive = counted !== "" ? Math.round((parseFloat(counted) - d.expected) * 100) / 100 : null;
 
   return (
@@ -124,7 +126,7 @@ export default function CashDrawer() {
             <div className="grid md:grid-cols-2 gap-4">
               <Card><CardContent className="p-4 space-y-2">
                 <p className="text-sm font-semibold">Petty cash payout</p>
-                <p className="text-xs text-muted-foreground">Also recorded as an expense.</p>
+                <p className="text-xs text-muted-foreground">Gets its own CV number (print it and have it signed). Also recorded as an expense.</p>
                 <div className="grid grid-cols-2 gap-2">
                   <select className={SELECT} value={payout.type} onChange={e => setPayout({ ...payout, type: e.target.value, category: (e.target.value === "direct" ? DIRECT_CATEGORIES : INDIRECT_CATEGORIES)[0] })}>
                     <option value="direct">Direct</option><option value="indirect">Indirect</option>
@@ -136,11 +138,15 @@ export default function CashDrawer() {
                 </select>
                 <div className="grid grid-cols-2 gap-2">
                   <Input placeholder="Paid to" value={payout.vendor} onChange={e => setPayout({ ...payout, vendor: e.target.value })} />
-                  <Input placeholder="Bill number *" value={payout.billNumber} onChange={e => setPayout({ ...payout, billNumber: e.target.value })} />
+                  <Input placeholder="Bill number (if any)" value={payout.billNumber} onChange={e => setPayout({ ...payout, billNumber: e.target.value })} />
                 </div>
                 <Input placeholder="What was it for (e.g. coriander)" value={payout.description} onChange={e => setPayout({ ...payout, description: e.target.value })} />
-                <Button size="sm" disabled={busy || !(parseFloat(payout.amount) > 0) || !payout.billNumber.trim()} onClick={() => act(async () => { await apiJson("/cash/payout", "POST", { date, ...payout, billNumber: payout.billNumber.trim(), amount: parseFloat(payout.amount) }); setPayout({ ...payout, amount: "", vendor: "", billNumber: "", description: "" }); }, "Payout recorded")}>Record payout</Button>
-                {!payout.billNumber.trim() && parseFloat(payout.amount) > 0 && <p className="text-xs text-red-600">No bill, no payout: enter the bill number from the supplier's bill.</p>}
+                <Button size="sm" disabled={busy || !(parseFloat(payout.amount) > 0) || noBillNoWhat} onClick={() => act(async () => {
+                  const r = await apiJson("/cash/payout", "POST", { date, ...payout, billNumber: payout.billNumber.trim(), amount: parseFloat(payout.amount) });
+                  setPayout({ ...payout, amount: "", vendor: "", billNumber: "", description: "" });
+                  printPettyCashVoucher({ voucherNo: r.voucherNo, date: r.expenseDate, category: r.category, vendor: r.vendor, description: r.description, billNumber: r.billNumber, amount: parseFloat(r.amount), createdBy: r.createdBy });
+                }, "Payout recorded")}>Record payout and print CV</Button>
+                {noBillNoWhat && parseFloat(payout.amount) > 0 && <p className="text-xs text-red-600">No bill: enter who was paid or what it was for.</p>}
               </CardContent></Card>
 
               <Card><CardContent className="p-4 space-y-2">
@@ -167,7 +173,8 @@ export default function CashDrawer() {
                   <tr key={`s${p.id}`}><td className="px-4 py-2">Supplier payment</td><td className="px-4 py-2">{p.voucherNo} · {p.supplier}</td><td className="px-4 py-2 text-right text-red-600">- {money(p.amount)}</td><td /></tr>
                 ))}
                 {d.payouts.map((p: any) => (
-                  <tr key={`p${p.id}`}><td className="px-4 py-2">Payout</td><td className="px-4 py-2">{p.category}{p.vendor ? ` · ${p.vendor}` : ""}{p.description ? ` · ${p.description}` : ""}{p.billNumber ? <span className="text-muted-foreground"> · Bill {p.billNumber}</span> : null}</td><td className="px-4 py-2 text-right text-red-600">- {money(p.amount)}</td><td /></tr>
+                  <tr key={`p${p.id}`}><td className="px-4 py-2">Payout</td><td className="px-4 py-2">{p.voucherNo ? <span className="font-medium">{p.voucherNo} · </span> : null}{p.category}{p.vendor ? ` · ${p.vendor}` : ""}{p.description ? ` · ${p.description}` : ""}<span className="text-muted-foreground"> · {p.billNumber ? `Bill ${p.billNumber}` : "No bill"}</span></td><td className="px-4 py-2 text-right text-red-600">- {money(p.amount)}</td>
+                    <td className="px-4 py-2 text-right">{p.voucherNo && <Button size="sm" variant="ghost" className="h-7" onClick={() => printPettyCashVoucher({ ...p, date })}>Print CV</Button>}</td></tr>
                 ))}
                 {d.movements.map((m: any) => (
                   <tr key={`m${m.id}`}>

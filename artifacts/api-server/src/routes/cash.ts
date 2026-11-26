@@ -4,6 +4,7 @@ import { db, cashDaysTable, cashMovementsTable, expensesTable, expenseChangesTab
 import { eq, and, lt, gte, lte, desc } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { validatePayout } from "../lib/cashRules";
+import { nextVoucherNumber } from "../lib/fiscal";
 import { supplierPaymentsBetween } from "../lib/supplierPaymentsRead";
 import { isDay, dayRangeUtc, paidOrdersBetween, nepalDay, cashSalesOf, receiptsBetween } from "../lib/ledgerData";
 
@@ -45,7 +46,7 @@ async function computeDay(day: string) {
   const exp = await db.select().from(expensesTable)
     .where(and(eq(expensesTable.expenseDate, day), eq(expensesTable.status, "active"), eq(expensesTable.paidFromDrawer, true)))
     .orderBy(expensesTable.id);
-  const payouts = exp.map(e => ({ id: e.id, category: e.category, vendor: e.vendor, description: e.description, billNumber: e.billNumber ?? null, amount: round2(num(e.amount)) }));
+  const payouts = exp.map(e => ({ id: e.id, voucherNo: e.voucherNo ?? null, createdBy: e.createdBy, category: e.category, vendor: e.vendor, description: e.description, billNumber: e.billNumber ?? null, amount: round2(num(e.amount)) }));
   const payoutsTotal = payouts.reduce((s, p) => s + p.amount, 0);
 
   const moves = await db.select().from(cashMovementsTable)
@@ -132,7 +133,7 @@ router.post("/cash/movements/:id/void", authenticate, async (req: AuthRequest, r
   res.json({ success: true });
 });
 
-// Petty cash: becomes an expense paid from the drawer
+// Petty cash: becomes an expense paid from the drawer, with its own CV number (same CV series as suppliers paid in cash)
 router.post("/cash/payout", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!allowed(req, res)) return;
   const day = await requireOpenDay(req.body?.date, res);
@@ -140,12 +141,16 @@ router.post("/cash/payout", authenticate, async (req: AuthRequest, res: Response
   const v = validatePayout(req.body);
   if ("error" in v) { res.status(400).json({ error: v.error }); return; }
   const user = req.user?.username ?? "user";
-  const [row] = await db.insert(expensesTable).values({
-    expenseDate: day, type: v.type, category: v.category, subcategory: null,
-    description: v.description, vendor: v.vendor, amount: String(v.amount),
-    paymentMethod: "cash", paidFromDrawer: true, billNumber: v.billNumber, isRecurring: false, createdBy: user,
-  } as any).returning();
-  await db.insert(expenseChangesTable).values({ expenseId: row.id, action: "created", details: `Petty cash payout from the drawer, bill no. ${v.billNumber}`, changedBy: user });
+  const row = await db.transaction(async (tx) => {
+    const voucherNo = await nextVoucherNumber(tx, "CV", "CV", new Date(`${day}T06:00:00Z`));
+    const [r] = await tx.insert(expensesTable).values({
+      expenseDate: day, type: v.type, category: v.category, subcategory: null,
+      description: v.description, vendor: v.vendor, amount: String(v.amount),
+      paymentMethod: "cash", paidFromDrawer: true, billNumber: v.billNumber, voucherNo, isRecurring: false, createdBy: user,
+    } as any).returning();
+    await tx.insert(expenseChangesTable).values({ expenseId: r.id, action: "created", details: `Petty cash payout from the drawer, ${voucherNo}${v.billNumber ? `, bill no. ${v.billNumber}` : ", no bill"}`, changedBy: user });
+    return r;
+  });
   res.status(201).json(row);
 });
 

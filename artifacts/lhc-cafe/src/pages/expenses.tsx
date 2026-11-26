@@ -14,13 +14,14 @@ import { ChevronLeft, ChevronRight, Plus, Paperclip, Download, Repeat } from "lu
 import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import { DIRECT_CATEGORIES, INDIRECT_CATEGORIES, PAYMENT_METHODS, apiJson, uploadReceipt, openReceipt } from "@/lib/expenseApi";
+import { printPettyCashVoucher } from "@/lib/pettyCash";
 import OperatingCosts from "@/components/OperatingCosts";
 import ProfitLoss from "@/components/ProfitLoss";
 
 const money = (n: number) => `Rs. ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const methodLabel = (v: string) => v === "credit" ? "Credit (supplier bill)" : PAYMENT_METHODS.find(m => m.value === v)?.label ?? v;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const EMPTY = { type: "indirect", category: INDIRECT_CATEGORIES[0], subcategory: "", expenseDate: "", amount: "", paymentMethod: "cash", vendor: "", description: "", isRecurring: false, frequency: "monthly", paidFromDrawer: false };
+const EMPTY = { type: "indirect", category: INDIRECT_CATEGORIES[0], subcategory: "", expenseDate: "", amount: "", paymentMethod: "cash", vendor: "", description: "", isRecurring: false, frequency: "monthly", paidFromDrawer: false, billNumber: "" };
 
 export default function Expenses() {
   const { user } = useAuth();
@@ -143,7 +144,7 @@ export default function Expenses() {
       const active = list.filter(r => r.status === "active");
       const sheet = list.map(r => ({
         "Date": r.expenseDate, "Type": r.type === "direct" ? "Direct" : "Indirect", "Category": r.category, "Subcategory": r.subcategory ?? "",
-        "Description": r.description ?? "", "Paid to / vendor": r.vendor ?? "", "Bill no.": r.billNumber ?? "", "Payment method": methodLabel(r.paymentMethod),
+        "Description": r.description ?? "", "Paid to / vendor": r.vendor ?? "", "CV no.": r.voucherNo ?? "", "Bill no.": r.billNumber ?? "", "Payment method": methodLabel(r.paymentMethod),
         "Amount (Rs.)": parseFloat(r.amount), "Recurring": r.isRecurring ? (r.frequency ?? "yes") : "One-time",
         "Receipts": r.attachmentCount, "Status": r.status === "void" ? `VOID: ${r.voidReason ?? ""}` : "Active", "Recorded by": r.createdBy,
       }));
@@ -225,7 +226,7 @@ export default function Expenses() {
                 {(typeFilter === "all" ? [...DIRECT_CATEGORIES, ...INDIRECT_CATEGORIES] : categoriesFor(typeFilter)).map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Input placeholder="Search description, vendor…" value={search} onChange={e => setSearch(e.target.value)} className="h-9 w-56" />
+            <Input placeholder="Search description, vendorâ€¦" value={search} onChange={e => setSearch(e.target.value)} className="h-9 w-56" />
             <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={showVoid} onChange={e => setShowVoid(e.target.checked)} /> Show voided</label>
             <span className="text-sm text-muted-foreground ml-auto">Shown total: <strong className="text-foreground">{money(shownTotal)}</strong></span>
           </div>
@@ -246,7 +247,7 @@ export default function Expenses() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {loading ? (
-                      <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>
+                      <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Loadingâ€¦</td></tr>
                     ) : visible.length === 0 ? (
                       <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No expenses for this period.</td></tr>
                     ) : visible.map(r => (
@@ -261,9 +262,10 @@ export default function Expenses() {
                           {r.subcategory && <div className="text-xs text-muted-foreground">{r.subcategory}</div>}
                         </td>
                         <td className="px-4 py-3 max-w-64">
-                          <div className="text-xs">{r.description ?? "—"}</div>
+                          <div className="text-xs">{r.description ?? "â€”"}</div>
                           {r.vendor && <div className="text-xs text-muted-foreground">Paid to: {r.vendor}</div>}
-                          {r.billNumber && <div className="text-xs text-muted-foreground">Bill no.: {r.billNumber}</div>}
+                          {r.voucherNo && <div className="text-xs text-muted-foreground">{r.voucherNo} <button type="button" className="underline text-primary" onClick={() => printPettyCashVoucher({ voucherNo: r.voucherNo, date: r.expenseDate, category: r.category, vendor: r.vendor, description: r.description, billNumber: r.billNumber, amount: parseFloat(r.amount), createdBy: r.createdBy })}>Print CV</button></div>}
+                          {r.billNumber ? <div className="text-xs text-muted-foreground">Bill no.: {r.billNumber}</div> : r.voucherNo ? <div className="text-xs text-muted-foreground">No bill</div> : null}
                           {r.status === "void" && <div className="text-xs text-red-600">VOID: {r.voidReason}</div>}
                           {r.attachmentCount > 0 && <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Paperclip className="w-3 h-3" /> {r.attachmentCount} receipt{r.attachmentCount === 1 ? "" : "s"}</div>}
                         </td>
@@ -362,7 +364,7 @@ export default function Expenses() {
             </div>
             <div className="space-y-1">
               <Label>Subcategory (optional)</Label>
-              <Input value={form.subcategory} onChange={e => setForm({ ...form, subcategory: e.target.value })} placeholder="e.g. Chicken, Head chef salary, Ncell…" disabled={linked} />
+              <Input value={form.subcategory} onChange={e => setForm({ ...form, subcategory: e.target.value })} placeholder="e.g. Chicken, Head chef salary, Ncellâ€¦" disabled={linked} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1"><Label>Date *</Label><Input type="date" value={form.expenseDate} onChange={e => setForm({ ...form, expenseDate: e.target.value })} /></div>
@@ -375,10 +377,11 @@ export default function Expenses() {
                 </Select>
               </div>
               <div className="space-y-1"><Label>Paid to / vendor</Label><Input value={form.vendor} onChange={e => setForm({ ...form, vendor: e.target.value })} /></div>
+              {!editing && <div className="space-y-1"><Label>Bill no. (if any)</Label><Input value={form.billNumber ?? ""} onChange={e => setForm({ ...form, billNumber: e.target.value })} /></div>}
               {form.paymentMethod === "cash" && !editing && (
                 <label className="col-span-2 flex items-center gap-2 text-sm cursor-pointer">
                   <input type="checkbox" checked={!!form.paidFromDrawer} onChange={e => setForm({ ...form, paidFromDrawer: e.target.checked })} />
-                  Paid from the cash drawer (reduces that day's drawer cash)
+                  Paid from the cash drawer (reduces that day's drawer cash; gets a CV number)
                 </label>
               )}
             </div>
@@ -423,7 +426,7 @@ export default function Expenses() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
-            <Button onClick={save} disabled={saving}>{saving ? "Saving…" : editing ? "Update" : "Add"}</Button>
+            <Button onClick={save} disabled={saving}>{saving ? "Savingâ€¦" : editing ? "Update" : "Add"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

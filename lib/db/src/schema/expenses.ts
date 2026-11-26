@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, numeric, boolean, timestamp, date } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, numeric, boolean, timestamp, date, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const expensesTable = pgTable("expenses", {
   id: serial("id").primaryKey(),
@@ -12,7 +12,8 @@ export const expensesTable = pgTable("expenses", {
   paymentMethod: text("payment_method").notNull().default("cash"),
   isRecurring: boolean("is_recurring").notNull().default(false),
   paidFromDrawer: boolean("paid_from_drawer").notNull().default(false),
-  billNumber: text("bill_number"), // required for petty cash payouts from the drawer (since 2026-11-23)
+  billNumber: text("bill_number"), // the supplier's bill, when there is one (optional for petty cash since 2026-11-25)
+  voucherNo: text("voucher_no"), // CV number of a cash payout from the drawer (petty cash), e.g. CV-2083/84-00012
   // Set when the expense was booked by a purchase bill line: edit or void the bill, not the expense
   purchaseBillId: integer("purchase_bill_id"),
   purchaseBillItemId: integer("purchase_bill_item_id"),
@@ -28,7 +29,9 @@ export const expensesTable = pgTable("expenses", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedBy: text("updated_by"),
   updatedAt: timestamp("updated_at"),
-});
+}, (t) => ({
+  oneVoucher: uniqueIndex("expenses_voucher_no_idx").on(t.voucherNo),
+}));
 
 export const expenseAttachmentsTable = pgTable("expense_attachments", {
   id: serial("id").primaryKey(),
