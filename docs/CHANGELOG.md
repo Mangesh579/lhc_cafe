@@ -622,3 +622,9 @@ db/migrations/011_petty_cash_cv.sql: NOT YET RUN on the server.
 - Petty cash shares the CV series with supplier cash payments (both are cash vouchers from the drawer).
 - Without a bill, the payout must say who was paid or what it was for.
 - Old payouts are not given CV numbers afterwards (numbers would be out of date order).
+
+
+## 2026-11-26: Migration 011 run
+
+- The owner ran db/migrations/011_petty_cash_cv.sql on the server (after a backup), merged petty-cash-cv into main from the terminal (678d04d) and deployed petty cash CV numbers. Recorded as run in CLAUDE.md and docs/HANDOFF.md.
+- Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
