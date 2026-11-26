@@ -38,6 +38,8 @@
 
 21. Petty cash CV numbers, 2026-11-26. Every cash payout from the drawer (Cash Drawer > Petty cash payout, or an expense on the Expenses page ticked "Paid from the cash drawer") gets its own CV number in the same CV series as suppliers paid from the drawer (CV-2083/84-00001...), numbered in the fiscal year of the payout day. The bill number is optional; without one, who was paid or what it was for is required. The CV prints after saving (cash voucher with Paid by, Received by and Approved by lines) and can be reprinted from the Cash Drawer and Expenses lists; Excel export has a CV no. column. Older payouts keep their bill number and have no CV. Migration 011 run 2026-11-26.
 
+22. Complimentary and Rs 0 bills, 2026-11-26. The payment dialog (Orders) has "Complimentary (NC): not charged": needs who it is for, optional reason; the open bill becomes NC at ingredient cost (order item cost snapshot), discount and VAT cleared, no payment rows, invoice number kept or given. A bill that comes to Rs 0 (100% discount) now settles: "Nothing to pay", button "Settle Rs 0 bill", payment_method 'none', no payment rows, invoice number given. Before, every mode was refused with "Enter an amount above 0". No migration. HBL POS fee set to 3% by the owner in Settlements > Settings (data, not code).
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -76,3 +78,4 @@ Roadmap step 2 in CLAUDE.md: suppliers, purchases, payables, supplier ledger, pa
 - Still to do from the owner's testing of 2026-11-25: hotel room stays (breakfast at cost billed to Sulimha Durbar, extras paid at checkout), plan first.
 - Cancel invoice with "Not served" puts back stock by today's recipe, not the recipe on the day of the sale (same as cancelling an order). Wrong customer: until credit notes reduce sales reports, the original and the re-issued invoice both count in sales totals (the existing credit-note limit).
 - Petty cash CV: a voided payout keeps its CV number (shown as void on the Expenses page); numbers are never reused. Payouts recorded before migration 011 have no CV number.
+- Complimentary at the payment step takes cost from each item's cost snapshot; items with no recipe cost count as 0 (shown as incomplete NC cost, as for POS NC orders). A loyalty reward on part of a bill still has to be entered as a bill discount %.

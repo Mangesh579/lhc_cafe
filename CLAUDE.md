@@ -34,6 +34,7 @@ Cafe management system for LHC Cafe & Barista School (Sulimha Durbar, Patan, Nep
 - Payment modes: Cash, QR Payment, Card - LHC Nabil POS (`card_nabil`), Card - LHC HBL POS (`card_hbl`), Card - Sulimha Nabil POS (`card_sulimha_nabil`), Card - Sulimha HBL POS (`card_sulimha_hbl`), Credit. The stored value for QR Payment stays `nabil_qr`; only the label changed. Legacy values `card` and `esewa` count as card.
 - Cash drawer and ledger totals are computed from order_payments rows, falling back to orders.payment_method only for orders that have no rows. A split bill (e.g. half cash, half QR) counts each part in its own mode.
 - Credit and NC are never cash and never go into the drawer. Credit sales are receivables, not receipts.
+- Owner, 2026-11-26: a guest the cafe treats (owner's guest, staff meal, hotel guest until room stays exist) is Complimentary (NC): booked at ingredient cost to Complimentary cost, with the person's name, no payment method. It can be chosen at the POS or at the payment step. A loyalty reward is a discount on the sale (reason "Loyalty reward"), not NC. A bill that comes to Rs 0 (100% discount) settles with no payment method (stored as payment_method 'none', no order_payments rows); card fees are a percentage of money the machine takes, so Rs 0 has no fee.
 - Day boundaries use Nepal time (UTC+5:45), never UTC. An order paid at 11:50 pm Nepal time belongs to that Nepal day. Use lib/ledgerData.ts (nepalDay, dayRangeUtc) for all day calculations.
 - Tests are required for: the split-payment drawer total, credit and NC exclusion from cash, and the Nepal day boundary (11:50 pm and 12:10 am cases).
 
@@ -57,7 +58,7 @@ Receivables (answers of 2026-11-23)
 
 Settlements
 - Card and QR settlement is per day. QR settles to the same bank account as Nabil POS. The bank charge is booked as an expense per settlement; no VAT on it.
-- QR has no fee. Card machines deduct fees: Nabil POS 2.75%, HBL POS 3.00-3.25% (the actual deduction is entered at settlement; warn if outside the range).
+- QR has no fee. Card machines deduct fees: Nabil POS 2.75%, HBL POS 3% (owner, 2026-11-26: 3% for both LHC and Sulimha HBL POS; was 3.00-3.25%). The fee is a setting (Settlements > Settings), the actual deduction is entered at settlement, warn if outside it.
 - Owner, 2026-11-25: there are four card machines. LHC Nabil POS and LHC HBL POS are LHC's own (the old Nabil POS and HBL POS). Sulimha Nabil POS and Sulimha HBL POS belong to Sulimha Durbar, a separate business: their money lands in Sulimha's bank, and Sulimha transfers it to LHC later by bank transfer (into LHC's Nabil or HBL account), less the same fees (Nabil 2.75%, HBL 3.00-3.25%). Until that transfer, Sulimha owes LHC that money. A Sulimha settlement records the date, the amount received and which LHC account received it.
 
 Purchases and expenses

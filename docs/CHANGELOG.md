@@ -628,3 +628,36 @@ db/migrations/011_petty_cash_cv.sql: NOT YET RUN on the server.
 
 - The owner ran db/migrations/011_petty_cash_cv.sql on the server (after a backup), merged petty-cash-cv into main from the terminal (678d04d) and deployed petty cash CV numbers. Recorded as run in CLAUDE.md and docs/HANDOFF.md.
 - Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
+
+
+## 2026-11-26: Complimentary at payment, Rs 0 bills, HBL 3%
+
+### Summary
+- Skills used: ponytail, diagnosing-bugs, tdd, backend-patterns, react-patterns.
+- Bug: a 100% discount bill could not be paid with any method (Nabil POS, cash, QR, all): the API refused every Rs 0 payment part ("Enter an amount above 0"). It was a validation rule, not a card fee. Now a Rs 0 bill settles with no payment method (payment_method 'none', no order_payments rows, invoice number given). Money entered against a Rs 0 bill, or a Rs 0 part on a real bill, is still refused.
+- Complimentary (owner asked for a recommendation): guests the cafe treats use NC (at ingredient cost, Complimentary cost, name required, no payment method). New: "Complimentary (NC): not charged" in the payment dialog, so an open bill can become NC at the payment step (before, only at the POS when placing the order). Loyalty rewards stay a discount on the sale.
+- HBL POS fee 3% for both LHC and Sulimha HBL POS: no code; the owner sets it in Settlements > Settings (both HBL rows from 3 to 3).
+
+### Files
+- New: api-server src/__tests__/zeroBillNc.test.ts.
+- Changed: api-server src/lib/payments.ts (validateSplit Rs 0, summaryMethod 'none', label), src/routes/orders.ts (NC at the payment step), src/__tests__/payments.test.ts; lhc-cafe src/lib/payments.ts (label), src/pages/orders.tsx (Complimentary option, Rs 0 state); CLAUDE.md; docs/HANDOFF.md.
+
+### Tables
+- No schema change. orders.payment_method gets a new value 'none' for Rs 0 bills.
+
+### Migration
+None.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 28 files, 207 tests pass. New:
+  - payments (2): Rs 0 bill gives no parts whatever mode was picked, summary 'none'; money against Rs 0 and Rs 0 on a real bill refused.
+  - zeroBillNc (3, real routes on PGlite): 100% discount then settle with Nabil POS parts, a single HBL mode, or no parts: paid, 'none', invoice number, no payment rows; Rs 0 part on a Rs 300 bill refused; complimentary at the payment step needs a name, then the bill is NC at cost (2 x 40 = 80), no payment rows, invoice number given, even if payment parts were sent.
+- Typecheck api-server, lhc-cafe, libs clean; both artifacts build.
+- Not run: the dialog in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- Loyalty rewards are a discount (Discounts allowed), not NC: the customer earned them by buying.
+- A Rs 0 bill still gets an invoice number (IRD: one invoice per sale).
+
+### Open questions
+- A per-item reward (one free coffee on a bigger bill) still needs the discount % worked out by hand. A "reward item" button can be added if this is common.

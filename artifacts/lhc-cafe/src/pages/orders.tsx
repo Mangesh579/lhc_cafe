@@ -42,6 +42,10 @@ export default function Orders() {
   const [paying, setPaying] = useState(false);
   const [discount, setDiscount] = useState<string>("");
   const [discountComment, setDiscountComment] = useState<string>("");
+  // Complimentary (NC) chosen at the payment step: booked at ingredient cost, no payment mode (owner, 2026-11-26)
+  const [ncOn, setNcOn] = useState(false);
+  const [ncName, setNcName] = useState("");
+  const [ncWhy, setNcWhy] = useState("");
   const [billType, setBillType] = useState<"pan" | "vat">("pan");
   const [otherPartyName, setOtherPartyName] = useState("");
   const [otherPartyPan, setOtherPartyPan] = useState("");
@@ -117,6 +121,7 @@ export default function Orders() {
     setCreditInfo(null); setCreditQuery(""); setCreditResults([]);
     setDiscount("");
     setDiscountComment("");
+    setNcOn(false); setNcName(""); setNcWhy("");
     setBillType("pan");
     setOtherPartyName("");
     setOtherPartyPan("");
@@ -178,7 +183,7 @@ export default function Orders() {
     if (!splitOn) return [{ mode: paymentMethod, amount: total, reference: payReference.trim() || undefined }];
     return splitRows.map(r => ({ mode: r.mode, amount: round2(parseFloat(r.amount) || 0), reference: r.reference.trim() || undefined })).filter(r => r.amount > 0);
   };
-  const usesCredit = splitOn ? splitRows.some(r => r.mode === "credit" && (parseFloat(r.amount) || 0) > 0) : paymentMethod === "credit";
+  const usesCredit = computeBill().total < 0.005 ? false : splitOn ? splitRows.some(r => r.mode === "credit" && (parseFloat(r.amount) || 0) > 0) : paymentMethod === "credit";
   const creditPartAmount = paymentModalOrder ? round2(paymentParts().filter(p => p.mode === "credit").reduce((s, p) => s + p.amount, 0)) : 0;
   const creditLimitNote = (() => {
     if (!creditInfo || creditInfo.creditLimit == null) return null;
@@ -210,9 +215,29 @@ export default function Orders() {
   const handlePayment = async () => {
     if (!paymentModalOrder || paying) return;
     const { discountValue, total, vatAmount, finalTotal } = computeBill();
-    const parts = paymentParts();
+    if (ncOn) {
+      if (!ncName.trim()) { toast({ title: "Enter who it is for", description: "A complimentary bill needs the guest's name or room.", variant: "destructive" }); return; }
+      setPaying(true);
+      try {
+        const r = await fetch(`${API_BASE}/api/orders/${paymentModalOrder.id}/payment`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+          body: JSON.stringify({ paymentStatus: "paid", isNc: true, ncPersonName: ncName.trim(), ncReason: ncWhy.trim() || undefined }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d?.error ?? "The complimentary bill was not recorded.");
+        queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
+        toast({ title: "Complimentary (NC) bill recorded", description: `For ${ncName.trim()}. Booked at ingredient cost; no money received.` });
+        setPaymentModalOrder(null);
+      } catch (err: any) {
+        toast({ title: "Failed to record", description: err?.message, variant: "destructive" });
+      } finally { setPaying(false); }
+      return;
+    }
+    const free = total < 0.005; // Rs 0 bill (e.g. 100% discount for a loyalty reward): nothing to pay, no mode, no card fee
+    const parts = free ? [] : paymentParts();
     const sum = round2(parts.reduce((s, p) => s + p.amount, 0));
-    if (parts.length === 0 || Math.abs(sum - total) >= 0.005) {
+    if (!free && (parts.length === 0 || Math.abs(sum - total) >= 0.005)) {
       toast({ title: "The payments don't match the bill", description: `They add up to ${rs(sum)}; the bill is ${rs(total)}.`, variant: "destructive" });
       return;
     }
@@ -399,7 +424,7 @@ export default function Orders() {
     const final = alreadyDiscounted - additionalDiscAmt;
     const isVat = billType === "vat";
     const parts = paymentParts();
-    const payLabel = parts.length > 1
+    const payLabel = computeBill().total < 0.005 ? "No payment (Rs 0)" : parts.length > 1
       ? parts.map(p => `${modeLabel(p.mode)} Rs. ${p.amount.toFixed(2)}`).join(" + ")
       : modeLabel(parts[0]?.mode ?? paymentMethod);
     const creditDue = parts.filter(p => p.mode === "credit").reduce((s, p) => s + p.amount, 0);
@@ -827,6 +852,21 @@ export default function Orders() {
               })()}
             </div>
 
+            <div className="rounded-md border p-2.5 space-y-2">
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input type="checkbox" className="mt-1" checked={ncOn} onChange={e => setNcOn(e.target.checked)} />
+                <span><span className="font-semibold">Complimentary (NC): not charged</span>
+                  <span className="block text-xs text-muted-foreground">For a guest the cafe treats (owner's guest, staff meal, a hotel guest). Booked at ingredient cost, no payment method. Loyalty rewards: use the discount instead.</span></span>
+              </label>
+              {ncOn && (
+                <div className="grid grid-cols-2 gap-2">
+                  <Input autoFocus placeholder="For whom * (name, room)" value={ncName} onChange={e => setNcName(e.target.value)} className="h-8 text-sm" />
+                  <Input placeholder="Reason (e.g. owner's guest)" value={ncWhy} onChange={e => setNcWhy(e.target.value)} className="h-8 text-sm" />
+                </div>
+              )}
+            </div>
+
+            {!ncOn && <>
             <div className="space-y-2">
               <Label className="text-xs font-semibold text-muted-foreground uppercase">Additional Staff Discount %</Label>
               <div className="flex items-center gap-2">
@@ -841,11 +881,14 @@ export default function Orders() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-semibold text-muted-foreground uppercase">Payment</Label>
-                {!splitOn
+                {computeBill().total >= 0.005 && (!splitOn
                   ? <button type="button" className="text-xs text-primary underline" onClick={startSplit}>Split payment</button>
-                  : <button type="button" className="text-xs text-primary underline" onClick={() => { setSplitOn(false); setSplitRows([]); }}>One payment</button>}
+                  : <button type="button" className="text-xs text-primary underline" onClick={() => { setSplitOn(false); setSplitRows([]); }}>One payment</button>)}
               </div>
-              {!splitOn && (
+              {computeBill().total < 0.005 && (
+                <p className="text-sm rounded-md border border-green-200 bg-green-50 text-green-800 px-3 py-2">Nothing to pay: this bill is Rs 0. No payment method is needed, and no card fee applies.</p>
+              )}
+              {!splitOn && computeBill().total >= 0.005 && (
                 <>
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
                     {PAY_MODES.map(m => (
@@ -864,7 +907,7 @@ export default function Orders() {
                   )}
                 </>
               )}
-              {splitOn && (() => {
+              {splitOn && computeBill().total >= 0.005 && (() => {
                 const { total } = computeBill();
                 const entered = round2(splitRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0));
                 const left = round2(total - entered);
@@ -954,6 +997,7 @@ export default function Orders() {
                 </div>
               )}
             </div>
+            </>}
 
             <div className="bg-muted/30 rounded-md p-3 space-y-1 max-h-36 overflow-y-auto">
               {paymentModalOrder?.items?.map((item: any) => (
@@ -982,7 +1026,7 @@ export default function Orders() {
             }} className="gap-2" disabled={!paymentModalOrder}>
               <Printer className="w-4 h-4" /> Print Bill
             </Button>
-            <Button onClick={handlePayment} disabled={paying || (usesCredit && !creditCustomer)}>{paying ? "Saving…" : usesCredit ? "Record Credit Sale" : "Mark Paid"}</Button>
+            <Button onClick={handlePayment} disabled={paying || (ncOn ? !ncName.trim() : (usesCredit && !creditCustomer))}>{paying ? "Saving…" : ncOn ? "Record Complimentary (NC)" : usesCredit ? "Record Credit Sale" : computeBill().total < 0.005 ? "Settle Rs 0 bill" : "Mark Paid"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

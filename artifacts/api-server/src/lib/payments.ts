@@ -18,6 +18,7 @@ export const MODE_LABEL: Record<string, string> = {
   esewa: "Card",
   nc: "Not Chargeable",
   split: "Split",
+  none: "No payment (Rs 0)",
 };
 
 // Ledger groups. Legacy "card" and "esewa" count as card (machine unknown).
@@ -50,7 +51,12 @@ export type SplitInput = { mode?: unknown; amount?: unknown; reference?: unknown
 
 // Checks the parts a cashier entered against the bill total.
 // Returns the cleaned parts (same modes merged, amounts rounded to paisa) or an error message.
+// A Rs 0 bill (100% discount, e.g. a loyalty reward) has nothing to pay: no parts, so no mode, no card machine and no fee.
 export function validateSplit(input: unknown, billTotal: number, opts: { hasCustomer: boolean }): { parts: PaymentPart[] } | { error: string } {
+  if (round2(billTotal) === 0) {
+    const entered = Array.isArray(input) ? (input as SplitInput[]).some(r => (num(r?.amount) || 0) !== 0) : false;
+    return entered ? { error: "This bill is Rs 0: there is nothing to pay." } : { parts: [] };
+  }
   if (!Array.isArray(input) || input.length === 0) return { error: "Add at least one payment." };
   if (input.length > 10) return { error: "Too many payment parts." };
   const merged = new Map<string, PaymentPart>();
@@ -83,6 +89,7 @@ export function partsFor(order: { totalAmount: unknown; paymentMethod: string | 
 
 // What a settled order's payment_method column holds: the single mode, or "split".
 export function summaryMethod(parts: PaymentPart[]): string {
+  if (parts.length === 0) return "none"; // a Rs 0 bill
   return parts.length === 1 ? parts[0].mode : "split";
 }
 
