@@ -72,6 +72,28 @@ export function buildCreditNote(
   return { lines, subtotal, vatAmount, total };
 }
 
+// A credit note for everything not yet credited, totalling exactly what is still owed (maxCredit), so the invoice ends at 0.
+// Lines share the subtotal by sold value; the last line takes the rounding remainder. Used by Cancel invoice and Wrong customer.
+export function fullCreditNote(invoice: { items: InvoiceItem[]; netPreVat: number; itemsSubtotal: number; vatAmount: number; maxCredit: number }):
+  { lines: NoteLine[]; subtotal: number; vatAmount: number; total: number } | { error: string } {
+  const left = invoice.items.filter(i => i.quantity - i.creditedQty > 0);
+  const total = round2(invoice.maxCredit);
+  if (!left.length || !(total > 0)) return { error: "Nothing is left to credit on this invoice." };
+  const factor = invoice.itemsSubtotal > 0 ? invoice.netPreVat / invoice.itemsSubtotal : 1;
+  const vatRate = invoice.netPreVat > 0 ? invoice.vatAmount / invoice.netPreVat : 0;
+  const vatAmount = round2(total * vatRate / (1 + vatRate));
+  const subtotal = round2(total - vatAmount);
+  let rest = subtotal;
+  const lines = left.map((i, n) => {
+    const quantity = i.quantity - i.creditedQty;
+    const amount = n === left.length - 1 ? round2(rest) : round2(quantity * i.unitPrice * factor);
+    rest = round2(rest - amount);
+    return { orderItemId: i.id, description: i.name, quantity, unitPrice: round2(amount / quantity), amount };
+  });
+  if (lines.some(l => !(l.amount > 0))) return { error: "The amounts on this invoice do not add up; use an item-wise credit note." };
+  return { lines, subtotal, vatAmount, total };
+}
+
 export const RECEIPT_MODES = ["cash", "nabil_qr", "bank"] as const;
 export const RECEIPT_MODE_LABEL: Record<string, string> = { cash: "Cash", nabil_qr: "QR Payment", bank: "Bank" };
 

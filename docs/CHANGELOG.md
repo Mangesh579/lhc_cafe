@@ -554,3 +554,34 @@ db/migrations/009_sulimha_card_machines.sql: NOT YET RUN on the server.
 
 - The owner ran db/migrations/009_sulimha_card_machines.sql on the server (after a backup) and deployed the four card machines (LHC Nabil/HBL POS, Sulimha Nabil/HBL POS). Recorded as run in CLAUDE.md and docs/HANDOFF.md.
 - Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
+
+
+## 2026-11-26: Receivables, Cancel invoice and Wrong customer
+
+### Summary
+- Skills used: ponytail, tdd, backend-patterns, react-patterns (owner's global CLAUDE.md asks to load fitting skills).
+- On each credit invoice in a customer's Receivables ledger (admin and accountant), next to Credit note:
+  - Cancel: a full credit note for what is still owed (to the paisa; earlier item-wise notes are respected), dated today, with a reason. "Not served: put the stock back" (owner: ask each time) puts the ingredients back with Stock Log lines; voiding that note takes them out again.
+  - Wrong customer: a full credit note on the old invoice and a new credit invoice for the right customer, with the same items, KOTs and cost snapshot, a credit payment part, dated on the visit day (new number in that fiscal year). No stock change. Loyalty points come when the customer pays. The note cannot be voided; to undo, move the new invoice back.
+- Both refuse split bills (part cash/QR/card: use an item-wise credit note) and invoices with receipts allocated (void them first). Wrong customer also refuses an invoice that already has credit notes. A print of the credit note is offered after saving.
+
+### Files
+- New: db/migrations/010_credit_note_kinds.sql; api-server src/lib/stockMoves.ts, tests cancelInvoiceRules, cancelInvoice (.test.ts); lhc-cafe src/components/InvoiceActions.tsx.
+- Changed: lib/db/src/schema/payments.ts (credit_notes kind, stock_restored, reissued_order_id); api-server src/lib/receivableRules.ts (fullCreditNote), src/routes/receivables.ts (two routes, void rules, note fields); lhc-cafe pages/receivables.tsx; CLAUDE.md; docs/HANDOFF.md.
+
+### Tables
+- Changed: credit_notes (+kind default 'note', +stock_restored default false, +reissued_order_id). Existing notes become 'note'. Wrong customer adds rows to orders, order_items and order_payments (the new invoice); nothing is edited or deleted.
+
+### Migration
+db/migrations/010_credit_note_kinds.sql: NOT YET RUN on the server.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 26 files, 198 tests pass. New:
+  - cancelInvoiceRules (4): full note equals what is owed with a discount; rounding paisa on the last line with VAT; only what an earlier note left; nothing left refused.
+  - cancelInvoice (6, real routes on PGlite): cancel to the paisa with stock unchanged (supervisor refused, reason needed, second cancel refused); "not served" restores stock and voiding takes it out again with the balance back; split bill and allocated receipts refused; wrong customer (head barista refused, same customer refused, new invoice on the visit day with items, KOT and cost, old one at 0, stock unchanged, reissue note not voidable, moving back works); with an item-wise note, move refused and cancel credits the rest; migration 010 runs twice and its checks hold.
+- Typecheck api-server, lhc-cafe, libs clean; both artifacts build.
+- Not run: the screens in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- The cancel or reissue note is dated today; the re-issued invoice is dated on the visit day (the rule for invoices).
+- Stock is put back by today's recipe (same as cancelling an order).

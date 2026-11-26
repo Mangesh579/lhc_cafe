@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, numeric, timestamp, date, primaryKey, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, numeric, timestamp, date, primaryKey, index, boolean } from "drizzle-orm/pg-core";
 
 // One row per part of a settled bill. A bill paid half cash, half QR has two rows.
 // mode: cash | nabil_qr | card_nabil | card_hbl | card_sulimha_nabil | card_sulimha_hbl | credit   (amounts always > 0)
@@ -90,6 +90,10 @@ export const creditNotesTable = pgTable("credit_notes", {
   voidedAt: timestamp("voided_at", { withTimezone: true }),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // note = item-wise; cancel = the whole invoice cancelled; reissue = moved to the right customer (reissuedOrderId is the new invoice)
+  kind: text("kind").notNull().default("note"),
+  stockRestored: boolean("stock_restored").notNull().default(false),
+  reissuedOrderId: integer("reissued_order_id"),
 }, (t) => ({
   byOrder: index("credit_notes_order_idx").on(t.orderId),
   byCustomer: index("credit_notes_customer_idx").on(t.customerId),

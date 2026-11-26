@@ -1,12 +1,13 @@
 import { Router } from "express";
 import type { Response } from "express";
-import { db, customerReceiptsTable, receiptAllocationsTable, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable, creditNotesTable, creditNoteItemsTable, creditSettingsTable } from "@workspace/db";
+import { db, customerReceiptsTable, receiptAllocationsTable, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable, creditNotesTable, creditNoteItemsTable, creditSettingsTable, orderPaymentsTable } from "@workspace/db";
 import { and, eq, gte, lte, desc, inArray, sql } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { isDay, nepalDay, isDrawerClosed } from "../lib/ledgerData";
 import { creditInvoices, customerBalances, creditDefaults, syncLoyaltyForOrder } from "../lib/receivables";
-import { validateAllocations, buildCreditNote, RECEIPT_MODES, RECEIPT_MODE_LABEL } from "../lib/receivableRules";
-import { nextVoucherNumber } from "../lib/fiscal";
+import { validateAllocations, buildCreditNote, fullCreditNote, RECEIPT_MODES, RECEIPT_MODE_LABEL } from "../lib/receivableRules";
+import { nextVoucherNumber, nextInvoiceNumber } from "../lib/fiscal";
+import { moveStockForSold, recipesFor } from "../lib/stockMoves";
 import { round2 } from "../lib/payments";
 
 const router = Router();
@@ -265,6 +266,7 @@ async function notesWithItems(where: any) {
     invoiceNumber: ordersTable.invoiceNumber, customerId: creditNotesTable.customerId, customerName: loyaltyCustomersTable.name,
     noteDate: creditNotesTable.noteDate, reason: creditNotesTable.reason, subtotal: creditNotesTable.subtotal, vatAmount: creditNotesTable.vatAmount,
     total: creditNotesTable.total, status: creditNotesTable.status, voidReason: creditNotesTable.voidReason, createdBy: creditNotesTable.createdBy, createdAt: creditNotesTable.createdAt,
+    kind: creditNotesTable.kind, stockRestored: creditNotesTable.stockRestored, reissuedOrderId: creditNotesTable.reissuedOrderId,
   }).from(creditNotesTable)
     .leftJoin(ordersTable, eq(creditNotesTable.orderId, ordersTable.id))
     .leftJoin(loyaltyCustomersTable, eq(creditNotesTable.customerId, loyaltyCustomersTable.id))
@@ -367,15 +369,129 @@ router.post("/credit-notes/:id/void", authenticate, async (req: AuthRequest, res
   const reason = clean(req.body?.reason, 300);
   if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
   const user = req.user?.username ?? "user";
+  const recipes = await recipesFor((await soldLinesOfNote(db, id)).map(l => l.menuItemId));
   try {
     await db.transaction(async (tx) => {
       const [n] = await tx.select().from(creditNotesTable).where(eq(creditNotesTable.id, id));
       if (!n || n.status !== "active") throw new HttpError(404, "Credit note not found");
+      if (n.kind === "reissue") throw new HttpError(400, "This credit note moved the invoice to another customer and cannot be voided. To move it back, use Wrong customer on the new invoice.");
       await lockCustomer(tx, n.customerId);
       await tx.update(creditNotesTable).set({ status: "void", voidReason: reason, voidedBy: user, voidedAt: new Date() }).where(eq(creditNotesTable.id, id));
+      if (n.stockRestored) await moveStockForSold(tx, await soldLinesOfNote(tx, id), recipes, -1, `${n.noteNo} voided: stock taken out again`, n.orderId, user);
       await syncLoyaltyForOrder(tx, n.orderId, `${n.noteNo} voided`, user);
     });
     res.json({ success: true });
+  } catch (e: any) {
+    if (e instanceof HttpError) { res.status(e.status).json({ error: e.message }); return; }
+    throw e;
+  }
+});
+
+// ── Cancel invoice and Wrong customer (owner, 2026-11-25). Both are a full credit note; the invoice itself is never edited. ──
+
+// Menu items and quantities on a credit note (to move stock)
+async function soldLinesOfNote(tx: any, noteId: number): Promise<{ menuItemId: number; quantity: number }[]> {
+  const rows = await tx.select({ menuItemId: orderItemsTable.menuItemId, quantity: creditNoteItemsTable.quantity })
+    .from(creditNoteItemsTable).innerJoin(orderItemsTable, eq(orderItemsTable.id, creditNoteItemsTable.orderItemId))
+    .where(eq(creditNoteItemsTable.noteId, noteId));
+  return rows.map((r: any) => ({ menuItemId: r.menuItemId, quantity: Number(r.quantity) }));
+}
+
+// A whole-invoice action: only a bill fully on credit, with no receipts allocated
+async function wholeInvoice(tx: any, orderId: number) {
+  const [o] = await tx.select().from(ordersTable).where(eq(ordersTable.id, orderId));
+  if (!o?.loyaltyCustomerId) throw new HttpError(400, "That is not a credit invoice.");
+  await lockCustomer(tx, o.loyaltyCustomerId);
+  const data = await invoiceForNotes(tx, orderId);
+  if (!data) throw new HttpError(400, "That is not a credit invoice (or it was cancelled).");
+  const inv = data.invoice;
+  if (inv.creditAmount < inv.billTotal - 0.005) throw new HttpError(400, "Part of this bill was paid in cash, QR or card. Use an item-wise credit note instead.");
+  if (inv.allocated > 0) throw new HttpError(400, `Receipts of Rs. ${inv.allocated.toFixed(2)} are allocated to this invoice. Void those receipts first.`);
+  const v = fullCreditNote({ items: data.items, itemsSubtotal: data.itemsSubtotal, netPreVat: data.netPreVat, vatAmount: data.vatAmount, maxCredit: inv.outstanding });
+  if ("error" in v) throw new HttpError(400, v.error);
+  return { o, inv, v };
+}
+
+async function insertNote(tx: any, f: { orderId: number; customerId: number; reason: string; user: string; kind: string; stockRestored?: boolean; reissuedOrderId?: number; v: { lines: any[]; subtotal: number; vatAmount: number; total: number } }) {
+  const noteNo = await nextVoucherNumber(tx, "CN");
+  const [row] = await tx.insert(creditNotesTable).values({
+    noteNo, orderId: f.orderId, customerId: f.customerId, noteDate: nepalDay(new Date()), reason: f.reason, kind: f.kind,
+    stockRestored: !!f.stockRestored, reissuedOrderId: f.reissuedOrderId ?? null,
+    subtotal: String(f.v.subtotal), vatAmount: String(f.v.vatAmount), total: String(f.v.total), createdBy: f.user,
+  }).returning();
+  for (const l of f.v.lines) {
+    await tx.insert(creditNoteItemsTable).values({ noteId: row.id, orderItemId: l.orderItemId, description: l.description, quantity: l.quantity, unitPrice: String(l.unitPrice), amount: String(l.amount) });
+  }
+  return row;
+}
+
+router.post("/receivables/invoices/:orderId/cancel", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, ADMIN_ROLES, "Only the admin or the accountant can cancel an invoice.")) return;
+  const orderId = idOf(req.params.orderId);
+  const reason = clean(req.body?.reason, 300);
+  if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
+  const restoreStock = req.body?.restoreStock === true;
+  const user = req.user?.username ?? "user";
+  const recipes = restoreStock ? await recipesFor((await db.select({ m: orderItemsTable.menuItemId }).from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId))).map(r => r.m)) : new Map();
+  try {
+    const id = await db.transaction(async (tx) => {
+      const { o, inv, v } = await wholeInvoice(tx, orderId);
+      const row = await insertNote(tx, { orderId, customerId: o.loyaltyCustomerId, reason: `Invoice cancelled: ${reason}`, user, kind: "cancel", stockRestored: restoreStock, v });
+      if (restoreStock) await moveStockForSold(tx, await soldLinesOfNote(tx, row.id), recipes, 1, `Invoice ${inv.invoiceNumber} cancelled (${row.noteNo}), not served: stock restored`, orderId, user);
+      await syncLoyaltyForOrder(tx, orderId, `${row.noteNo} issued (invoice cancelled)`, user);
+      return row.id;
+    });
+    const [n] = await notesWithItems(eq(creditNotesTable.id, id));
+    res.status(201).json(n);
+  } catch (e: any) {
+    if (e instanceof HttpError) { res.status(e.status).json({ error: e.message }); return; }
+    throw e;
+  }
+});
+
+router.post("/receivables/invoices/:orderId/move", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, ADMIN_ROLES, "Only the admin or the accountant can move an invoice to another customer.")) return;
+  const orderId = idOf(req.params.orderId);
+  const reason = clean(req.body?.reason, 300);
+  const toId = Number(req.body?.customerId);
+  if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
+  if (!Number.isInteger(toId) || toId <= 0) { res.status(400).json({ error: "Choose the right customer." }); return; }
+  const user = req.user?.username ?? "user";
+  try {
+    const out = await db.transaction(async (tx) => {
+      const [to] = await tx.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, toId));
+      if (!to) throw new HttpError(404, "Customer not found.");
+      const { o, inv, v } = await wholeInvoice(tx, orderId);
+      if (o.loyaltyCustomerId === toId) throw new HttpError(400, "The invoice is already on that customer.");
+      if (inv.creditNotes > 0) throw new HttpError(400, "This invoice has credit notes. Void them first, or cancel the invoice instead.");
+      await lockCustomer(tx, toId);
+      // The new invoice: same visit, items and amounts, dated on the visit day (its fiscal year), on the right customer
+      const visitAt = new Date(o.paidAt ?? o.backdatedAt ?? o.createdAt);
+      const invoiceNumber = await nextInvoiceNumber(tx, visitAt);
+      const [n] = await tx.insert(ordersTable).values({
+        tableId: o.tableId, totalAmount: o.totalAmount, discountAmount: o.discountAmount, vatAmount: o.vatAmount, billType: o.billType,
+        otherPartyName: o.otherPartyName, otherPartyPan: o.otherPartyPan, nonTaxableAmount: o.nonTaxableAmount,
+        paymentMethod: "credit", paymentStatus: "paid", orderStatus: "completed", loyaltyCustomerId: toId,
+        loyaltyPointsEarned: 0, loyaltyPaidBasis: "0", // points come when the customer pays
+        invoiceNumber, paidAt: o.paidAt, backdatedAt: o.backdatedAt, createdAt: o.createdAt, createdBy: o.createdBy, accountBill: false, isNc: false,
+        notes: `Re-issued from invoice ${inv.invoiceNumber} (was on ${inv.customerName ?? "another customer"}): ${reason}`,
+      }).returning();
+      // Items keep their KOTs and cost snapshot. Stock is not touched: the food was served once.
+      const items = await tx.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId)).orderBy(orderItemsTable.id);
+      for (const it of items) {
+        await tx.insert(orderItemsTable).values({
+          orderId: n.id, menuItemId: it.menuItemId, quantity: it.quantity, unitPrice: it.unitPrice, subtotal: it.subtotal, notes: it.notes,
+          kotNumber: it.kotNumber, kotAt: it.kotAt, kotNote: it.kotNote, kotBy: it.kotBy, kotTable: it.kotTable,
+          unitCost: it.unitCost, costComplete: it.costComplete, costEstimated: it.costEstimated,
+        });
+      }
+      await tx.insert(orderPaymentsTable).values({ orderId: n.id, mode: "credit", amount: String(inv.creditAmount), paidAt: visitAt, createdBy: user });
+      const row = await insertNote(tx, { orderId, customerId: o.loyaltyCustomerId, reason: `Wrong customer, moved to ${to.name} as invoice ${invoiceNumber}: ${reason}`, user, kind: "reissue", reissuedOrderId: n.id, v });
+      await syncLoyaltyForOrder(tx, orderId, `${row.noteNo} issued (moved to another customer)`, user);
+      return { noteId: row.id, orderId: n.id, invoiceNumber };
+    });
+    const [note] = await notesWithItems(eq(creditNotesTable.id, out.noteId));
+    res.status(201).json({ note, newInvoice: { orderId: out.orderId, invoiceNumber: out.invoiceNumber } });
   } catch (e: any) {
     if (e instanceof HttpError) { res.status(e.status).json({ error: e.message }); return; }
     throw e;

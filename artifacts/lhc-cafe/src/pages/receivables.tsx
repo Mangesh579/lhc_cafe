@@ -13,6 +13,7 @@ import { apiJson } from "@/lib/expenseApi";
 import { RECEIPT_MODES, modeLabel, round2, rs } from "@/lib/payments";
 import { printReceiptHtml } from "@/lib/kot";
 import { ConvertedMonthlyBills } from "@/components/ConvertedMonthlyBills";
+import { InvoiceActionDialog } from "@/components/InvoiceActions";
 
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
 const nepalToday = () => new Date(Date.now() + 345 * 60000).toISOString().slice(0, 10);
@@ -112,6 +113,7 @@ export default function Receivables() {
   const [rvAlloc, setRvAlloc] = useState<Record<number, string>>({});
   const [rvTarget, setRvTarget] = useState<any | null>(null); // allocating the rest of an existing receipt
   const [busy, setBusy] = useState(false);
+  const [invAction, setInvAction] = useState<{ action: "cancel" | "move"; invoice: any } | null>(null);
 
   const fail = (e: any, title: string) => toast({ title, description: e?.error ?? e?.message, variant: "destructive" });
 
@@ -339,7 +341,13 @@ export default function Receivables() {
                     <td className="px-3 py-1.5 text-right text-green-700">{i.creditNotes > 0 ? `− ${rs(i.creditNotes)}` : ""}</td>
                     <td className="px-3 py-1.5 text-right">{rs(i.allocated)}</td>
                     <td className="px-3 py-1.5 text-right font-medium">{i.outstanding > 0 ? rs(i.outstanding) : <span className="text-green-700">Paid</span>}</td>
-                    <td className="px-3 py-1.5 text-right whitespace-nowrap">{canAdmin && i.outstanding > 0 && <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => openNote(i.orderId)}>Credit note</Button>}</td>
+                    <td className="px-3 py-1.5 text-right whitespace-nowrap">{canAdmin && i.outstanding > 0 && <>
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => openNote(i.orderId)}>Credit note</Button>
+                      {i.allocated === 0 && i.creditAmount >= i.billTotal - 0.005 && <>
+                        {i.creditNotes === 0 && <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setInvAction({ action: "move", invoice: i })}>Wrong customer</Button>}
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-destructive" onClick={() => setInvAction({ action: "cancel", invoice: i })}>Cancel</Button>
+                      </>}
+                    </>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -371,7 +379,7 @@ export default function Receivables() {
                     <td className="px-3 py-1.5 text-right text-green-700">− {rs(n.total)}</td>
                     <td className="px-3 py-1.5 text-right whitespace-nowrap">
                       <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => printNote(n)}><Printer className="w-3.5 h-3.5" /></Button>
-                      {n.status === "active" && canAdmin && <Button size="sm" variant="ghost" className="h-7 px-2 text-destructive" onClick={() => voidNote(n)}>Void</Button>}
+                      {n.status === "active" && canAdmin && n.kind !== "reissue" && <Button size="sm" variant="ghost" className="h-7 px-2 text-destructive" onClick={() => voidNote(n)}>Void</Button>}
                     </td>
                   </tr>
                 ))}
@@ -542,6 +550,9 @@ export default function Receivables() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <InvoiceActionDialog action={invAction?.action ?? null} invoice={invAction?.invoice ?? null} onClose={() => setInvAction(null)}
+        onDone={async n => { await load(); if (detail) await openDetail(detail.customer.id); if (confirm(`Print credit note ${n.noteNo}?`)) printNote(n); }} />
 
       <Dialog open={!!noteInv} onOpenChange={o => !o && setNoteInv(null)}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
