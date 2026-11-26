@@ -36,7 +36,7 @@
 
 20. Cancel invoice and Wrong customer (Receivables), 2026-11-26. On each credit invoice in a customer's ledger (admin and accountant): Cancel = a full credit note (kind 'cancel') for what is still owed, with a reason and an optional "Not served: put the stock back" (Stock Log lines; voiding the note takes the stock out again). Wrong customer = a full credit note (kind 'reissue') plus a new credit invoice for the right customer: same items, KOTs and cost snapshot, dated on the visit day with a new number in that fiscal year, no stock change, points when paid. A reissue note cannot be voided (move it back with Wrong customer). Both refuse split bills and invoices with receipts allocated; Wrong customer also refuses an invoice with credit notes. Migration 010 run 2026-11-26.
 
-21. Petty cash CV numbers, 2026-11-26. Every cash payout from the drawer (Cash Drawer > Petty cash payout, or an expense on the Expenses page ticked "Paid from the cash drawer") gets its own CV number in the same CV series as suppliers paid from the drawer (CV-2083/84-00001...), numbered in the fiscal year of the payout day. The bill number is optional; without one, who was paid or what it was for is required. The CV prints after saving (cash voucher with Paid by, Received by and Approved by lines) and can be reprinted from the Cash Drawer and Expenses lists; Excel export has a CV no. column. Older payouts keep their bill number and have no CV. Needs migration 011 (below).
+21. Petty cash CV numbers, 2026-11-26. Every cash payout from the drawer (Cash Drawer > Petty cash payout, or an expense on the Expenses page ticked "Paid from the cash drawer") gets its own CV number in the same CV series as suppliers paid from the drawer (CV-2083/84-00001...), numbered in the fiscal year of the payout day. The bill number is optional; without one, who was paid or what it was for is required. The CV prints after saving (cash voucher with Paid by, Received by and Approved by lines) and can be reprinted from the Cash Drawer and Expenses lists; Excel export has a CV no. column. Older payouts keep their bill number and have no CV. Migration 011 run 2026-11-26.
 
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
@@ -49,9 +49,10 @@
 - 008_debit_notes.sql (2026-11-25, by the owner): debit_notes, debit_note_items, debit_note_allocations; expenses.debit_note_id; ingredient_price_history.returned_quantity.
 - 009_sulimha_card_machines.sql (2026-11-26, by the owner): order_payments mode check with card_sulimha_nabil / card_sulimha_hbl; settlement_machines.collected_by; LHC machines relabelled; Sulimha machines added.
 - 010_credit_note_kinds.sql (2026-11-26, by the owner): credit_notes.kind, stock_restored, reissued_order_id.
+- 011_petty_cash_cv.sql (2026-11-26, by the owner): expenses.voucher_no with a unique index.
 
 # Not yet applied on the server
-- 011_petty_cash_cv.sql (written 2026-11-26): expenses.voucher_no with a unique index. Run before deploying item 21.
+- None.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
