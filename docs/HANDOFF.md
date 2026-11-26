@@ -40,6 +40,8 @@
 
 22. Complimentary and Rs 0 bills, 2026-11-26. The payment dialog (Orders) has "Complimentary (NC): not charged": needs who it is for, optional reason; the open bill becomes NC at ingredient cost (order item cost snapshot), discount and VAT cleared, no payment rows, invoice number kept or given. A bill that comes to Rs 0 (100% discount) now settles: "Nothing to pay", button "Settle Rs 0 bill", payment_method 'none', no payment rows, invoice number given. Before, every mode was refused with "Enter an amount above 0". No migration. HBL POS fee set to 3% by the owner in Settlements > Settings (data, not code).
 
+23. Reward item (loyalty reward), 2026-11-26. The payment dialog (Orders) has "Reward item (loyalty)": pick an item on the bill; one unit's price comes off first, then any staff %; never below Rs 0 (then the bill settles as Rs 0). Shown on screen, on the printed bill and the receipt preview as "Loyalty reward"; the order notes say "Loyalty reward: 1 x <item> (Rs. <price>)" with the reason. The discount route now adds to any discount already on the bill instead of replacing it. No migration.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -78,4 +80,4 @@ Roadmap step 2 in CLAUDE.md: suppliers, purchases, payables, supplier ledger, pa
 - Still to do from the owner's testing of 2026-11-25: hotel room stays (breakfast at cost billed to Sulimha Durbar, extras paid at checkout), plan first.
 - Cancel invoice with "Not served" puts back stock by today's recipe, not the recipe on the day of the sale (same as cancelling an order). Wrong customer: until credit notes reduce sales reports, the original and the re-issued invoice both count in sales totals (the existing credit-note limit).
 - Petty cash CV: a voided payout keeps its CV number (shown as void on the Expenses page); numbers are never reused. Payouts recorded before migration 011 have no CV number.
-- Complimentary at the payment step takes cost from each item's cost snapshot; items with no recipe cost count as 0 (shown as incomplete NC cost, as for POS NC orders). A loyalty reward on part of a bill still has to be entered as a bill discount %.
+- Complimentary at the payment step takes cost from each item's cost snapshot; items with no recipe cost count as 0 (shown as incomplete NC cost, as for POS NC orders). A reward item is one unit at its sold price; two free items need two bills or a staff % for the second. The reward is not linked to the customer's redemption record (that is still made by the customer on the QR page).

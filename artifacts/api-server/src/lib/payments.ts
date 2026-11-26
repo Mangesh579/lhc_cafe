@@ -80,6 +80,15 @@ export function validateSplit(input: unknown, billTotal: number, opts: { hasCust
   return { parts };
 }
 
+// Discount at the payment step: a reward item (one unit's price, a loyalty reward) comes off first, then the staff % on the rest.
+// Never below Rs 0. Amounts to the paisa.
+export function billDiscount(base: number, pct: number, rewardPrice: number): { discount: number; total: number } | { error: string } {
+  if (!Number.isFinite(pct) || pct < 0 || pct > 100) return { error: "The discount must be from 0 to 100%." };
+  const reward = Math.min(round2(Math.max(0, rewardPrice || 0)), round2(base));
+  const total = round2((base - reward) * (1 - pct / 100));
+  return { discount: round2(base - total), total };
+}
+
 // The fallback rule. An order with order_payments rows is read from its rows;
 // an order with none (settled before split payment existed) counts in full in its single payment_method.
 export function partsFor(order: { totalAmount: unknown; paymentMethod: string | null }, rows: { mode: string; amount: unknown; reference?: string | null }[] | undefined): PaymentPart[] {
