@@ -34,7 +34,7 @@
    - Immutable; void with a reason (admin or accountant) puts the stock, payable, price history and expenses back. A purchase bill with an active debit note cannot be voided until the note is voided.
    Migration 008 applied 2026-11-25 (see CHANGELOG).
 
-20. Cancel invoice and Wrong customer (Receivables), 2026-11-26. On each credit invoice in a customer's ledger (admin and accountant): Cancel = a full credit note (kind 'cancel') for what is still owed, with a reason and an optional "Not served: put the stock back" (Stock Log lines; voiding the note takes the stock out again). Wrong customer = a full credit note (kind 'reissue') plus a new credit invoice for the right customer: same items, KOTs and cost snapshot, dated on the visit day with a new number in that fiscal year, no stock change, points when paid. A reissue note cannot be voided (move it back with Wrong customer). Both refuse split bills and invoices with receipts allocated; Wrong customer also refuses an invoice with credit notes. Needs migration 010 (below).
+20. Cancel invoice and Wrong customer (Receivables), 2026-11-26. On each credit invoice in a customer's ledger (admin and accountant): Cancel = a full credit note (kind 'cancel') for what is still owed, with a reason and an optional "Not served: put the stock back" (Stock Log lines; voiding the note takes the stock out again). Wrong customer = a full credit note (kind 'reissue') plus a new credit invoice for the right customer: same items, KOTs and cost snapshot, dated on the visit day with a new number in that fiscal year, no stock change, points when paid. A reissue note cannot be voided (move it back with Wrong customer). Both refuse split bills and invoices with receipts allocated; Wrong customer also refuses an invoice with credit notes. Migration 010 run 2026-11-26.
 
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
@@ -46,9 +46,10 @@
 - 007_supplier_payments.sql (2026-11-24, by the owner): purchase_bills.kind, payables_settings, supplier_payments, supplier_payment_allocations.
 - 008_debit_notes.sql (2026-11-25, by the owner): debit_notes, debit_note_items, debit_note_allocations; expenses.debit_note_id; ingredient_price_history.returned_quantity.
 - 009_sulimha_card_machines.sql (2026-11-26, by the owner): order_payments mode check with card_sulimha_nabil / card_sulimha_hbl; settlement_machines.collected_by; LHC machines relabelled; Sulimha machines added.
+- 010_credit_note_kinds.sql (2026-11-26, by the owner): credit_notes.kind, stock_restored, reissued_order_id.
 
 # Not yet applied on the server
-- 010_credit_note_kinds.sql (written 2026-11-26): credit_notes.kind, stock_restored, reissued_order_id. Run before deploying item 20.
+- None.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.

@@ -585,3 +585,9 @@ db/migrations/010_credit_note_kinds.sql: NOT YET RUN on the server.
 ### Decisions made (by Claude; please confirm)
 - The cancel or reissue note is dated today; the re-issued invoice is dated on the visit day (the rule for invoices).
 - Stock is put back by today's recipe (same as cancelling an order).
+
+
+## 2026-11-26: Migration 010 run
+
+- The owner ran db/migrations/010_credit_note_kinds.sql on the server (after a backup) and deployed Cancel invoice and Wrong customer. The code had already reached main in commit d271248 ("commits for handoff 9") instead of its own branch. Recorded as run in CLAUDE.md and docs/HANDOFF.md.
+- Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
