@@ -777,8 +777,10 @@ export default function OrderLog() {
               <SelectItem value="cash">Cash</SelectItem>
               <SelectItem value="nabil_qr">QR Payment</SelectItem>
               <SelectItem value="card">Card (any)</SelectItem>
-              <SelectItem value="card_nabil">Card - Nabil POS</SelectItem>
-              <SelectItem value="card_hbl">Card - HBL POS</SelectItem>
+              <SelectItem value="card_nabil">Card - LHC Nabil POS</SelectItem>
+              <SelectItem value="card_hbl">Card - LHC HBL POS</SelectItem>
+              <SelectItem value="card_sulimha_nabil">Card - Sulimha Nabil POS</SelectItem>
+              <SelectItem value="card_sulimha_hbl">Card - Sulimha HBL POS</SelectItem>
               <SelectItem value="card_legacy">Card (older, machine not recorded)</SelectItem>
               <SelectItem value="credit">Credit</SelectItem>
               <SelectItem value="credit_open">Credit, still owed</SelectItem>

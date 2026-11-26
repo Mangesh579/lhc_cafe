@@ -1,7 +1,8 @@
 import { pgTable, serial, integer, text, numeric, timestamp, date, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-// The machines whose money is settled to the bank, one row each: nabil_pos, hbl_pos, qr.
+// The machines whose money is settled to the bank, one row each: nabil_pos, hbl_pos (LHC), sulimha_nabil_pos, sulimha_hbl_pos (Sulimha Durbar), qr.
+// collected_by: lhc = settles to bank_account; sulimha = Sulimha Durbar transfers the money later, into the LHC account chosen at settlement.
 // Fee range in percent (warning only). QR has no fee (both empty). QR settles to the Nabil account.
 export const settlementMachinesTable = pgTable("settlement_machines", {
   machine: text("machine").primaryKey(),
@@ -10,6 +11,7 @@ export const settlementMachinesTable = pgTable("settlement_machines", {
   feeMinPct: numeric("fee_min_pct", { precision: 6, scale: 3 }),
   feeMaxPct: numeric("fee_max_pct", { precision: 6, scale: 3 }),
   active: boolean("active").notNull().default(true),
+  collectedBy: text("collected_by").notNull().default("lhc"), // lhc | sulimha
 });
 
 // One row (id = 1): from which sales day settlements are tracked, and the rounding allowance (Rs.) before a fee warns.

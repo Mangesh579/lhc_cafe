@@ -2,13 +2,16 @@
 import { round2 } from "./payments";
 import { nepalDay, type LedgerOrder, type LedgerReceipt } from "./ledgerData";
 
-export const MACHINES = ["nabil_pos", "hbl_pos", "qr"] as const;
+// nabil_pos / hbl_pos are LHC's machines; sulimha_* are Sulimha Durbar's, settled when Sulimha transfers the money to an LHC account.
+export const MACHINES = ["nabil_pos", "hbl_pos", "sulimha_nabil_pos", "sulimha_hbl_pos", "qr"] as const;
 export type Machine = (typeof MACHINES)[number];
 
 // Which machine took a payment part. Legacy "card"/"esewa" has no machine recorded and cannot be settled to one.
 export function machineOfMode(mode: string | null | undefined): Machine | "card_unknown" | null {
   if (mode === "card_nabil") return "nabil_pos";
   if (mode === "card_hbl") return "hbl_pos";
+  if (mode === "card_sulimha_nabil") return "sulimha_nabil_pos";
+  if (mode === "card_sulimha_hbl") return "sulimha_hbl_pos";
   if (mode === "nabil_qr" || mode === "qr") return "qr";
   if (mode === "card" || mode === "esewa") return "card_unknown";
   return null;
@@ -82,9 +85,9 @@ const isDay = (s: unknown): s is string => typeof s === "string" && /^\d{4}-\d{2
 // Checks a settlement entry. The sales day must be from the start date and before today (a day is
 // settled after it ends); the money cannot reach the bank before the sales day or after today.
 export function validateSettlementInput(body: any, ctx: { today: string; startDate: string }):
-  { machine: Machine; day: string; received: number; settledOn: string; reference: string; note: string | null } | { error: string } {
+  { machine: Machine; day: string; received: number; settledOn: string; reference: string; note: string | null; bankAccount: "nabil" | "hbl" | null } | { error: string } {
   const machine = String(body?.machine ?? "");
-  if (!(MACHINES as readonly string[]).includes(machine)) return { error: "Choose Nabil POS, HBL POS or QR." };
+  if (!(MACHINES as readonly string[]).includes(machine)) return { error: "Choose the card machine or QR." };
   if (!isDay(body?.day)) return { error: "Choose the sales day." };
   const day = body.day;
   if (day < ctx.startDate) return { error: `Settlements are tracked from ${ctx.startDate}.` };
@@ -96,5 +99,6 @@ export function validateSettlementInput(body: any, ctx: { today: string; startDa
   if (!Number.isFinite(received) || received <= 0) return { error: "Enter the amount that reached the bank (above 0)." };
   const reference = clean(body?.reference, 80);
   if (!reference) return { error: "Enter the bank statement or settlement reference." };
-  return { machine: machine as Machine, day, received, settledOn, reference, note: clean(body?.note, 300) };
+  const bankAccount = body?.bankAccount === "nabil" || body?.bankAccount === "hbl" ? body.bankAccount : null;
+  return { machine: machine as Machine, day, received, settledOn, reference, note: clean(body?.note, 300), bankAccount };
 }

@@ -847,7 +847,7 @@ export default function Orders() {
               </div>
               {!splitOn && (
                 <>
-                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
                     {PAY_MODES.map(m => (
                       <Button key={m.value} type="button" size="sm" variant={paymentMethod === m.value ? "default" : "outline"} className="h-9 px-1 text-xs" onClick={() => setPaymentMethod(m.value)}>
                         {m.short}

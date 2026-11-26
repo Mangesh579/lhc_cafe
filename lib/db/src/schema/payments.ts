@@ -1,7 +1,7 @@
 import { pgTable, serial, integer, text, numeric, timestamp, date, primaryKey, index } from "drizzle-orm/pg-core";
 
 // One row per part of a settled bill. A bill paid half cash, half QR has two rows.
-// mode: cash | nabil_qr | card_nabil | card_hbl | credit   (amounts always > 0)
+// mode: cash | nabil_qr | card_nabil | card_hbl | card_sulimha_nabil | card_sulimha_hbl | credit   (amounts always > 0)
 // Orders settled before this table existed have no rows; readers fall back to orders.payment_method.
 export const orderPaymentsTable = pgTable("order_payments", {
   id: serial("id").primaryKey(),

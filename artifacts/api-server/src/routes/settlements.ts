@@ -26,8 +26,8 @@ class HttpError extends Error { constructor(public status: number, message: stri
 async function loadConfig() {
   const machines = await db.select().from(settlementMachinesTable);
   const [s] = await db.select().from(settlementSettingsTable).where(eq(settlementSettingsTable.id, 1));
-  const rules = new Map<string, FeeRule & { bankAccount: string }>(machines.map(m => [m.machine, {
-    label: m.label, bankAccount: m.bankAccount,
+  const rules = new Map<string, FeeRule & { bankAccount: string; collectedBy: string }>(machines.map(m => [m.machine, {
+    label: m.label, bankAccount: m.bankAccount, collectedBy: m.collectedBy ?? "lhc",
     feeMinPct: m.feeMinPct != null ? num(m.feeMinPct) : null, feeMaxPct: m.feeMaxPct != null ? num(m.feeMaxPct) : null,
   }]));
   return {
@@ -72,11 +72,11 @@ router.get("/settlements", authenticate, async (req: AuthRequest, res: Response)
     const rule = cfg.rules.get(machine);
     const gross = c?.gross ?? 0;
     rows.push({
-      day, machine, label: rule?.label ?? machine, bankAccount: rule?.bankAccount ?? null,
+      day, machine, label: rule?.label ?? machine, bankAccount: rule?.bankAccount ?? null, collectedBy: rule?.collectedBy ?? "lhc",
       bills: c?.bills ?? 0, gross,
       status: s ? "settled" : "unsettled",
       settlement: s ? {
-        id: s.id, gross: num(s.gross), received: num(s.received), charge: num(s.charge), chargePct: num(s.chargePct),
+        id: s.id, bankAccount: s.bankAccount, gross: num(s.gross), received: num(s.received), charge: num(s.charge), chargePct: num(s.chargePct),
         settledOn: s.settledOn, reference: s.reference, note: s.note, warning: s.warning, expenseId: s.expenseId, createdBy: s.createdBy, createdAt: s.createdAt,
       } : null,
       // Sales on a settled day changed later (a late or cancelled bill): settled figures stay; this shows the gap
@@ -87,7 +87,7 @@ router.get("/settlements", authenticate, async (req: AuthRequest, res: Response)
   rows.sort((a, b) => b.day.localeCompare(a.day) || MACHINES.indexOf(a.machine) - MACHINES.indexOf(b.machine));
   const unsettled = cfg.machines.map(m => {
     const mine = rows.filter(r => r.machine === m.machine && r.status === "unsettled");
-    return { machine: m.machine, label: m.label, bankAccount: m.bankAccount, days: mine.length, total: round2(mine.reduce((s, r) => s + r.gross, 0)), oldest: mine.length ? mine[mine.length - 1].day : null };
+    return { machine: m.machine, label: m.label, bankAccount: m.bankAccount, collectedBy: m.collectedBy ?? "lhc", days: mine.length, total: round2(mine.reduce((s, r) => s + r.gross, 0)), oldest: mine.length ? mine[mine.length - 1].day : null };
   });
   const legacyCard = cells.filter(c => c.machine === "card_unknown").map(c => ({ day: c.day, bills: c.bills, gross: c.gross }));
   res.json({
@@ -126,8 +126,12 @@ router.post("/settlements", authenticate, async (req: AuthRequest, res: Response
   }
   const f = settlementFigures(gross, v.received, rule, cfg.tolerance);
   if ("error" in f) { res.status(400).json({ error: f.error }); return; }
+  // Sulimha Durbar's machines: the money reaches LHC when Sulimha transfers it, into the LHC account chosen here
+  const viaSulimha = rule.collectedBy === "sulimha";
+  if (viaSulimha && !v.bankAccount) { res.status(400).json({ error: "Choose the LHC account Sulimha Durbar transferred the money into (Nabil or HBL)." }); return; }
+  const account = viaSulimha ? v.bankAccount! : rule.bankAccount;
   const user = req.user?.username ?? "user";
-  const bank = BANK_LABEL[rule.bankAccount] ?? rule.bankAccount;
+  const bank = BANK_LABEL[account] ?? account;
   try {
     const id = await db.transaction(async (tx) => {
       const [exists] = await tx.select({ id: settlementsTable.id }).from(settlementsTable)
@@ -137,15 +141,15 @@ router.post("/settlements", authenticate, async (req: AuthRequest, res: Response
       if (f.charge > 0) {
         const [e] = await tx.insert(expensesTable).values({
           expenseDate: v.settledOn, type: "indirect", category: BANK_CHARGE_CATEGORY, subcategory: rule.label,
-          description: `${rule.label} settlement for ${v.day}: Rs. ${gross.toFixed(2)} sales, Rs. ${v.received.toFixed(2)} received (${f.chargePct.toFixed(2)}%)`,
-          vendor: bank, amount: String(f.charge), paymentMethod: "bank_transfer", paidFromDrawer: false,
+          description: `${rule.label} settlement for ${v.day}: Rs. ${gross.toFixed(2)} sales, Rs. ${v.received.toFixed(2)} received${viaSulimha ? ` from Sulimha Durbar into ${bank}` : ""} (${f.chargePct.toFixed(2)}%)`,
+          vendor: viaSulimha ? "Sulimha Durbar" : bank, amount: String(f.charge), paymentMethod: "bank_transfer", paidFromDrawer: false,
           billNumber: v.reference, isRecurring: false, createdBy: user,
         } as any).returning();
         expenseId = e.id;
         await tx.insert(expenseChangesTable).values({ expenseId: e.id, action: "created", details: `Bank charge from ${rule.label} settlement of ${v.day}, ref ${v.reference}`, changedBy: user });
       }
       const [row] = await tx.insert(settlementsTable).values({
-        machine: v.machine, salesDay: v.day, bankAccount: rule.bankAccount, bills: cell?.bills ?? 0,
+        machine: v.machine, salesDay: v.day, bankAccount: account, bills: cell?.bills ?? 0,
         gross: String(gross), received: String(v.received), charge: String(f.charge), chargePct: String(f.chargePct),
         settledOn: v.settledOn, reference: v.reference, note: v.note, warning: f.warning, expenseId, createdBy: user,
       }).returning();

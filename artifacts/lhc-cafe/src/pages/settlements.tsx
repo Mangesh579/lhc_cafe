@@ -33,6 +33,7 @@ export default function Settlements() {
   const [settledOn, setSettledOn] = useState(nepalToday());
   const [reference, setReference] = useState("");
   const [note, setNote] = useState("");
+  const [account, setAccount] = useState(""); // Sulimha machines: the LHC account Sulimha transferred into
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<any>(null);
@@ -76,7 +77,7 @@ export default function Settlements() {
     setSettle(row);
     setReceived(m.feeMinPct == null ? String(row.gross) : "");
     setSettledOn(nepalToday() > row.day ? nepalToday() : row.day);
-    setReference(""); setNote("");
+    setReference(""); setNote(""); setAccount("");
   };
 
   const saveSettle = async () => {
@@ -84,7 +85,7 @@ export default function Settlements() {
     if (preview.warning && !confirm(`${preview.warning}\n\nRecord this settlement anyway?`)) return;
     setBusy(true);
     try {
-      const r = await apiJson("/settlements", "POST", { machine: settle.machine, day: settle.day, received: parseFloat(received), settledOn, reference, note, expectedGross: settle.gross });
+      const r = await apiJson("/settlements", "POST", { machine: settle.machine, day: settle.day, received: parseFloat(received), settledOn, reference, note, expectedGross: settle.gross, bankAccount: settle.collectedBy === "sulimha" ? account : undefined });
       toast({ title: `${settle.label} for ${settle.day} settled`, description: parseFloat(r.charge) > 0 ? `Bank charge ${rs(parseFloat(r.charge))} booked as an expense.` : "No bank charge." });
       setSettle(null);
       await load();
@@ -127,7 +128,7 @@ export default function Settlements() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {data.unsettled.map((u: any) => (
           <Card key={u.machine} className={u.total > 0 ? "border-amber-300" : ""}><CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">{u.label} → {BANK[u.bankAccount] ?? u.bankAccount}</p>
+            <p className="text-xs text-muted-foreground">{u.label} → {u.collectedBy === "sulimha" ? "via Sulimha Durbar" : BANK[u.bankAccount] ?? u.bankAccount}</p>
             <p className="text-lg font-bold">{rs(u.total)}</p>
             <p className="text-xs text-muted-foreground">{u.days > 0 ? `unsettled, ${u.days} day${u.days > 1 ? "s" : ""} (oldest ${u.oldest})` : "all settled"} · fee {feeText(machineOf(u.machine))}</p>
           </CardContent></Card>
@@ -164,7 +165,7 @@ export default function Settlements() {
               return (
                 <tr key={`${r.day}|${r.machine}`} className={s ? "bg-muted/10" : ""}>
                   <td className="px-3 py-2 whitespace-nowrap">{r.day}</td>
-                  <td className="px-3 py-2">{r.label}<span className="block text-[11px] text-muted-foreground">to {BANK[r.bankAccount] ?? r.bankAccount}</span></td>
+                  <td className="px-3 py-2">{r.label}<span className="block text-[11px] text-muted-foreground">{r.collectedBy === "sulimha" ? `via Sulimha Durbar${r.settlement ? ` to ${BANK[r.settlement.bankAccount] ?? r.settlement.bankAccount}` : ""}` : `to ${BANK[r.bankAccount] ?? r.bankAccount}`}</span></td>
                   <td className="px-3 py-2 text-right">{r.bills}</td>
                   <td className="px-3 py-2 text-right font-medium">{rs(s ? s.gross : r.gross)}
                     {s && r.changedAfterSettlement !== 0 && <span className="block text-[11px] text-red-600 font-normal">now {rs(r.gross)} ({r.changedAfterSettlement > 0 ? "+" : ""}{rs(r.changedAfterSettlement)} after settling)</span>}
@@ -196,10 +197,12 @@ export default function Settlements() {
           <DialogHeader><DialogTitle>Settle {settle?.label}: {settle?.day}</DialogTitle></DialogHeader>
           {settle && (
             <div className="space-y-3 py-1 text-sm">
-              <p>Sales on {settle.day}: <strong>{rs(settle.gross)}</strong> ({settle.bills} bill{settle.bills === 1 ? "" : "s"}) · into {BANK[settle.bankAccount] ?? settle.bankAccount} · fee {feeText(machineOf(settle.machine))}</p>
+              <p>Sales on {settle.day}: <strong>{rs(settle.gross)}</strong> ({settle.bills} bill{settle.bills === 1 ? "" : "s"}) · {settle.collectedBy === "sulimha" ? "taken on Sulimha Durbar's machine; Sulimha transfers it to LHC" : `into ${BANK[settle.bankAccount] ?? settle.bankAccount}`} · fee {feeText(machineOf(settle.machine))}</p>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1"><Label>Amount that reached the bank *</Label><Input type="number" min="0" step="0.01" autoFocus value={received} onChange={e => setReceived(e.target.value)} /></div>
                 <div className="space-y-1"><Label>Date it reached the bank</Label><Input type="date" value={settledOn} min={settle.day} max={nepalToday()} onChange={e => setSettledOn(e.target.value)} /></div>
+                {settle.collectedBy === "sulimha" && <div className="space-y-1 col-span-2"><Label>LHC account Sulimha transferred into *</Label>
+                  <select className="h-9 rounded-md border border-input bg-background px-2 text-sm w-full" value={account} onChange={e => setAccount(e.target.value)}><option value="">Choose…</option><option value="nabil">Nabil Bank</option><option value="hbl">HBL</option></select></div>}
                 <div className="space-y-1 col-span-2"><Label>Bank statement / settlement reference *</Label><Input value={reference} onChange={e => setReference(e.target.value)} placeholder="e.g. batch no. or statement line" /></div>
                 <div className="space-y-1 col-span-2"><Label>Note</Label><Input value={note} onChange={e => setNote(e.target.value)} /></div>
               </div>
@@ -215,7 +218,7 @@ export default function Settlements() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setSettle(null)}>Cancel</Button>
-            <Button disabled={busy || !preview || "error" in preview || !reference.trim()} onClick={saveSettle}>{busy ? "Saving…" : "Record settlement"}</Button>
+            <Button disabled={busy || !preview || "error" in preview || !reference.trim() || (settle?.collectedBy === "sulimha" && !account)} onClick={saveSettle}>{busy ? "Saving…" : "Record settlement"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

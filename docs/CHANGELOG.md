@@ -514,3 +514,37 @@ db/migrations/008_debit_notes.sql: NOT YET RUN on the server.
 - The owner ran db/migrations/008_debit_notes.sql on the server (after a backup) and deployed part C (purchase returns with item-wise debit notes). Recorded as run in CLAUDE.md and docs/HANDOFF.md. Roadmap step 2 is complete.
 - After the restart the API logged "Server listening" and /api/healthz answered 200. An older "Failed query ... order_items" entry in the pm2 error log came from a dropped database connection in orders.ts, which this change did not touch. If it shows up again in new logs, look into it separately.
 - Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
+
+
+## 2026-11-25: Four card machines (LHC and Sulimha Durbar)
+
+### Owner's testing of 2026-11-25 and answers
+- Asked for: cancelling or moving a credit invoice in Receivables, petty cash without a bill number, hotel guests' included breakfast, and two more card machines.
+- Answers: Sulimha Durbar is a separate business and pays LHC for guests' breakfasts at cost; Sulimha machine money lands in Sulimha's bank and Sulimha transfers it to LHC later (Nabil or HBL account), same fees (Nabil 2.75%, HBL 3.00-3.25%); petty cash gets a CV number with an optional bill number; order of work: card machines, receivables cancel/wrong customer, petty cash, room stays (plan first). Recorded in CLAUDE.md.
+
+### Summary (this task: the card machines)
+- Labels: Card - LHC Nabil POS, Card - LHC HBL POS (stored values card_nabil / card_hbl unchanged, so past sales stay on LHC's machines), new Card - Sulimha Nabil POS, Card - Sulimha HBL POS (card_sulimha_nabil / card_sulimha_hbl).
+- All four count as card everywhere: Pay dialog (Active Orders) and POS buttons, split payments, receipts, Order Log filter, Collections (card split per machine, Excel), Card ledger.
+- Settlements: two new machines (sulimha_nabil_pos, sulimha_hbl_pos, collected_by 'sulimha', same fee ranges). Settling one asks which LHC account Sulimha transferred into (Nabil or HBL) and refuses without it; the fee is a "Bank and card charges" expense with vendor Sulimha Durbar; the Bank ledger shows the money arriving "(transferred by Sulimha Durbar)".
+
+### Files
+- New: db/migrations/009_sulimha_card_machines.sql; api-server src/__tests__/sulimhaCards.test.ts.
+- Changed: lib/db/src/schema/settlements.ts (collected_by), lib/db/src/schema/payments.ts (comment); api-server src/lib/payments.ts, src/lib/ledgerData.ts, src/lib/settlementRules.ts, src/routes/settlements.ts, src/routes/ledgers.ts, src/routes/orders.ts (comment); lhc-cafe src/lib/payments.ts, pages/orders.tsx, pages/pos.tsx, pages/order-log.tsx, pages/ledgers.tsx, pages/settlements.tsx; CLAUDE.md; docs/HANDOFF.md.
+
+### Tables
+- Changed: order_payments (mode check allows the two Sulimha modes), settlement_machines (+collected_by default 'lhc'; nabil_pos and hbl_pos relabelled; two rows added). No payment, order or settlement row is changed.
+
+### Migration
+db/migrations/009_sulimha_card_machines.sql: NOT YET RUN on the server.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 24 files, 188 tests pass. New sulimhaCards (6): labels and modes; split bill per machine and collections per machine; settlement input with the LHC account; routes on PGlite (a Sulimha HBL sale unsettled "via Sulimha Durbar", refused without the account, settled into Nabil with the 3% fee as an expense from Sulimha Durbar, Bank ledger in, Card ledger back to 0); migration 009 runs twice, allows the new modes, refuses others, relabels and adds the machines.
+- Typecheck api-server, lhc-cafe, libs clean; both artifacts build.
+- Not run: the screens in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- The existing card_nabil / card_hbl become LHC's machines (relabel only), so every past card sale stays LHC's.
+- A Sulimha machine is "settled" when Sulimha's transfer reaches LHC; the gap is the card fee (warning outside the range), booked as a bank charge like LHC's machines.
+
+### Open questions
+- Step 3 posting needs an account for money owed by Sulimha Durbar (e.g. "Receivable - Sulimha Durbar"); the approved chart of accounts has none yet. Ask the accountant.

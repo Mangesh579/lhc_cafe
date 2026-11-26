@@ -353,7 +353,7 @@ router.patch("/orders/:id/status", authenticate, async (req, res): Promise<void>
 // Settle a bill. Body: paymentStatus "paid" and either
 //   payments: [{ mode, amount, reference? }]  (split; the parts must add up to the bill), or
 //   paymentMethod: one mode for the whole bill (older screens).
-// Modes: cash, nabil_qr (QR Payment), card_nabil, card_hbl, credit. Credit needs a loyalty customer;
+// Modes: cash, nabil_qr (QR Payment), card_nabil, card_hbl (LHC POS), card_sulimha_nabil, card_sulimha_hbl (Sulimha POS), credit. Credit needs a loyalty customer;
 // the bill gets its invoice number now, leaves Active Orders and goes on the customer's receivable.
 router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void> => {
   try {

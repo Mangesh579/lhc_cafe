@@ -137,17 +137,20 @@ async function modeLedger(mode: string, from: string, to: string) {
   }
   if (mode === "card" || mode === "qr" || mode === "bank") {
     // Settlements: card/QR money leaves the machine's ledger (to the bank, and the bank charge) and arrives in the bank
-    const machines = mode === "card" ? ["nabil_pos", "hbl_pos"] : mode === "qr" ? ["qr"] : ["nabil_pos", "hbl_pos", "qr"];
+    const cards = ["nabil_pos", "hbl_pos", "sulimha_nabil_pos", "sulimha_hbl_pos"];
+    const machines = mode === "card" ? cards : mode === "qr" ? ["qr"] : [...cards, "qr"];
     const rows = await db.select().from(settlementsTable)
       .where(and(eq(settlementsTable.status, "active"), gte(settlementsTable.settledOn, from), lte(settlementsTable.settledOn, to)));
-    const label = (m: string) => m === "nabil_pos" ? "Card - Nabil POS" : m === "hbl_pos" ? "Card - HBL POS" : "QR Payment";
+    const LABEL: Record<string, string> = { nabil_pos: "Card - LHC Nabil POS", hbl_pos: "Card - LHC HBL POS", sulimha_nabil_pos: "Card - Sulimha Nabil POS", sulimha_hbl_pos: "Card - Sulimha HBL POS", qr: "QR Payment" };
+    const label = (m: string) => LABEL[m] ?? m;
+    const via = (m: string) => m.startsWith("sulimha_") ? " (transferred by Sulimha Durbar)" : "";
     const bank = (b: string) => b === "hbl" ? "HBL" : "Nabil Bank";
     for (const st of rows.filter(r => machines.includes(r.machine))) {
       const t = new Date(st.createdAt).getTime();
       if (mode === "bank") {
-        items.push({ t, day: st.settledOn, type: "settlement", ref: st.reference, description: `${label(st.machine)} settlement of ${st.salesDay} into ${bank(st.bankAccount)}`, inAmt: num(st.received), outAmt: 0 });
+        items.push({ t, day: st.settledOn, type: "settlement", ref: st.reference, description: `${label(st.machine)} settlement of ${st.salesDay} into ${bank(st.bankAccount)}${via(st.machine)}`, inAmt: num(st.received), outAmt: 0 });
       } else {
-        items.push({ t, day: st.settledOn, type: "settlement", ref: st.reference, description: `${label(st.machine)} sales of ${st.salesDay} settled to ${bank(st.bankAccount)}`, inAmt: 0, outAmt: num(st.received) });
+        items.push({ t, day: st.settledOn, type: "settlement", ref: st.reference, description: `${label(st.machine)} sales of ${st.salesDay} settled to ${bank(st.bankAccount)}${via(st.machine)}`, inAmt: 0, outAmt: num(st.received) });
         if (num(st.charge) > 0) items.push({ t, day: st.settledOn, type: "bank_charge", ref: st.reference, description: `Bank charge on ${label(st.machine)} settlement of ${st.salesDay} (${num(st.chargePct).toFixed(2)}%)`, inAmt: 0, outAmt: num(st.charge) });
       }
     }

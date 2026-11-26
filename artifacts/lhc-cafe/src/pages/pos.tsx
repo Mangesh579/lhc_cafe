@@ -428,7 +428,7 @@ export default function POS() {
           <div>
             <Label className="text-xs font-semibold text-muted-foreground uppercase">Payment</Label>
             <Tabs value={paymentMethod} onValueChange={setPaymentMethod} className="mt-1">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-3 h-auto">
                 {PAY_MODES.filter(m => m.value !== "credit").map(m => (
                   <TabsTrigger key={m.value} value={m.value} className="text-xs px-1">{m.short}</TabsTrigger>
                 ))}

@@ -45,7 +45,7 @@ export default function Ledgers() {
   useEffect(() => { if (allowed) load(); }, [allowed, load]);
 
   const collRow = (r: any, label: string) => ({
-    Date: label, Bills: r.orders, Cash: r.cash, "QR Payment": r.qr, "Card - Nabil POS": r.cardNabil, "Card - HBL POS": r.cardHbl, "Card (machine not recorded)": r.cardUnknown,
+    Date: label, Bills: r.orders, Cash: r.cash, "QR Payment": r.qr, "Card - LHC Nabil POS": r.cardNabil, "Card - LHC HBL POS": r.cardHbl, "Card - Sulimha Nabil POS": r.cardSulimhaNabil ?? 0, "Card - Sulimha HBL POS": r.cardSulimhaHbl ?? 0, "Card (machine not recorded)": r.cardUnknown,
     Other: r.other, "Credit (billed, not received)": r.credit, "Total sales": r.sales,
     "Receipts - Cash": r.receiptsCash, "Receipts - QR": r.receiptsQr, "Receipts - Bank": r.receiptsBank, "Money received": r.received, "VAT included": r.vat,
   });
@@ -101,8 +101,8 @@ export default function Ledgers() {
                   <tr key={r.day} className={total ? "font-semibold bg-muted/30" : ""}>
                     <td className="px-4 py-2 whitespace-nowrap">{r.day}</td><td className="px-3 py-2 text-right">{r.orders}</td>
                     <td className="px-3 py-2 text-right">{money(r.cash)}</td><td className="px-3 py-2 text-right">{money(r.qr)}</td>
-                    <td className="px-3 py-2 text-right" title={`Nabil POS ${money(r.cardNabil)} · HBL POS ${money(r.cardHbl)} · not recorded ${money(r.cardUnknown)}`}>
-                      {money(r.card)}{(r.cardNabil > 0 || r.cardHbl > 0) && <span className="block text-[10px] text-muted-foreground font-normal">N {money(r.cardNabil)} · H {money(r.cardHbl)}{r.cardUnknown > 0 ? ` · ? ${money(r.cardUnknown)}` : ""}</span>}
+                    <td className="px-3 py-2 text-right" title={`LHC Nabil ${money(r.cardNabil)} · LHC HBL ${money(r.cardHbl)} · Sulimha Nabil ${money(r.cardSulimhaNabil ?? 0)} · Sulimha HBL ${money(r.cardSulimhaHbl ?? 0)} · not recorded ${money(r.cardUnknown)}`}>
+                      {money(r.card)}{(r.cardNabil > 0 || r.cardHbl > 0 || r.cardSulimhaNabil > 0 || r.cardSulimhaHbl > 0) && <span className="block text-[10px] text-muted-foreground font-normal">N {money(r.cardNabil)} · H {money(r.cardHbl)}{(r.cardSulimhaNabil > 0 || r.cardSulimhaHbl > 0) ? ` · SN ${money(r.cardSulimhaNabil)} · SH ${money(r.cardSulimhaHbl)}` : ""}{r.cardUnknown > 0 ? ` · ? ${money(r.cardUnknown)}` : ""}</span>}
                     </td>
                     <td className="px-3 py-2 text-right">{money(r.other)}</td>
                     <td className="px-3 py-2 text-right text-amber-700">{money(r.credit)}</td>

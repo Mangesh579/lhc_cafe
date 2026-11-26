@@ -31,7 +31,7 @@ Cafe management system for LHC Cafe & Barista School (Sulimha Durbar, Patan, Nep
 - Tax rates, thresholds and limits are configurable settings or tables, never hard-coded.
 
 ## Payments and cash rules
-- Payment modes: Cash, QR Payment, Card-Nabil POS, Card-HBL POS, Credit. The stored value for QR Payment stays `nabil_qr`; only the label changed. Legacy values `card` and `esewa` count as card.
+- Payment modes: Cash, QR Payment, Card - LHC Nabil POS (`card_nabil`), Card - LHC HBL POS (`card_hbl`), Card - Sulimha Nabil POS (`card_sulimha_nabil`), Card - Sulimha HBL POS (`card_sulimha_hbl`), Credit. The stored value for QR Payment stays `nabil_qr`; only the label changed. Legacy values `card` and `esewa` count as card.
 - Cash drawer and ledger totals are computed from order_payments rows, falling back to orders.payment_method only for orders that have no rows. A split bill (e.g. half cash, half QR) counts each part in its own mode.
 - Credit and NC are never cash and never go into the drawer. Credit sales are receivables, not receipts.
 - Day boundaries use Nepal time (UTC+5:45), never UTC. An order paid at 11:50 pm Nepal time belongs to that Nepal day. Use lib/ledgerData.ts (nepalDay, dayRangeUtc) for all day calculations.
@@ -43,6 +43,7 @@ General
 - No service charge. No customer surcharge on cards. One cash drawer.
 - Sales posting and purchase posting happen the next day (review screens that post a day's data to the ledger, then lock it).
 - Staff: 5 people, no SSF, TDS only. Barista school course fees must be in the system.
+- Hotel guests (owner, 2026-11-25; not built yet): Sulimha Durbar is a separate business that pays LHC for its guests' included breakfasts at cost price. A guest's extras (snacks, dinner) are normal sales, paid at the end of the stay. Plan: room stays, with breakfast orders at cost billed to Sulimha Durbar and extras on the guest's stay, kept apart (plan to be written first).
 
 Receivables (answers of 2026-11-23)
 - Receivables and payables are individual bills. One receipt can settle several invoices, for loyalty customers only.
@@ -56,11 +57,13 @@ Receivables (answers of 2026-11-23)
 Settlements
 - Card and QR settlement is per day. QR settles to the same bank account as Nabil POS. The bank charge is booked as an expense per settlement; no VAT on it.
 - QR has no fee. Card machines deduct fees: Nabil POS 2.75%, HBL POS 3.00-3.25% (the actual deduction is entered at settlement; warn if outside the range).
+- Owner, 2026-11-25: there are four card machines. LHC Nabil POS and LHC HBL POS are LHC's own (the old Nabil POS and HBL POS). Sulimha Nabil POS and Sulimha HBL POS belong to Sulimha Durbar, a separate business: their money lands in Sulimha's bank, and Sulimha transfers it to LHC later by bank transfer (into LHC's Nabil or HBL account), less the same fees (Nabil 2.75%, HBL 3.00-3.25%). Until that transfer, Sulimha owes LHC that money. A Sulimha settlement records the date, the amount received and which LHC account received it.
 
 Purchases and expenses
 - Purchase bills: supplier PAN mandatory, bill number mandatory, no purchase without a bill. Duplicate check is per supplier: the same bill number from the same PAN is refused. Record supplier credit days when a purchase is on credit.
 - Purchase returns are item-wise and vendor-wise, with a debit note.
 - Every expense and purchase needs a bill, including small cash expenses paid from the drawer. No bill, no payout. Cash expenses are recorded on a CV (cash voucher) with the bill number and, where the supplier has one, the PAN.
+- Owner, 2026-11-25 (replaces "no bill, no payout" for petty cash; not built yet): petty cash often has no bill. Every petty cash payout gets its own CV number (cash voucher, printed and signed); the bill number is optional and recorded when there is one.
 - Owner, 2026-11-24 (docs/specs/step2-suppliers.md): purchases of stock are entered only as purchase bills (the quick one-ingredient "Record purchase" is closed). One supplier record per PAN. A bill paid when bought is paid from the cash drawer (refused if that drawer day is closed), by cheque or by online transfer; cheque and online bills record which bank account paid (Nabil or HBL). Items not kept in stock stay on Expenses, with a bill number, until vouchers. The bill form's supplier dropdown fills in the PAN/VAT number and credit days, which can be edited on the bill.
 
 Vouchers and period lock

@@ -1,14 +1,17 @@
 // Payment modes and split-payment rules. Pure functions only (no database), so they can be unit tested.
 
 // Stored values. "nabil_qr" keeps its old stored value; only its label is "QR Payment".
-export const PAYMENT_MODES = ["cash", "nabil_qr", "card_nabil", "card_hbl", "credit"] as const;
+// card_nabil / card_hbl are LHC's own machines; card_sulimha_* are Sulimha Durbar's machines (Sulimha transfers the money to LHC later).
+export const PAYMENT_MODES = ["cash", "nabil_qr", "card_nabil", "card_hbl", "card_sulimha_nabil", "card_sulimha_hbl", "credit"] as const;
 export type PaymentMode = (typeof PAYMENT_MODES)[number];
 
 export const MODE_LABEL: Record<string, string> = {
   cash: "Cash",
   nabil_qr: "QR Payment",
-  card_nabil: "Card - Nabil POS",
-  card_hbl: "Card - HBL POS",
+  card_nabil: "Card - LHC Nabil POS",
+  card_hbl: "Card - LHC HBL POS",
+  card_sulimha_nabil: "Card - Sulimha Nabil POS",
+  card_sulimha_hbl: "Card - Sulimha HBL POS",
   credit: "Credit",
   // legacy values on old orders
   card: "Card",
@@ -23,15 +26,17 @@ export type Mode = "cash" | "qr" | "card" | "credit" | "other";
 export function modeOf(pm: string | null | undefined): Mode {
   if (pm === "cash") return "cash";
   if (pm === "nabil_qr" || pm === "qr") return "qr";
-  if (pm === "card" || pm === "esewa" || pm === "card_nabil" || pm === "card_hbl") return "card";
+  if (pm === "card" || pm === "esewa" || pm === "card_nabil" || pm === "card_hbl" || pm === "card_sulimha_nabil" || pm === "card_sulimha_hbl") return "card";
   if (pm === "credit") return "credit";
   return "other";
 }
 
-// Which card machine took the money: "nabil", "hbl", or "unknown" for legacy card/esewa.
-export function cardMachineOf(pm: string | null | undefined): "nabil" | "hbl" | "unknown" | null {
+// Which card machine took the money: LHC "nabil"/"hbl", Sulimha's "sulimha_nabil"/"sulimha_hbl", or "unknown" for legacy card/esewa.
+export function cardMachineOf(pm: string | null | undefined): "nabil" | "hbl" | "sulimha_nabil" | "sulimha_hbl" | "unknown" | null {
   if (pm === "card_nabil") return "nabil";
   if (pm === "card_hbl") return "hbl";
+  if (pm === "card_sulimha_nabil") return "sulimha_nabil";
+  if (pm === "card_sulimha_hbl") return "sulimha_hbl";
   if (pm === "card" || pm === "esewa") return "unknown";
   return null;
 }

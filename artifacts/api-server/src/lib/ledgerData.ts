@@ -68,12 +68,12 @@ export function ordersOnDay(orders: LedgerOrder[], day: string): LedgerOrder[] {
 
 export type CollectionRow = {
   day: string; orders: number;
-  cash: number; qr: number; card: number; cardNabil: number; cardHbl: number; cardUnknown: number; credit: number; other: number;
+  cash: number; qr: number; card: number; cardNabil: number; cardHbl: number; cardSulimhaNabil: number; cardSulimhaHbl: number; cardUnknown: number; credit: number; other: number;
   sales: number; receiptsCash: number; receiptsQr: number; receiptsBank: number; receipts: number; received: number; vat: number;
 };
 
 const emptyRow = (day: string): CollectionRow => ({
-  day, orders: 0, cash: 0, qr: 0, card: 0, cardNabil: 0, cardHbl: 0, cardUnknown: 0, credit: 0, other: 0,
+  day, orders: 0, cash: 0, qr: 0, card: 0, cardNabil: 0, cardHbl: 0, cardSulimhaNabil: 0, cardSulimhaHbl: 0, cardUnknown: 0, credit: 0, other: 0,
   sales: 0, receiptsCash: 0, receiptsQr: 0, receiptsBank: 0, receipts: 0, received: 0, vat: 0,
 });
 
@@ -91,7 +91,7 @@ export function collectionsByDay(orders: LedgerOrder[], receipts: LedgerReceipt[
       r[g] += p.amount;
       r.sales += p.amount;
       const m = cardMachineOf(p.mode);
-      if (m === "nabil") r.cardNabil += p.amount; else if (m === "hbl") r.cardHbl += p.amount; else if (m === "unknown") r.cardUnknown += p.amount;
+      if (m === "nabil") r.cardNabil += p.amount; else if (m === "hbl") r.cardHbl += p.amount; else if (m === "sulimha_nabil") r.cardSulimhaNabil += p.amount; else if (m === "sulimha_hbl") r.cardSulimhaHbl += p.amount; else if (m === "unknown") r.cardUnknown += p.amount;
     }
   }
   for (const rc of receipts) {
