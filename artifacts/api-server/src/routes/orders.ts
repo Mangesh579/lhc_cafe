@@ -10,7 +10,7 @@ import { hideCosts } from "../middlewares/hideCosts";
 import { expandRecipeLines } from "../lib/ingredientUsage";
 import { nextInvoiceNumber } from "../lib/fiscal";
 import { MONTHLY_RETIRED_MSG } from "../lib/monthlyRetired";
-import { validateSplit, partsFor, summaryMethod, creditAmountOf, round2, PAYMENT_MODES, MODE_LABEL } from "../lib/payments";
+import { validateSplit, partsFor, summaryMethod, creditAmountOf, round2, billDiscount, PAYMENT_MODES, MODE_LABEL } from "../lib/payments";
 import { allocatedByOrder, customerBalances, creditNotesByOrder, syncLoyaltyForOrder } from "../lib/receivables";
 import { creditLimitWarning, outstandingOf } from "../lib/receivableRules";
 
@@ -477,8 +477,8 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
 
 router.patch("/orders/:id/discount", authenticate, async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
-  const { discountPercent, comment } = req.body;
-  if (discountPercent === undefined) { res.status(400).json({ error: "discountPercent required" }); return; }
+  const { discountPercent, comment, rewardItemId } = req.body;
+  if (discountPercent === undefined && !rewardItemId) { res.status(400).json({ error: "discountPercent required" }); return; }
 
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) { res.status(404).json({ error: "Order not found" }); return; }
@@ -488,15 +488,27 @@ router.patch("/orders/:id/discount", authenticate, async (req, res): Promise<voi
     return;
   }
 
+  // Reward item (owner, 2026-11-26): one unit of an item on this bill, free as a loyalty reward
+  let reward: { name: string; price: number } | null = null;
+  if (rewardItemId) {
+    const [it] = await db.select({ price: orderItemsTable.unitPrice, name: menuItemsTable.name }).from(orderItemsTable)
+      .leftJoin(menuItemsTable, eq(menuItemsTable.id, orderItemsTable.menuItemId))
+      .where(and(eq(orderItemsTable.id, Number(rewardItemId)), eq(orderItemsTable.orderId, id)));
+    if (!it) { res.status(400).json({ error: "The reward item must be an item on this bill." }); return; }
+    reward = { name: it.name ?? "item", price: round2(parseFloat(String(it.price))) };
+  }
+  const pct = parseFloat(String(discountPercent ?? 0)) || 0;
   const base = parseFloat(String(order.totalAmount));
-  const discountAmount = base * (parseFloat(String(discountPercent)) / 100);
-  const newTotal = base - discountAmount;
-  const noteText = comment?.trim() ? `Staff discount: ${discountPercent}% — ${comment.trim()}` : `Staff discount: ${discountPercent}%`;
+  const d = billDiscount(base, pct, reward?.price ?? 0);
+  if ("error" in d) { res.status(400).json({ error: d.error }); return; }
+  const why = comment?.trim() ? ` — ${comment.trim()}` : "";
+  const noteText = [reward ? `Loyalty reward: 1 x ${reward.name} (Rs. ${reward.price.toFixed(2)})${why}` : null, pct > 0 ? `Staff discount: ${pct}%${reward ? "" : why}` : null].filter(Boolean).join(" | ");
 
   await db.update(ordersTable).set({
-    discountAmount: String(discountAmount),
-    totalAmount: String(newTotal),
-    notes: [order.notes, noteText].filter(Boolean).join(" | "),
+    // add to any discount already on the bill (e.g. from the POS), so the bill's total discount stays right
+    discountAmount: String(round2(parseFloat(String(order.discountAmount ?? 0)) + d.discount)),
+    totalAmount: String(d.total),
+    notes: [order.notes, noteText || null].filter(Boolean).join(" | "),
   }).where(eq(ordersTable.id, id));
 
   const result = await getOrderWithItems(id);

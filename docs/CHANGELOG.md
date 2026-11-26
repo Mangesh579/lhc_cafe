@@ -661,3 +661,30 @@ None.
 
 ### Open questions
 - A per-item reward (one free coffee on a bigger bill) still needs the discount % worked out by hand. A "reward item" button can be added if this is common.
+
+
+## 2026-11-26: Reward item button (loyalty reward)
+
+### Summary
+- Skills used: ponytail, tdd, backend-patterns, react-patterns.
+- Payment dialog (Orders): "Reward item (loyalty)" picks an item on the bill; one unit's price comes off the bill first, then any staff discount % on the rest. Never below Rs 0 (then "Settle Rs 0 bill"). Shown on screen, on the printed bill and the receipt preview; the order notes record "Loyalty reward: 1 x Latte (Rs. 150.00)" and the reason.
+- Fix found on the way: a discount at the payment step replaced any discount already on the bill (e.g. given at the POS) in orders.discount_amount, while the total kept both. It now adds to it.
+
+### Files
+- Changed: api-server src/lib/payments.ts (billDiscount), src/routes/orders.ts (discount route: rewardItemId, adds to the earlier discount), src/__tests__/payments.test.ts, src/__tests__/zeroBillNc.test.ts; lhc-cafe src/pages/orders.tsx; CLAUDE.md; docs/HANDOFF.md.
+
+### Tables
+- No schema change.
+
+### Migration
+None.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 28 files, 212 tests pass. New:
+  - payments (3): reward then staff % (450, 150 off, 10% = 270); reward bigger than the bill gives Rs 0; staff % outside 0-100 refused.
+  - zeroBillNc (2, real routes on PGlite): reward on a bill with Rs 10 already off gives 140 with total discount 160 and the note, an item from another bill refused, then paid by Nabil POS; a reward covering the whole bill settles as Rs 0 ('none').
+- Typecheck api-server, lhc-cafe, libs clean; both artifacts build.
+- Not run: the dialog or the print in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- One reward item per bill, one unit, at the price it was sold at.

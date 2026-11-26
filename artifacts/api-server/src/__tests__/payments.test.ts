@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateSplit, partsFor, summaryMethod, modeOf, cardMachineOf } from "../lib/payments";
+import { validateSplit, partsFor, summaryMethod, modeOf, cardMachineOf, billDiscount } from "../lib/payments";
 
 describe("payment modes", () => {
   it("keeps old stored values working", () => {
@@ -70,5 +70,21 @@ describe("a Rs 0 bill", () => {
   it("still refuses money entered against a Rs 0 bill, and Rs 0 parts on a real bill", () => {
     expect(validateSplit([{ mode: "cash", amount: 50 }], 0, { hasCustomer: false })).toHaveProperty("error");
     expect(validateSplit([{ mode: "cash", amount: 0 }], 100, { hasCustomer: false })).toHaveProperty("error");
+  });
+});
+
+// Owner, 2026-11-26: "Reward item" takes one unit of a chosen item off the bill (a loyalty reward), then any staff % on the rest.
+describe("bill discount with a reward item", () => {
+  it("takes the reward item's price off, then the staff % on what is left", () => {
+    expect(billDiscount(450, 0, 150)).toEqual({ discount: 150, total: 300 });
+    expect(billDiscount(450, 10, 150)).toEqual({ discount: 180, total: 270 });
+    expect(billDiscount(333.33, 10, 0)).toEqual({ discount: 33.33, total: 300 });
+  });
+  it("a reward bigger than the bill leaves Rs 0, never less", () => {
+    expect(billDiscount(120, 0, 150)).toEqual({ discount: 120, total: 0 });
+  });
+  it("refuses a staff % outside 0 to 100", () => {
+    expect(billDiscount(100, 101, 0)).toHaveProperty("error");
+    expect(billDiscount(100, -5, 0)).toHaveProperty("error");
   });
 });

@@ -46,6 +46,8 @@ export default function Orders() {
   const [ncOn, setNcOn] = useState(false);
   const [ncName, setNcName] = useState("");
   const [ncWhy, setNcWhy] = useState("");
+  // Reward item (loyalty reward): one unit of an item on the bill comes off before the staff % (owner, 2026-11-26)
+  const [rewardItemId, setRewardItemId] = useState<number | null>(null);
   const [billType, setBillType] = useState<"pan" | "vat">("pan");
   const [otherPartyName, setOtherPartyName] = useState("");
   const [otherPartyPan, setOtherPartyPan] = useState("");
@@ -121,7 +123,7 @@ export default function Orders() {
     setCreditInfo(null); setCreditQuery(""); setCreditResults([]);
     setDiscount("");
     setDiscountComment("");
-    setNcOn(false); setNcName(""); setNcWhy("");
+    setNcOn(false); setNcName(""); setNcWhy(""); setRewardItemId(null);
     setBillType("pan");
     setOtherPartyName("");
     setOtherPartyPan("");
@@ -165,11 +167,16 @@ export default function Orders() {
   };
 
   // The bill as it will be recorded: staff discount applied, VAT added for a VAT bill
+  const rewardPriceOf = (o: any, itemId: number | null) => {
+    const it = itemId ? o?.items?.find((i: any) => i.id === itemId) : null;
+    return it ? round2(parseFloat(String(it.unitPrice))) : 0;
+  };
   const computeBill = () => {
     const o = paymentModalOrder;
     const discountValue = parseFloat(discount) || 0;
     const base = parseFloat(String(o?.totalAmount ?? 0));
-    const alreadyDiscounted = base - base * (discountValue / 100);
+    const reward = Math.min(rewardPriceOf(o, rewardItemId), base);
+    const alreadyDiscounted = round2((base - reward) * (1 - discountValue / 100));
     if (billType !== "vat") return { discountValue, total: round2(alreadyDiscounted), vatAmount: undefined as number | undefined, finalTotal: undefined as number | undefined };
     const nonTaxable = Math.min(parseFloat(nonTaxableAmount) || 0, alreadyDiscounted);
     const vat = round2((alreadyDiscounted - nonTaxable) * 0.13);
@@ -247,11 +254,11 @@ export default function Orders() {
     }
     setPaying(true);
     try {
-      if (discountValue > 0) {
+      if (discountValue > 0 || rewardItemId) {
         const dr = await fetch(`${API_BASE}/api/orders/${paymentModalOrder.id}/discount`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
-          body: JSON.stringify({ discountPercent: discountValue, comment: discountComment }),
+          body: JSON.stringify({ discountPercent: discountValue, comment: discountComment, rewardItemId: rewardItemId ?? undefined }),
         });
         if (!dr.ok) { const d = await dr.json().catch(() => ({})); throw new Error(d?.error ?? "The discount was not saved."); }
       }
@@ -420,8 +427,10 @@ export default function Orders() {
     const existingDiscount = parseFloat(String(o.discountAmount ?? 0));
     const originalSubtotal = alreadyDiscounted + existingDiscount;
     const pct = parseFloat(discount) || 0;
-    const additionalDiscAmt = alreadyDiscounted * (pct / 100);
-    const final = alreadyDiscounted - additionalDiscAmt;
+    const rewardAmt = Math.min(rewardPriceOf(o, rewardItemId), alreadyDiscounted);
+    const rewardName = rewardAmt > 0 ? o.items?.find((i: any) => i.id === rewardItemId)?.menuItemName ?? "item" : "";
+    const additionalDiscAmt = round2((alreadyDiscounted - rewardAmt) * (pct / 100));
+    const final = round2(alreadyDiscounted - rewardAmt - additionalDiscAmt);
     const isVat = billType === "vat";
     const parts = paymentParts();
     const payLabel = computeBill().total < 0.005 ? "No payment (Rs 0)" : parts.length > 1
@@ -437,6 +446,7 @@ export default function Orders() {
       totals += row("Subtotal", `Rs. ${originalSubtotal.toFixed(0)}`);
       totals += row("Loyalty discount", `−Rs. ${existingDiscount.toFixed(0)}`, "color:#555;");
     }
+    if (rewardAmt > 0) totals += row(`Loyalty reward (1 x ${esc(rewardName)})`, `−Rs. ${rewardAmt.toFixed(0)}`, "color:#555;");
     if (additionalDiscAmt > 0) {
       totals += row(`Staff discount (${pct}%)`, `−Rs. ${additionalDiscAmt.toFixed(0)}`, "color:#555;");
       if (discountComment.trim()) {
@@ -824,8 +834,9 @@ export default function Orders() {
                 const existingDiscount = parseFloat(String((paymentModalOrder as any)?.discountAmount ?? 0));
                 const originalSubtotal = alreadyDiscounted + existingDiscount;
                 const pct = parseFloat(discount) || 0;
-                const additionalDiscAmt = alreadyDiscounted * (pct / 100);
-                const final = alreadyDiscounted - additionalDiscAmt;
+                const rewardAmt = Math.min(rewardPriceOf(paymentModalOrder, rewardItemId), alreadyDiscounted);
+                const additionalDiscAmt = round2((alreadyDiscounted - rewardAmt) * (pct / 100));
+                const final = round2(alreadyDiscounted - rewardAmt - additionalDiscAmt);
                 return (
                   <>
                     {existingDiscount > 0 && (
@@ -834,10 +845,13 @@ export default function Orders() {
                     {existingDiscount > 0 && (
                       <p className="text-sm text-blue-600 font-medium mb-1">Loyalty discount: −Rs. {existingDiscount.toFixed(0)}</p>
                     )}
-                    {additionalDiscAmt > 0 && (
+                    {(additionalDiscAmt > 0 || rewardAmt > 0) && (
                       <p className="text-sm line-through text-muted-foreground">Rs. {alreadyDiscounted.toFixed(0)}</p>
                     )}
                     <p className="text-4xl font-bold text-primary">Rs. {Number.isInteger(round2(final)) ? final.toFixed(0) : final.toFixed(2)}</p>
+                    {rewardAmt > 0 && (
+                      <p className="text-sm text-green-600 font-medium">Loyalty reward: −Rs. {rewardAmt.toFixed(0)}</p>
+                    )}
                     {additionalDiscAmt > 0 && (
                       <p className="text-sm text-green-600 font-medium">Staff discount: {pct}% (−Rs. {additionalDiscAmt.toFixed(0)})</p>
                     )}
@@ -867,13 +881,25 @@ export default function Orders() {
             </div>
 
             {!ncOn && <>
+            {(paymentModalOrder?.items?.length ?? 0) > 0 && (
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase">Reward item (loyalty)</Label>
+                <select className="h-9 rounded-md border border-input bg-background px-2 text-sm w-full" value={rewardItemId ?? ""}
+                  onChange={e => setRewardItemId(e.target.value ? Number(e.target.value) : null)}>
+                  <option value="">No reward</option>
+                  {paymentModalOrder!.items!.map((it: any) => <option key={it.id} value={it.id}>1 x {it.menuItemName}: free (Rs. {parseFloat(String(it.unitPrice)).toFixed(0)})</option>)}
+                </select>
+                {rewardItemId && <p className="text-xs text-muted-foreground">One unit comes off the bill as the customer's loyalty reward. Add the level in the reason below.</p>}
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label className="text-xs font-semibold text-muted-foreground uppercase">Additional Staff Discount %</Label>
               <div className="flex items-center gap-2">
                 <Input type="number" min="0" max="100" placeholder="0" value={discount} onChange={e => setDiscount(e.target.value)} className="h-9 w-24 text-center font-bold text-lg" />
                 <span className="text-muted-foreground text-sm">% off the total</span>
               </div>
-              {parseFloat(discount) > 0 && (
+              {(parseFloat(discount) > 0 || !!rewardItemId) && (
                 <Input placeholder="Reason (optional) — e.g. loyal customer, manager approved" value={discountComment} onChange={e => setDiscountComment(e.target.value)} className="h-8 text-sm" />
               )}
             </div>
@@ -1065,8 +1091,10 @@ export default function Orders() {
               const existingDiscount = parseFloat(String((paymentModalOrder as any).discountAmount ?? 0));
               const originalSubtotal = alreadyDiscounted + existingDiscount;
               const pct = parseFloat(discount) || 0;
-              const additionalDiscAmt = alreadyDiscounted * (pct / 100);
-              const final = alreadyDiscounted - additionalDiscAmt;
+              const rewardAmt = Math.min(rewardPriceOf(paymentModalOrder, rewardItemId), alreadyDiscounted);
+              const additionalDiscAmt = round2((alreadyDiscounted - rewardAmt) * (pct / 100));
+              const final = round2(alreadyDiscounted - rewardAmt - additionalDiscAmt);
+              const rewardRow = rewardAmt > 0 ? <div className="flex justify-between text-xs mb-1 text-gray-600"><span>Loyalty reward</span><span>−Rs. {rewardAmt.toFixed(0)}</span></div> : null;
 
               if (billType === "vat") {
                 const nonTaxable = Math.min(parseFloat(nonTaxableAmount) || 0, final);
@@ -1077,7 +1105,7 @@ export default function Orders() {
                   <>
                     {existingDiscount > 0 && <div className="flex justify-between text-xs mb-1"><span>Subtotal</span><span>Rs. {originalSubtotal.toFixed(0)}</span></div>}
                     {existingDiscount > 0 && <div className="flex justify-between text-xs mb-1 text-gray-600"><span>Loyalty discount</span><span>−Rs. {existingDiscount.toFixed(0)}</span></div>}
-                    {additionalDiscAmt > 0 && <div className="flex justify-between text-xs mb-1 text-gray-600"><span>Staff discount ({pct}%)</span><span>−Rs. {additionalDiscAmt.toFixed(0)}</span></div>}
+                    {rewardRow}{additionalDiscAmt > 0 && <div className="flex justify-between text-xs mb-1 text-gray-600"><span>Staff discount ({pct}%)</span><span>−Rs. {additionalDiscAmt.toFixed(0)}</span></div>}
                     <div className="border-t border-dashed border-gray-400 pt-2 mt-2 space-y-1">
                       {nonTaxable > 0 && <div className="flex justify-between text-xs"><span>Non-Taxable Sales</span><span>Rs. {nonTaxable.toFixed(2)}</span></div>}
                       <div className="flex justify-between text-xs"><span>Taxable Sales</span><span>Rs. {taxable.toFixed(2)}</span></div>
@@ -1092,7 +1120,7 @@ export default function Orders() {
                 <>
                   {existingDiscount > 0 && <div className="flex justify-between text-xs mb-1"><span>Subtotal</span><span>Rs. {originalSubtotal.toFixed(0)}</span></div>}
                   {existingDiscount > 0 && <div className="flex justify-between text-xs mb-1 text-gray-600"><span>Loyalty discount</span><span>−Rs. {existingDiscount.toFixed(0)}</span></div>}
-                  {additionalDiscAmt > 0 && <div className="flex justify-between text-xs mb-1 text-gray-600"><span>Staff discount ({pct}%)</span><span>−Rs. {additionalDiscAmt.toFixed(0)}</span></div>}
+                  {rewardRow}{additionalDiscAmt > 0 && <div className="flex justify-between text-xs mb-1 text-gray-600"><span>Staff discount ({pct}%)</span><span>−Rs. {additionalDiscAmt.toFixed(0)}</span></div>}
                   <div className="flex justify-between font-bold"><span>TOTAL</span><span>Rs. {final.toFixed(0)}</span></div>
                 </>
               );

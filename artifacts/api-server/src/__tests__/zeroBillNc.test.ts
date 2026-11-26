@@ -76,6 +76,31 @@ describe("a Rs 0 bill (100% discount)", () => {
   });
 });
 
+describe("reward item (loyalty reward)", () => {
+  it("takes one latte off, keeps an earlier discount, notes the reward, and refuses an item from another bill", async () => {
+    const id = await openBill();
+    await ctx.db.update(ordersTable).set({ totalAmount: "290", discountAmount: "10" }).where(eq(ordersTable.id, id)); // Rs 10 off at the POS
+    const [item] = await ctx.db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id));
+    const other = await openBill();
+    const [otherItem] = await ctx.db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, other));
+    expect((await api("PATCH", `/orders/${id}/discount`, { discountPercent: 0, rewardItemId: otherItem.id })).status).toBe(400);
+    const r = await api("PATCH", `/orders/${id}/discount`, { discountPercent: 0, rewardItemId: item.id, comment: "Level 2" });
+    expect(r.status).toBe(200);
+    const o = await order(id);
+    expect([o.totalAmount, o.discountAmount]).toEqual(["140.00", "160.00"]);
+    expect(o.notes).toMatch(/Loyalty reward: 1 x Latte \(Rs\. 150\.00\) — Level 2/);
+    expect((await api("PATCH", `/orders/${id}/payment`, { paymentStatus: "paid", payments: [{ mode: "card_nabil", amount: 140 }] })).status).toBe(200);
+  });
+
+  it("a reward that covers the whole bill leaves Rs 0, settled with no payment method", async () => {
+    const [o] = await ctx.db.insert(ordersTable).values({ totalAmount: "150", paymentMethod: "cash", paymentStatus: "pending", orderStatus: "served", createdBy: "staff" } as any).returning();
+    const [it1] = await ctx.db.insert(orderItemsTable).values({ orderId: o.id, menuItemId: latte, quantity: 1, unitPrice: "150", subtotal: "150", kotNumber: 1 }).returning();
+    await api("PATCH", `/orders/${o.id}/discount`, { discountPercent: 0, rewardItemId: it1.id });
+    expect((await api("PATCH", `/orders/${o.id}/payment`, { paymentStatus: "paid", payments: [] })).status).toBe(200);
+    expect((await order(o.id)).paymentMethod).toBe("none");
+  });
+});
+
 describe("complimentary (NC) at the payment step", () => {
   it("needs the person's name, then books the bill at ingredient cost with no money received", async () => {
     const id = await openBill();
