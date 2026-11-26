@@ -548,3 +548,9 @@ db/migrations/009_sulimha_card_machines.sql: NOT YET RUN on the server.
 
 ### Open questions
 - Step 3 posting needs an account for money owed by Sulimha Durbar (e.g. "Receivable - Sulimha Durbar"); the approved chart of accounts has none yet. Ask the accountant.
+
+
+## 2026-11-26: Migration 009 run
+
+- The owner ran db/migrations/009_sulimha_card_machines.sql on the server (after a backup) and deployed the four card machines (LHC Nabil/HBL POS, Sulimha Nabil/HBL POS). Recorded as run in CLAUDE.md and docs/HANDOFF.md.
+- Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
