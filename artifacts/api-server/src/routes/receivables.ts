@@ -339,6 +339,7 @@ router.post("/credit-notes", authenticate, async (req: AuthRequest, res: Respons
   if (!Number.isInteger(orderId) || orderId <= 0) { res.status(400).json({ error: "Choose the invoice." }); return; }
   if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
   if (date > today) { res.status(400).json({ error: "The note date cannot be in the future." }); return; }
+  if (!(await lockGuard(res, date, "This credit note"))) return;
   const user = req.user?.username ?? "user";
   try {
     const id = await db.transaction(async (tx) => {

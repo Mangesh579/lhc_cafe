@@ -1322,7 +1322,7 @@ None.
 - Waste: POST /waste (dated now: refused only inside a closed month); DELETE /waste/:id (the entry's Nepal day).
 - Ledger: POST /gl/journals (the JV's date); POST /gl/journals/:id/reverse (the reversal's date).
 - Not guarded, because they are always dated today:
-  - new credit notes, Cancel invoice and Wrong customer / Move to another room (credit notes dated today, re-issued invoice on its visit day as before);
+  - Cancel invoice and Wrong customer / Move to another room (credit notes dated today, re-issued invoice on its visit day as before). Corrected in (m) below: the item-wise POST /credit-notes takes a date and is now guarded;
   - paying a bill;
   - room-stay charges: breakfasts and extras are invoices made now;
   - receipt allocation (it does not change the ledger).
@@ -1385,3 +1385,40 @@ None.
 
 ## 2026-11-27 (l): Migration 015 recorded as run
 - The owner ran db/migrations/015_period_lock.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 3d entry above. Docs only; no code, no SQL, nothing to deploy.
+
+## 2026-11-27 (m): Two fixes to ledger 3d
+
+### Summary
+1. **Item-wise credit notes:** POST /credit-notes takes a note date, so it is now guarded ("This credit note"). A note dated in a locked day is refused; one dated today is accepted. The 3d entry wrongly said every credit note is dated today: only Cancel invoice and Move are.
+2. **Days before the ledger start:** once ledger_settings.opening_status is 'confirmed', every day before ledger_settings.start_date is locked.
+   - lockStatusOf returns them as not posted, locked: true, beforeStart: true.
+   - The message reads: "<what> is dated <day> (<BS>), which is before the ledger start (the opening balances are confirmed); enter it on today's date or ask the admin."
+   - The admin day reopen is refused for these days ("before the ledger start ... cannot be reopened"). The Post a day list starts at the start date, so it never offers one.
+   - The same guard covers every route listed in 3d, including POST /opening-bills: once the opening balances are confirmed, an opening bill dated before the start is refused.
+   - The start date itself is not locked by this rule.
+   - Before confirmation nothing changes: pre-start documents are still accepted.
+
+### Files
+- api-server:
+  - src/routes/receivables.ts;
+  - src/lib/periodLock.ts (beforeStart);
+  - src/lib/monthClose.ts (reopen refusal);
+  - new test src/__tests__/periodLockStart.test.ts;
+  - src/__tests__/glPosting3c.test.ts: the "existing row keeps its method" expense moved from 2026-12-10 to 2026-12-18, because a pre-start date is now locked after confirmation.
+- Docs: docs/CHANGELOG.md.
+
+### Tables and migration
+None.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 42 files, 386 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- New, periodLockStart (6):
+  - before confirmation, a November opening bill is accepted;
+  - after confirmation, a purchase bill, an opening bill, a receipt, an expense and a drawer movement dated in November are refused with the before-start message;
+  - the start date is not locked;
+  - the admin cannot reopen a November day;
+  - an item-wise note dated on a locked day is refused, and one dated today is accepted.
+- Not run: the screens in a browser; anything against production.

@@ -193,7 +193,7 @@ describe("expenses: cash only from the drawer (2026-11-27)", () => {
     const ok = await api("POST", "/expenses", { ...base, paymentMethod: "cheque", bankAccount: "nabil" });
     expect(ok.status).toBe(201);
     expect((await api("PATCH", `/expenses/${ok.body.id}`, { paymentMethod: "cash" })).body.error).toMatch(/paid from the drawer/);
-    const [old] = await ctx.db.insert(expensesTable).values({ expenseDate: "2026-12-10", type: "indirect", category: "Laundry", amount: "100", paymentMethod: "cash", paidFromDrawer: false, createdBy: "x" } as any).returning();
+    const [old] = await ctx.db.insert(expensesTable).values({ expenseDate: "2026-12-18", type: "indirect", category: "Laundry", amount: "100", paymentMethod: "cash", paidFromDrawer: false, createdBy: "x" } as any).returning();
     expect((await api("PATCH", `/expenses/${old.id}`, { paymentMethod: "cash", description: "old row, same method" })).status).toBe(200);
   });
 });
