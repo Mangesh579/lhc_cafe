@@ -24,7 +24,7 @@ function allowed(req: AuthRequest, res: Response): boolean {
   return true;
 }
 
-async function computeDay(day: string) {
+export async function computeDay(day: string) {
   const [row] = await db.select().from(cashDaysTable).where(eq(cashDaysTable.day, day));
   const [prev] = await db.select().from(cashDaysTable)
     .where(and(lt(cashDaysTable.day, day), eq(cashDaysTable.status, "closed")))

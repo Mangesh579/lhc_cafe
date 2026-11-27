@@ -1135,3 +1135,74 @@ None.
     - no journal entry or posting day is written;
     - POST on that day is still refused.
 - Not run: the preview in a browser; anything against production.
+
+
+## 2026-11-27: Ledger part 3c, purchases, payments, expenses, the drawer and consumption
+
+### Summary
+- Skills used: ponytail, tdd, backend-patterns, database-migrations, react-patterns.
+- **No migration:** every field needed already exists.
+- **Posting rules (lib/postingRules.ts, pure):**
+  - **purchase bills (PB):** 1400 kitchen / 1410 drink lines at line total (VAT in cost), against 2100 with the supplier, 1100 (drawer) or 1200/1210 (cheque or online). A cheque or online bill with no bank is a must-fix; opening bills are not posted.
+  - **supplier payments (SP):** 2100 with the supplier against 1100 or the bank; an advance takes the supplier below zero.
+  - **debit notes (DJ):** 2100 against 1400/1410.
+  - **expenses (EX):** through expense_account_map, against 1100 or 1200/1210 by the bank. Card or QR, a missing bank or an unmapped category is a must-fix. Petty cash with no bill is flagged "no bill" (acknowledge).
+  - **cash movements (CM):** deposit 1200/1210, owner draw 3100, other in/out to its account.
+  - **drawer close (CC):** short Dr 7050, over Cr 7050.
+  - **consumption (CO), one per day:**
+    - Dr 5000/5010 by category kind from the sold items' cost snapshots;
+    - Dr 5200 for NC; Dr 5100 for Waste Log entries (value, or quantity x cost);
+    - against 1400/1410 by the recipe's ingredient departments;
+    - not-served cancels reverse their consumption;
+    - items with no recipe cost flagged (acknowledge) with the sales they carry.
+- **Review (lib/glPosting.ts):**
+  - **Skipped rows:** expense rows of purchase bills, debit notes, the old Record purchase and settlement bank charges are never posted.
+  - **Late changes:** every new type is reversed, re-posted at the next revision, or posted late. A day's consumption is rebuilt when its sales change, and a late sale on a day with no consumption entry adds one.
+  - **New checks:**
+    - cash: the day's 1100 movement against the Cash Drawer's expected change; the 1100 balance at the close against the count;
+    - payables: total and each supplier, against credit bills less payments and debit notes as at the day;
+    - stock: 1400/1410 against stock x cost now, information only.
+- **Fix found by the tests:** a posted document's acknowledged problem (for example "no bill") came back on every later day's review. It now comes back only if the document's entry changes.
+- **Screen:** information-only reconciliation rows show "ℹ" and never red.
+
+### Files
+- New: api-server src/__tests__/postingRules3c.test.ts, src/__tests__/glPosting3c.test.ts.
+- Changed: api-server src/lib/postingRules.ts, src/lib/glPosting.ts, src/routes/cash.ts (computeDay exported), src/__tests__/glPosting.test.ts (the "no recipe cost" acknowledgement); lhc-cafe src/components/PostDay.tsx; CLAUDE.md; docs/HANDOFF.md; docs/specs/step3-ledger.md.
+
+### Tables
+- None changed.
+
+### Migration
+None.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 38 files, 303 tests pass; typecheck api-server, lhc-cafe and libs clean; both artifacts build.
+- New:
+  - postingRules3c (11):
+    - a credit bill with kitchen and drink lines;
+    - drawer-paid and HBL cheque bills; a bill with no bank;
+    - payments from the drawer and online; a payment with no bank;
+    - a debit note;
+    - petty cash with a bill, and with no bill (flagged);
+    - cheque from HBL; card, a missing bank and an unmapped category refused;
+    - a deposit, an owner draw, other in and out; a deposit with no bank;
+    - a short and an over (and none at 0);
+    - the full consumption entry (sold, NC, put back, waste, the no-cost flag) and an empty day.
+  - glPosting3c (9, real routes on PGlite with 013 and 014), one worked day on 16 Dec:
+    - three bills (credit, drawer, HBL cheque);
+    - a payment with a Rs 500 advance and a debit note;
+    - three expenses, the purchase expense row never posted;
+    - "no bill" flagged on one petty cash only;
+    - a deposit, an owner draw, a Rs 120 short;
+    - consumption 5000 120 / 5010 40 / 5200 120 / 5100 40 against 1400 280 / 1410 40;
+    - cash movement -4,150 = the drawer, cash at the close 1,730 = the count, payables -600 = Suppliers, sales 650; stock marked information;
+    - 13 entries posted, the trial balance balanced.
+  - On 17 Dec: a Rs 35 over, cash at the close 1,765 = the count, the 16th's acknowledged problem not raised again.
+  - On 18 Dec: a supplier payment voided after posting is reversed.
+- Not run: the review screen in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- **Consumption's stock credit:** split between 1400 and 1410 by today's recipe cost of each menu item (the amount is the sale's snapshot). The confirmed answer credits inventory by ingredient department, and the snapshot has no per-ingredient split.
+- **Cash expenses:** an expense paid in cash but not from the drawer also credits 1100 Cash on Hand.
+- **Waste:** Waste Log entries for equipment are not posted (equipment is not stock).
+- **Journal series:** purchases (PB), supplier payments (SP), debit notes (DJ), expenses (EX), cash movements (CM), drawer close (CC) and consumption (CO). The PJ, CV, PV and DN document numbers are untouched.

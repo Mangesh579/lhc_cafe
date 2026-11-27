@@ -89,6 +89,15 @@
   - **Other cash in/out:** needs its account (4200, 7100, 3000, 3100).
   - Migration 014 run (recorded 2026-11-27).
 
+29. Ledger part 3c, 2026-11-27 (docs/specs/step3-ledger.md section 16). The Post a day review now also posts:
+  - purchase bills to stock (1400/1410) against 2100, the drawer or the bank;
+  - supplier payments (advances included) and debit notes against 2100 with the supplier;
+  - expenses through the expense map (petty cash flagged "no bill" when it has none; purchase, debit-note, Record-purchase and settlement-charge rows never posted);
+  - deposits, owner draws, other cash in/out, the short or over at the drawer close;
+  - one consumption entry a day (sold items' cost snapshots to 5000/5010, NC to 5200, waste to 5100, the not-served stock put back, against 1400/1410 by ingredient department).
+
+  New checks: cash (the day's movement against the drawer's expected change, and the balance at the close against the count) and payables (each supplier). Stock is shown for information only. No migration.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -140,7 +149,7 @@
 - **API docs:** the OpenAPI spec and generated client still list only cash and nabil_qr as payment methods.
 
 # Next work
-Roadmap step 3: plan approved (docs/specs/step3-ledger.md, answers in its section 13). Parts 3a and 3b are built (items 27, 28). Next is part 3c: purchases, supplier payments, debit notes, expenses and petty cash through the expense map, drawer movements and short/over, daily consumption, NC, waste, the not-served cost back, and the cash, payables and stock checks. Then 3d (lock and month close). For the posting:
+Roadmap step 3: plan approved (docs/specs/step3-ledger.md, answers in its section 13). Parts 3a, 3b and 3c are built (items 27, 28, 29). Next is part 3d: the automatic lock of a posted day after N days, refusing new or backdated documents in a locked day, admin reopen with a reason, the Nepali month close and its trial balance. For the posting:
 - ask the accountant for the Sulimha Durbar receivable account;
 - follow the posting rules in docs/specs/step2-suppliers.md section 13 and docs/specs/room-stays.md section 5;
 - credit notes post to 4900 Sales returns.
@@ -152,4 +161,5 @@ Then steps 4 to 9. Each task ends with a docs/CHANGELOG.md entry.
   - Accountant JVs cannot be dated before the start date (16 Dec 2026), so none can be posted until then (except after the admin moves the start date).
 - Ledger (3b):
   - The receivables check compares every customer as at the day; the machine check counts unsettled sales from the settlement start date. Both differ until the opening balances include them, so the accountant should type the unsettled machine amounts at the start date.
-  - 3b posts no inventory or cost lines (consumption, NC and the not-served cost back come in 3c).
+  - Consumption (3c) credits stock by today's recipe split between kitchen and drink (the cost amount itself is the sale's snapshot). A late NC bill on a day already posted with no consumption entry is not picked up (only late sales add a consumption entry).
+  - The stock check compares with stock x cost per unit now, not as at the day; it is information only.

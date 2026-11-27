@@ -98,7 +98,7 @@ describe("the review screen", () => {
     expect((await api("admin", "POST", "/gl/opening/confirm")).status).toBe(200);
     const r = await review("2026-12-16");
     expect(r.problems.filter((p: any) => p.level === "fix")).toEqual([]);
-    expect(r.problems.map((p: any) => p.code)).toEqual(["drawer_open"]);
+    expect(r.problems.map((p: any) => p.code)).toEqual(["no_recipe_cost", "drawer_open"]); // 3c: these test items have no recipe cost
     expect(r.canPost).toBe(true);
     expect(r.entries.map((e: any) => [e.voucherType, e.sourceType, e.sourceRef])).toEqual([["SJ", "order", "2083/84-01"], ["SJ", "order", "2083/84-02"], ["SJ", "order", "2083/84-03"], ["SJ", "order", "2083/84-04"], ["RJ", "receipt", "RV-1"]]);
     expect(r.entries[0].lines.map((l: any) => [l.accountCode, l.debit, l.credit])).toEqual([["1100", 650, 0], ["4000", 0, 400], ["4010", 0, 250]]);

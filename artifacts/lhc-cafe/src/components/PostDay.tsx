@@ -85,7 +85,7 @@ export function PostDayTab() {
           {r.reconciliation?.length > 0 && (
             <Card><CardContent className="p-0"><table className="w-full text-sm">
               <thead className="text-xs text-muted-foreground bg-muted/40"><tr><th className="px-3 py-2 text-left">Reconciliation</th><th className="px-3 py-2 text-right">Ledger</th><th className="px-3 py-2 text-right">Screens</th><th className="px-3 py-2 text-right">Difference</th></tr></thead>
-              <tbody className="divide-y">{r.reconciliation.map((x: any) => <tr key={x.check}><td className="px-3 py-1.5">{x.ok ? "✔" : "✖"} {x.check}<span className="block text-xs text-muted-foreground">{x.note}</span></td><td className="px-3 py-1.5 text-right">{rs(x.ledger)}</td><td className="px-3 py-1.5 text-right">{rs(x.operational)}</td><td className={`px-3 py-1.5 text-right ${x.ok ? "" : "text-red-600 font-medium"}`}>{x.ok ? "" : rs(x.difference)}</td></tr>)}</tbody>
+              <tbody className="divide-y">{r.reconciliation.map((x: any) => <tr key={x.check}><td className="px-3 py-1.5">{x.info ? "ℹ" : x.ok ? "✔" : "✖"} {x.check}<span className="block text-xs text-muted-foreground">{x.note}</span></td><td className="px-3 py-1.5 text-right">{rs(x.ledger)}</td><td className="px-3 py-1.5 text-right">{rs(x.operational)}</td><td className={`px-3 py-1.5 text-right ${x.ok || x.info ? "text-muted-foreground" : "text-red-600 font-medium"}`}>{x.ok ? "" : rs(x.difference)}</td></tr>)}</tbody>
             </table></CardContent></Card>
           )}
 
