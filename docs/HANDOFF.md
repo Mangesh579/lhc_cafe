@@ -50,7 +50,7 @@
   - **Menu items** have a Breakfast tick box.
   - **No points** on stay bills.
   - **Closing with unpaid extras** is admin only with a reason; the extras are re-issued to Sulimha (the Wrong customer logic, now the shared reissueInvoice).
-  - Needs migration 012 (below).
+  - Migration 012 run by the owner (recorded 2026-11-27).
 
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
@@ -64,9 +64,10 @@
 - 009_sulimha_card_machines.sql (2026-11-26, by the owner): order_payments mode check with card_sulimha_nabil / card_sulimha_hbl; settlement_machines.collected_by; LHC machines relabelled; Sulimha machines added.
 - 010_credit_note_kinds.sql (2026-11-26, by the owner): credit_notes.kind, stock_restored, reissued_order_id.
 - 011_petty_cash_cv.sql (2026-11-26, by the owner): expenses.voucher_no with a unique index.
+- 012_room_stays.sql (recorded 2026-11-27, by the owner): cafe_tables.is_room, room_stays, hotel_settings, orders.room_stay_id, stay_charge and breakfast_count, menu_items.is_breakfast, loyalty_customers.email optional, card modes on customer_receipts.
 
 # Not yet applied on the server
-- 012_room_stays.sql (written 2026-11-26): cafe_tables.is_room (tables named 103 ... 402), room_stays, hotel_settings (Rs 800), orders.room_stay_id, stay_charge and breakfast_count, menu_items.is_breakfast, loyalty_customers.email optional, card modes on customer_receipts. Run before deploying item 24.
+- None.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
