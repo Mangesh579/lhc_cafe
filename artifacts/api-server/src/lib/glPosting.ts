@@ -4,7 +4,7 @@ import {
   db, ordersTable, orderItemsTable, menuItemsTable, menuCategoriesTable, creditNotesTable, customerReceiptsTable, settlementsTable,
   settlementSettingsTable, journalEntriesTable, journalLinesTable, postingDaysTable, periodClosesTable, cashDaysTable,
   purchaseBillsTable, purchaseBillItemsTable, supplierPaymentsTable, debitNotesTable, debitNoteItemsTable, expensesTable, expenseAccountMapTable,
-  cashMovementsTable, wasteLogsTable, inventoryItemsTable, creditNoteItemsTable,
+  cashMovementsTable, wasteLogsTable, inventoryItemsTable, creditNoteItemsTable, inventoryLogsTable,
 } from "@workspace/db";
 import { and, eq, gte, lte, lt, inArray, sql, asc } from "drizzle-orm";
 import { dayRangeUtc, addDays, nepalDay, paidOrdersBetween, paymentRowsFor, receiptsBetween, creditNotesBetween, reissuedOrderIds, collectionsByDay } from "./ledgerData";
@@ -12,7 +12,7 @@ import { partsFor, round2 } from "./payments";
 import { salesByMachineDay } from "./settlementRules";
 import { creditInvoices } from "./receivables";
 import { saleEntry, creditNoteEntry, receiptEntry, settlementEntry, sameLines, MACHINE_ACCOUNT, type Draft, type Problem, type Line, type SaleSource,
-  purchaseBillEntry, supplierPaymentEntry, debitNoteEntry, expenseEntry, cashMovementEntry, cashCloseEntry, consumptionEntry, dayKey, type Built } from "./postingRules";
+  purchaseBillEntry, supplierPaymentEntry, debitNoteEntry, expenseEntry, cashMovementEntry, cashCloseEntry, consumptionEntry, stockAdjustmentEntry, dayKey, type Built } from "./postingRules";
 import { menuItemCosting } from "./costing";
 import { computeDay } from "../routes/cash";
 import { ledgerSettings, postEntry, reverseEntry, LedgerError } from "./ledger";
@@ -21,7 +21,7 @@ import { bsLabel } from "./fiscal";
 
 import { lockOnDay } from "./periodLock";
 const num = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
-type SourceType = "order" | "credit_note" | "receipt" | "settlement" | "purchase_bill" | "supplier_payment" | "debit_note" | "expense" | "cash_movement" | "cash_close" | "consumption";
+type SourceType = "order" | "credit_note" | "receipt" | "settlement" | "purchase_bill" | "supplier_payment" | "debit_note" | "expense" | "cash_movement" | "cash_close" | "consumption" | "stock_adjustment";
 const keyDay = (k: number) => `${String(k).slice(0, 4)}-${String(k).slice(4, 6)}-${String(k).slice(6, 8)}`;
 export type LateItem = { action: "reverse" | "repost" | "add"; sourceType: string; sourceId: number; sourceRef: string | null; entryId?: number; entryNo?: string; oldLines?: Line[]; draft?: Draft; reason: string };
 
@@ -106,6 +106,18 @@ async function movementSources(where: any) {
 async function closeSources(where: any) {
   return (await db.select().from(cashDaysTable).where(where)).map(c => ({ id: dayKey(c.day), day: c.day, postable: c.status === "closed",
     built: cashCloseEntry({ day: c.day, difference: c.status === "closed" ? num(c.difference) : 0 }) }));
+}
+
+// Step 3e: hand changes to stock (Stock Log kind 'adjustment'), each on the Nepal day it was made
+async function adjustmentSources(where: any) {
+  const rows = await db.select({ l: inventoryLogsTable, name: inventoryItemsTable.name, dept: inventoryItemsTable.department, unit: inventoryItemsTable.unit })
+    .from(inventoryLogsTable).leftJoin(inventoryItemsTable, eq(inventoryItemsTable.id, inventoryLogsTable.inventoryItemId))
+    .where(and(eq(inventoryLogsTable.kind, "adjustment"), where));
+  return rows.map(r => {
+    const day = nepalDay(new Date(r.l.createdAt));
+    return { id: r.l.id, day, postable: true, built: stockAdjustmentEntry({ logId: r.l.id, day, itemName: r.name ?? `ingredient #${r.l.inventoryItemId}`, department: r.dept ?? null, unit: r.unit ?? null,
+      change: num(r.l.changeAmount), unitCost: r.l.unitCost == null ? null : num(r.l.unitCost), reason: r.l.reason }) };
+  });
 }
 
 // Kitchen share of a menu item's ingredient cost, from its recipe and each ingredient's department (null when unknown)
@@ -202,6 +214,7 @@ async function docs3c(fromDay: string, toDay: string, onlyUnposted: boolean) {
   const noCloseInForce = onlyUnposted ? sql`NOT EXISTS (SELECT 1 FROM journal_entries je WHERE je.source_type = 'cash_close' AND je.source_id = ${closeKey} AND je.kind = 'post'
     AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reverses_entry_id = je.id))` : sql`true`;
   for (const c of await closeSources(and(eq(cashDaysTable.status, "closed"), gte(cashDaysTable.day, fromDay), lte(cashDaysTable.day, toDay), noCloseInForce))) out.push({ type: "cash_close", ...c });
+  for (const a of await adjustmentSources(and(gte(inventoryLogsTable.createdAt, dayRangeUtc(fromDay).from), lte(inventoryLogsTable.createdAt, dayRangeUtc(toDay).to), ne("stock_adjustment", inventoryLogsTable.id)))) out.push({ type: "stock_adjustment", ...a });
   return out;
 }
 
@@ -341,7 +354,8 @@ export async function reviewDay(day: string, opts_: { preview?: boolean } = {}) 
   const late: LateItem[] = [];
   if (day > settings.startDate) {
     const posted = await inForceEntries(day);
-    const keys = [...posted.keys()].map(k => { const [type, id] = k.split(":"); return { type, id: Number(id) }; });
+    // a Stock Log row never changes once written, so a posted stock adjustment is not re-checked (late ones are added below)
+    const keys = [...posted.keys()].map(k => { const [type, id] = k.split(":"); return { type, id: Number(id) }; }).filter(k => k.type !== "stock_adjustment");
     const now = await currentOf(keys, opts);
     for (const k of keys) {
       const e = posted.get(`${k.type}:${k.id}`)!, cur = now.get(`${k.type}:${k.id}`);
@@ -412,8 +426,10 @@ export async function reviewDay(day: string, opts_: { preview?: boolean } = {}) 
   const stLedger = add(await ledgerNet(["1400", "1410"], day), pendingNet(allLines, ["1400", "1410"]));
   const stNow = { kitchen: 0, drink: 0 };
   for (const i of await db.select().from(inventoryItemsTable)) if (num(i.currentStock) > 0 && i.costPerUnit != null) stNow[i.department === "drink" ? "drink" : "kitchen"] += num(i.currentStock) * num(i.costPerUnit);
-  push("Stock, kitchen (1400), information only", stLedger.get("1400") ?? 0, stNow.kitchen, "Stock x cost per unit now (differences: stock counts and cost changes)");
-  push("Stock, drinks (1410), information only", stLedger.get("1410") ?? 0, stNow.drink, "Stock x cost per unit now");
+  // stock counts and hand changes now post (3e); what is left: cost changes, uncosted sales or waste, adjustments with no cost
+  const STOCK_NOTE = "Stock x cost per unit now. Stock changes made by hand are posted (5150); a difference left comes from cost-per-unit changes since the stock was bought, sales or waste with no cost, adjustments with no cost, or days not posted yet";
+  push("Stock, kitchen (1400), information only", stLedger.get("1400") ?? 0, stNow.kitchen, STOCK_NOTE);
+  push("Stock, drinks (1410), information only", stLedger.get("1410") ?? 0, stNow.drink, STOCK_NOTE);
   for (const x of recon) if (x.check.includes("information only")) (x as any).info = true;
   for (const r of recon.filter(x => !(x as any).info)) if (!r.ok) problems.push({ level: "ack", code: "reconciliation", message: `${r.check}: ledger Rs. ${r.ledger.toFixed(2)}, ${r.note ?? "operational"} Rs. ${r.operational.toFixed(2)} (difference Rs. ${r.difference.toFixed(2)}).` });
 

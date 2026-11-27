@@ -1433,3 +1433,62 @@ None.
   - build parts 4a, 4b and 4c with their tests.
 - Proposed migration 016_report_indexes.sql (indexes only) for 4a; not written yet.
 - Open: the "Aegis-style" comparison format is not described anywhere; the accountant is asked for a sample (question 9.8).
+
+## 2026-11-27 (o): Ledger part 3e, stock adjustments post to 5150
+
+### Summary
+- **What counts as an adjustment:** a stock change made by hand is now marked on the Stock Log (inventory_logs.kind = 'adjustment'), with the ingredient's cost per unit at that moment (inventory_logs.unit_cost). The four places:
+  - POST /inventory/:id/adjust by the admin;
+  - the admin's approval of an adjustment request (POST /inventory/requests/:id/approve);
+  - the admin's direct stock edit in PATCH /inventory/:id;
+  - the "Initial stock" log when an ingredient is created with stock above 0.
+- **Every other log stays kind null:** orders, purchases, debit notes, waste, cancels and an ingredient created at 0. Their own documents post them.
+- **Posting:** one entry per adjustment, source_type 'stock_adjustment', source_id = the log id, voucher type SA, dated on the log's Nepal day.
+  - An increase is Dr 1400 (kitchen) or 1410 (drink), by the ingredient's department, Cr 5150. A decrease is Dr 5150, Cr 1400/1410.
+  - The amount is |change| x unit_cost.
+- **No cost:** a log with no cost (unit_cost null or 0) is an acknowledge-level problem, "Stock adjustment #<id>: adjustment of <item> (<+/-change unit>) with no cost, not posted."
+- **Where it appears:** in the day review, the totals, the unposted-sources scan (a late log is added on the next posted day) and the late-change check.
+  - A Stock Log row never changes once written, so a posted adjustment is never re-checked, only added.
+  - Logs before the ledger start are never posted: the review and the scan start at the start date.
+- **Stock check:** 1400/1410 against stock x cost stays information only. Its note now says what is left to explain: cost-per-unit changes since the stock was bought, sales or waste with no cost, adjustments with no cost, and days not posted yet.
+- **Step 4 plan:** stock_adjustment added to the drill-down list (Inventory > Stock Log) and SA to the Day Book voucher types. The report indexes planned as migration 016 are now 017_report_indexes.sql.
+
+### Files
+- New: db/migrations/016_stock_adjustments.sql; api-server src/__tests__/stockAdjustments.test.ts.
+- Changed:
+  - lib/db: src/schema/inventory.ts (kind, unitCost);
+  - api-server: src/routes/inventory.ts (the four hand changes); src/lib/postingRules.ts (stockAdjustmentEntry, STOCK_ADJUSTMENT); src/lib/glPosting.ts (adjustment sources in the review, the scan and the totals; the posted ones skipped in the late check; the stock note);
+  - Docs: CLAUDE.md, docs/HANDOFF.md, docs/specs/step3-ledger.md (section 18), docs/specs/step4-reports.md (drill-down, SA, 017).
+
+### Tables
+- inventory_logs: + kind (text, null or 'adjustment', with a check); + unit_cost (numeric(12,4)); a partial index on created_at where kind = 'adjustment'.
+- No existing row changed: older logs stay kind null and never post.
+
+### Migration
+- db/migrations/016_stock_adjustments.sql. NOT run on the server yet. Idempotent (tested twice on PGlite). Run it after a backup and before deploy.sh: the new code writes the new columns, so the API must not be deployed before it.
+
+### Decisions
+- The direct edit snapshots the cost after the same request's change, so an edit that sets both the stock and a new cost values the change at the new cost.
+- An adjustment that rounds to under Rs 0.01 posts nothing and raises nothing.
+- An ingredient with no department recorded is treated as kitchen (1400).
+- The hand changes are dated now, so they never meet the day lock. Only a closed month could lock today, and that cannot happen while the month is running.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 43 files, 398 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- New, stockAdjustments (12), through the real routes on 16 Dec 2026:
+  - the Stock Log kinds and costs;
+  - a new ingredient with starting stock (Dr 1400 200 / Cr 5150);
+  - an increase on a drink (Dr 1410 500);
+  - a decrease (Dr 5150 40);
+  - a head chef's request approved by the admin (Dr 5150 20);
+  - a direct edit (Dr 1400 40);
+  - an ingredient with no cost (the ack with "+3 kg");
+  - a pre-start log never in the review or the journal;
+  - the day balances with 5150 at Dr 60 / Cr 740;
+  - posting gives five SA entries, and nothing again the next day;
+  - the rule's zero-cost and rounding cases;
+  - migration 016 runs twice.
+- Not run: the screens in a browser; anything against production.

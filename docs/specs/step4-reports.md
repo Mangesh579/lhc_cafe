@@ -1,7 +1,7 @@
 # Step 4: reports from the ledger (plan, not built)
 
 Written for: the owner and the accountant, to review and answer section 9 before anything is built, and for whoever builds it.
-Status: draft of 2026-11-27. Builds on step 3 (docs/specs/step3-ledger.md: the journal, next-day posting, the lock and month close).
+Status: approved 2026-11-27 (the owner accepted all 15 answers of section 9 as recommended; question 8 answered with the recommended comparison layout). Builds on step 3 (docs/specs/step3-ledger.md: the journal, next-day posting, the lock and month close).
 
 ## 1. What step 4 adds, in one paragraph
 The ledger now holds every posted voucher (sales, credit notes, receipts, settlements, purchases, supplier payments, debit notes, expenses, drawer movements, the drawer close, daily consumption, journal vouchers and the opening entry). Step 4 reads it and nothing else. It adds:
@@ -60,6 +60,7 @@ Each report has an Excel and a PDF export, with BS dates and Nepali number group
 | expense | Expenses, that row (with its CV) |
 | cash_movement, cash_close | Cash Drawer, that day |
 | consumption | a new read-only "Consumption of <day>" view, built from the entry's lines and memos |
+| stock_adjustment | Inventory > Stock Log, that row (step 3e, voucher SA) |
 | opening | Chart of Accounts > Opening balances |
 | (none: manual JV) | Chart of Accounts > Journals, that JV |
 
@@ -80,7 +81,7 @@ Each report has an Excel and a PDF export, with BS dates and Nepali number group
   - its lines (account, customer or supplier, memo, debit, credit).
 - **Day totals and period totals** (debit = credit).
 - **Filters:**
-  - voucher type: SJ sales, RJ receipts, ST settlements, PB purchases, SP supplier payments, CV, DJ debit notes, EX expenses, CM cash movements, CC drawer close, CO consumption, JV, OPEN;
+  - voucher type: SJ sales, RJ receipts, ST settlements, PB purchases, SP supplier payments, CV, DJ debit notes, EX expenses, CM cash movements, CC drawer close, CO consumption, SA stock adjustments, JV, OPEN;
   - kind: posted, reversal, correction, late, manual;
   - an account;
   - a customer or supplier;
@@ -203,10 +204,16 @@ Total liabilities and equity       = Total assets (checked; a red line if not)
 - **Endpoints:** GET /reports/customers/:id/statement?from&to, GET /reports/suppliers/:id/statement?from&to, GET /reports/customers?from&to, GET /reports/suppliers?from&to.
 
 ### 4.8 Comparison (this month against last month)
-- **What:** the P&L and the Balance Sheet side by side for two periods. Columns: this period, the previous period, change in rupees, change in %.
+- **What:** the P&L and the Balance Sheet side by side for two periods (owner, 2026-11-27: the recommended layout).
+  - **P&L columns:** this month, % of net sales, last month, % of net sales, change in rupees, change in %, fiscal year to date, % of net sales. From the second fiscal year (Poush 2084) add the same month last year and the same fiscal year to date last year.
+  - **Variance colour:** by good or bad, not up or down (income up is good, expense up is bad). A line is highlighted only when its change is above the percentage threshold (20%) AND above the minimum amount (Rs 1,000). Both are settings.
+  - **Key ratios block under the P&L:** gross profit %, food cost % (5000 / 4000), beverage cost % (5010 / 4010), salaries as % of net sales (6000), prime cost % ((cost of sales + 6000) / net sales).
+  - **Balance Sheet columns:** at this month end, at last month end, change in rupees, and at the start of the fiscal year.
+  - **Config-driven:** the columns come from one config in lib/reportLayout.ts, so a different layout (for example an Aegis sample) is a config change.
+  - **Not built now:** a budget and "variance to budget" (a later feature).
 - **Default:** this BS month against last BS month; for the Balance Sheet, the end of each month.
 - **Other choices:** this fiscal year to date against the same days of the previous fiscal year. Before FY 2084/85 there is no earlier year, so that column is empty and says why.
-- **The format:** the brief asks for the "4-year-old Aegis-style comparison". That format is not described anywhere in the repo (question 9.8). Until the accountant gives a sample, the plan builds the layout above. A change % above a threshold, 20% by default (a setting), is highlighted.
+- **The format:** the brief asks for the "4-year-old Aegis-style comparison". That format is not documented anywhere, so the owner approved the layout above as the answer to question 9.8 (2026-11-27), based on how restaurant accounting systems compare periods (prior period, same period last year, variance, % of sales). If the accountant ever sends an Aegis sample, only the config changes.
 - **Endpoint:** the compare parameter of 4.5 and 4.6, plus GET /reports/compare?period=month&at=<y>/<m>.
 
 ## 5. Exports (every report)
@@ -229,7 +236,7 @@ Total liabilities and equity       = Total assets (checked; a red line if not)
   - Running balances: the opening comes from one SUM before the period, then one ordered read of the page's lines.
 - **Indexes:**
   - These exist (migration 013): journal_entries(entry_date), journal_lines(entry_id) and journal_lines(account_code).
-  - Part 4a adds migration 016_report_indexes.sql (idempotent, indexes only, no data change):
+  - Part 4a adds migration 017_report_indexes.sql (idempotent, indexes only, no data change):
     - journal_lines(account_code, entry_id);
     - partial indexes on journal_lines(customer_id) and journal_lines(supplier_id) where they are not null;
     - journal_entries(voucher_type, entry_date).
@@ -256,7 +263,7 @@ Total liabilities and equity       = Total assets (checked; a red line if not)
   - lib/reports/books.ts (dayBook, generalLedger with the other side and party filter, book);
   - lib/reports/periods.ts (BS day, month, fiscal year and custom range to AD from and to, "posted up to");
   - routes/reports.ts (GET only, admin and accountant).
-- **Migration:** 016_report_indexes.sql.
+- **Migration:** 017_report_indexes.sql.
 - **Screen:** Reports page with these four tabs, plus the drill-down and the Consumption view.
 - **Tests (PGlite, the step 3 worked days as data):**
   - the Day Book totals for a period equal the Trial Balance movement for that period, and each voucher-type filter returns only its type;
@@ -269,7 +276,7 @@ Total liabilities and equity       = Total assets (checked; a red line if not)
   - staff and supervisor get 403 on every /reports route;
   - read-only: every /reports endpoint is called and the row counts of all tables, and the journal, are unchanged;
   - performance: a generated year (about 50,000 entries) on PGlite, each endpoint timed. A loose limit (5 seconds on PGlite) catches an accidental loop, not a precise target.
-  - migration 016 runs twice.
+  - migration 017 runs twice.
 
 ### 4b: statements (P&L, Balance Sheet, customer and supplier statements, comparison)
 - **Server:**
@@ -302,7 +309,7 @@ Total liabilities and equity       = Total assets (checked; a red line if not)
   - the large-export rule (above 5,000 vouchers the PDF refuses with the message).
 - **Not automated:** how the PDF looks on paper. The owner or accountant checks one printout of each report.
 
-## 9. Questions for the accountant (each with a recommended answer)
+## 9. Questions for the accountant (each with a recommended answer; all 15 approved as recommended by the owner, 2026-11-27; question 8: answered with the recommended comparison layout, see section 4.8)
 1. **Format of the statements.**
    - Recommended: vertical statements (as in section 4.5 and 4.6), in the usual Nepal small-business layout (NFRS for SMEs style): revenue, cost of sales, gross profit, expenses, net profit; assets, then liabilities and equity.
    - Not T-form.
@@ -356,4 +363,4 @@ Total liabilities and equity       = Total assets (checked; a red line if not)
 ## 11. What stays as it is
 - Posting, the lock, the month close and the chart of accounts (step 3).
 - The operational screens and reports.
-- No change to any table except the indexes of migration 016.
+- No change to any table except the indexes of migration 017 (016 is step 3e, stock adjustments).

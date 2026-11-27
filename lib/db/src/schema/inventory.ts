@@ -31,6 +31,9 @@ export const inventoryLogsTable = pgTable("inventory_logs", {
   orderId: integer("order_id"),
   menuItemId: integer("menu_item_id"),
   changedBy: text("changed_by"),
+  // step 3e (migration 016): 'adjustment' for a change made by hand (posts to 5150), with the cost per unit at that time
+  kind: text("kind"),
+  unitCost: numeric("unit_cost", { precision: 12, scale: 4 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
