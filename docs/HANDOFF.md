@@ -59,6 +59,13 @@
   - **"Not served" cancel:** reverses the sale's own Stock Log movements, with today's recipe only for older orders. Voiding the note reverses exactly what it put back.
   - No migration.
 
+26. Hotel stay bills name the stay, 2026-11-27.
+  - **Where it shows:** a bill charged to a stay ("Hotel breakfast x 2 · Room 103 · Ram Thapa", or "Room 201 · Sita Rai (charged to room)") is named in the Order Log (badge, and the reprinted bill: Billed To Sulimha Durbar, the breakfasts x the price, the room and the guest), in Receivables (the invoices list and the ledger, i.e. Sulimha Durbar's statement), and in the API (orders and credit invoices carry `stay` and `stayText`).
+  - **Old invoices:** the text is worked out from room_stay_id when read, so no invoice row is changed, and older stay bills show it too.
+  - **Payment screen:** on a room with an open stay that includes breakfast, a bill of breakfast items only preselects "Included breakfast", with the count from the stay's adults.
+  - **Warning:** it warns (never blocks), on screen and after saving, when that stay's breakfasts today would be more than its guests.
+  - No migration.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -102,7 +109,7 @@
 - **Room stays:**
   - VAT on the breakfast price is not added yet (the VAT switch, step 5).
   - Breakfast invoices made before 2026-11-27 keep menu prices on their lines (not changed).
-  - The bill printed from the payment screen before a room charge shows menu prices; reprint from Order Log.
+  - The bill printed from the payment screen before a room charge shows menu prices and no stay details; reprint from the Order Log after saving (that bill names the guest, the room and the breakfasts).
   - Sulimha Durbar must be on the Loyalty page and chosen in Room Stays > Settings before the first breakfast.
 - **API docs:** the OpenAPI spec and generated client still list only cash and nabil_qr as payment methods.
 

@@ -13,7 +13,8 @@ import { MONTHLY_RETIRED_MSG } from "../lib/monthlyRetired";
 import { validateSplit, partsFor, summaryMethod, creditAmountOf, round2, billDiscount, PAYMENT_MODES, MODE_LABEL } from "../lib/payments";
 import { allocatedByOrder, customerBalances, creditNotesByOrder, syncLoyaltyForOrder } from "../lib/receivables";
 import { creditLimitWarning, outstandingOf } from "../lib/receivableRules";
-import { breakfastBill, breakfastCost, allocateTotal } from "../lib/stayRules";
+import { breakfastBill, breakfastCost, allocateTotal, stayText, breakfastWarning, type StayInfo } from "../lib/stayRules";
+import { stayInfoByOrder } from "../lib/stayInfo";
 import { creditNotesBetween, creditNoteEffect, reissuedOrderIds, nepalDay } from "../lib/ledgerData";
 import { hotelSettings } from "./stays";
 
@@ -44,8 +45,9 @@ async function paymentInfo(orders: { id: number; totalAmount: unknown; paymentMe
   const newIds = noteRows.map(n => n.reissuedOrderId).filter((x): x is number => x != null);
   const invNo = new Map<number, string | null>();
   for (const r of await (newIds.length || noteRows.length ? db.select({ id: ordersTable.id, inv: ordersTable.invoiceNumber }).from(ordersTable).where(inArray(ordersTable.id, [...newIds, ...noteRows.map(n => n.orderId)])) : Promise.resolve([]))) invNo.set(r.id, r.inv);
+  const stays = await stayInfoByOrder(ids);
   const info = new Map<number, { payments: { mode: string; label: string; amount: number; reference: string | null }[]; creditAmount: number; creditPaid: number; creditNotes: number; creditOutstanding: number;
-    salesCreditNotes: number; salesCreditNotesNet: number; creditNoteList: { noteNo: string; noteDate: string; kind: string; total: number }[]; movedTo: string | null; reissueOf: string | null }>();
+    stay: StayInfo | null; stayText: string; salesCreditNotes: number; salesCreditNotesNet: number; creditNoteList: { noteNo: string; noteDate: string; kind: string; total: number }[]; movedTo: string | null; reissueOf: string | null }>();
   for (const o of orders) {
     const parts = o.paymentStatus === "paid" && !o.isNc ? partsFor(o, byOrder.get(o.id)) : [];
     const creditAmount = creditAmountOf(parts);
@@ -58,6 +60,7 @@ async function paymentInfo(orders: { id: number; totalAmount: unknown; paymentMe
     info.set(o.id, {
       payments: parts.map(p => ({ mode: p.mode, label: MODE_LABEL[p.mode] ?? p.mode, amount: p.amount, reference: p.reference ?? null })),
       creditAmount, creditPaid, creditNotes: cn, creditOutstanding: outstandingOf(creditAmount, cn, creditPaid),
+      stay: stays.get(o.id) ?? null, stayText: stayText(stays.get(o.id) ?? null),
       salesCreditNotes: round2(counted.reduce((t, n) => t + parseFloat(String(n.total)), 0)),
       salesCreditNotesNet: round2(counted.reduce((t, n) => t + parseFloat(String(n.subtotal)), 0)),
       creditNoteList: mine.map(n => ({ noteNo: n.noteNo, noteDate: n.noteDate, kind: n.kind, total: round2(parseFloat(String(n.total))) })),
@@ -120,6 +123,7 @@ async function getOrderWithItems(orderId: number) {
       id: orderItemsTable.id,
       menuItemId: orderItemsTable.menuItemId,
       menuItemName: menuItemsTable.name,
+      isBreakfast: menuItemsTable.isBreakfast,
       quantity: orderItemsTable.quantity,
       unitPrice: orderItemsTable.unitPrice,
       subtotal: orderItemsTable.subtotal,
@@ -202,6 +206,7 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
           id: orderItemsTable.id,
           menuItemId: orderItemsTable.menuItemId,
           menuItemName: menuItemsTable.name,
+          isBreakfast: menuItemsTable.isBreakfast,
           quantity: orderItemsTable.quantity,
           unitPrice: orderItemsTable.unitPrice,
           subtotal: orderItemsTable.subtotal,
@@ -419,6 +424,7 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   let stayNote: string | null = null;
   let noRecipeCost: string[] = [];
   let itemPrices: { id: number; subtotal: number; unitPrice: number }[] = []; // breakfast lines re-priced to share the invoice total
+  let overGuests: string | null = null;
   if (roomCharge && !nc) {
     const [stay] = await db.select().from(roomStaysTable).where(eq(roomStaysTable.id, Number(roomCharge.stayId)));
     if (!stay || stay.status !== "open") { res.status(400).json({ error: "That room has no open stay. Ask reception to open it." }); return; }
@@ -436,6 +442,10 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
       noRecipeCost = breakfastCost(items.map(i => ({ name: i.name ?? "item", quantity: i.quantity, unitCost: i.unitCost, unitPrice: i.unitPrice }))).noRecipeCost;
       billTotal = v.total;
       customerId = settings.sulimhaCustomerId;
+      const today = nepalDay(new Date());
+      const earlier = await db.select({ n: ordersTable.breakfastCount, paidAt: ordersTable.paidAt }).from(ordersTable)
+        .where(and(eq(ordersTable.roomStayId, stay.id), eq(ordersTable.stayCharge, "breakfast"), eq(ordersTable.paymentStatus, "paid")));
+      overGuests = breakfastWarning(earlier.filter(e => e.paidAt && nepalDay(new Date(e.paidAt)) === today).reduce((t, e) => t + (e.n ?? 0), 0), count, stay.adults, stay.children);
       // 2026-11-27: the lines share the Rs 800 x breakfasts total in proportion to their menu value, so item and category
       // reports add up to the invoice (only new breakfast bills; old invoices are not changed)
       itemPrices = allocateTotal(items.map(i => ({ id: i.id, quantity: i.quantity, subtotal: parseFloat(String(i.subtotal)) || 0 })).sort((a, b) => a.id - b.id), v.total);
@@ -530,7 +540,7 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
 
   const result = await getOrderWithItems(id);
   if (!result) { res.status(404).json({ error: "Order not found" }); return; }
-  res.json(alreadyPaid ? result : { ...result, creditWarning, noRecipeCost });
+  res.json(alreadyPaid ? result : { ...result, creditWarning, noRecipeCost, breakfastWarning: overGuests });
   } catch (err: any) {
     console.error("PAYMENT ROUTE ERROR:", err?.message, err?.stack);
     res.status(500).json({ error: "Failed to process payment", detail: err?.message });

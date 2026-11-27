@@ -334,7 +334,7 @@ export default function Receivables() {
                 {detail.invoices.length === 0 && <tr><td colSpan={8} className="px-3 py-4 text-muted-foreground">No credit invoices.</td></tr>}
                 {detail.invoices.map((i: any) => (
                   <tr key={i.orderId}>
-                    <td className="px-3 py-1.5">{i.invoiceNumber ?? "—"} <span className="text-xs text-muted-foreground">#{i.orderId}</span></td>
+                    <td className="px-3 py-1.5">{i.invoiceNumber ?? "—"} <span className="text-xs text-muted-foreground">#{i.orderId}</span>{i.stayText && <span className="block text-xs text-sky-800">{i.stayText}</span>}</td>
                     <td className="px-3 py-1.5">{i.day}</td>
                     <td className={`px-3 py-1.5 ${i.daysOverdue > 0 ? "text-red-600 font-medium" : ""}`}>{i.dueDate}{i.daysOverdue > 0 ? ` (${i.daysOverdue} days late)` : ""}</td>
                     <td className="px-3 py-1.5 text-right">{rs(i.creditAmount)}{i.creditAmount < i.billTotal && <span className="text-xs text-muted-foreground"> of {rs(i.billTotal)}</span>}</td>
