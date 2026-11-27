@@ -184,7 +184,7 @@ router.post("/receipts", authenticate, async (req: AuthRequest, res: Response): 
   const date = isDay(b.date) ? b.date : today;
   if (!Number.isInteger(customerId) || customerId <= 0) { res.status(400).json({ error: "Choose the customer." }); return; }
   if (!(amount > 0)) { res.status(400).json({ error: "Enter an amount above 0." }); return; }
-  if (!(RECEIPT_MODES as readonly string[]).includes(mode)) { res.status(400).json({ error: "Choose how the money was received: cash, QR or bank." }); return; }
+  if (!(RECEIPT_MODES as readonly string[]).includes(mode)) { res.status(400).json({ error: "Choose how the money was received: cash, QR, card or bank." }); return; }
   if (date > today) { res.status(400).json({ error: "The receipt date cannot be in the future." }); return; }
   if (mode === "cash" && await isDrawerClosed(date)) { res.status(400).json({ error: "That day's cash drawer is already closed. Ask the admin to reopen it, or date the receipt today." }); return; }
   const user = req.user?.username ?? "user";
@@ -458,7 +458,18 @@ router.post("/receivables/invoices/:orderId/move", authenticate, async (req: Aut
   if (!Number.isInteger(toId) || toId <= 0) { res.status(400).json({ error: "Choose the right customer." }); return; }
   const user = req.user?.username ?? "user";
   try {
-    const out = await db.transaction(async (tx) => {
+    const out = await db.transaction(async (tx) => reissueInvoice(tx, orderId, toId, reason, user));
+    const [note] = await notesWithItems(eq(creditNotesTable.id, out.noteId));
+    res.status(201).json({ note, newInvoice: { orderId: out.orderId, invoiceNumber: out.invoiceNumber } });
+  } catch (e: any) {
+    if (e instanceof HttpError) { res.status(e.status).json({ error: e.message }); return; }
+    throw e;
+  }
+});
+
+// Wrong customer: a full credit note on the old invoice and the same bill re-issued to another customer.
+// Also used when a hotel guest leaves with extras unpaid: the admin moves them to Sulimha Durbar (owner, 2026-11-26).
+export async function reissueInvoice(tx: any, orderId: number, toId: number, reason: string, user: string): Promise<{ noteId: number; orderId: number; invoiceNumber: string }> {
       const [to] = await tx.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, toId));
       if (!to) throw new HttpError(404, "Customer not found.");
       const { o, inv, v } = await wholeInvoice(tx, orderId);
@@ -475,6 +486,7 @@ router.post("/receivables/invoices/:orderId/move", authenticate, async (req: Aut
         loyaltyPointsEarned: 0, loyaltyPaidBasis: "0", // points come when the customer pays
         invoiceNumber, paidAt: o.paidAt, backdatedAt: o.backdatedAt, createdAt: o.createdAt, createdBy: o.createdBy, accountBill: false, isNc: false,
         notes: `Re-issued from invoice ${inv.invoiceNumber} (was on ${inv.customerName ?? "another customer"}): ${reason}`,
+        roomStayId: o.roomStayId, stayCharge: o.stayCharge, breakfastCount: o.breakfastCount,
       }).returning();
       // Items keep their KOTs and cost snapshot. Stock is not touched: the food was served once.
       const items = await tx.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId)).orderBy(orderItemsTable.id);
@@ -489,13 +501,6 @@ router.post("/receivables/invoices/:orderId/move", authenticate, async (req: Aut
       const row = await insertNote(tx, { orderId, customerId: o.loyaltyCustomerId, reason: `Wrong customer, moved to ${to.name} as invoice ${invoiceNumber}: ${reason}`, user, kind: "reissue", reissuedOrderId: n.id, v });
       await syncLoyaltyForOrder(tx, orderId, `${row.noteNo} issued (moved to another customer)`, user);
       return { noteId: row.id, orderId: n.id, invoiceNumber };
-    });
-    const [note] = await notesWithItems(eq(creditNotesTable.id, out.noteId));
-    res.status(201).json({ note, newInvoice: { orderId: out.orderId, invoiceNumber: out.invoiceNumber } });
-  } catch (e: any) {
-    if (e instanceof HttpError) { res.status(e.status).json({ error: e.message }); return; }
-    throw e;
-  }
-});
+}
 
 export default router;

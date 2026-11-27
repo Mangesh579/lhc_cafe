@@ -13,6 +13,11 @@ export const RECEIPT_MODES = [
   { value: "cash", label: "Cash" },
   { value: "nabil_qr", label: "QR Payment" },
   { value: "bank", label: "Bank" },
+  // a hotel guest paying the extras by card at check-out (2026-11-26); counts in that machine's settlement
+  { value: "card_nabil", label: "Card - LHC Nabil POS" },
+  { value: "card_hbl", label: "Card - LHC HBL POS" },
+  { value: "card_sulimha_nabil", label: "Card - Sulimha Nabil POS" },
+  { value: "card_sulimha_hbl", label: "Card - Sulimha HBL POS" },
 ] as const;
 
 const LABELS: Record<string, string> = {

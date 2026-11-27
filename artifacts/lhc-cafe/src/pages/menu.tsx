@@ -77,6 +77,7 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
   const [categoryId, setCategoryId] = useState(item?.categoryId ? String(item.categoryId) : "");
   const [calories, setCalories] = useState(item?.calories ? String(item.calories) : "");
   const [isAvailable, setIsAvailable] = useState(item?.isAvailable ?? true);
+  const [isBreakfast, setIsBreakfast] = useState(!!(item as any)?.isBreakfast); // hotel guests' included breakfast
   const [imageUrl, setImageUrl] = useState(item?.imageUrl ?? "");
   const [videoUrl, setVideoUrl] = useState((item as any)?.videoUrl ?? "");
   
@@ -92,6 +93,7 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
       setCategoryId(item.categoryId ? String(item.categoryId) : "");
       setCalories(item.calories ? String(item.calories) : "");
       setIsAvailable(item.isAvailable ?? true);
+      setIsBreakfast(!!(item as any).isBreakfast);
       setImageUrl(item.imageUrl ?? "");
       if (!item.id) { setVideoUrl(item.videoUrl ?? ""); return; } // clone: no server record yet
       // Fetch fresh from server to get fields not in the generated client type
@@ -100,11 +102,11 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
         headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` }
       })
         .then(r => r.ok ? r.json() : null)
-        .then(d => { if (d) setVideoUrl(d.videoUrl ?? ""); })
+        .then(d => { if (d) { setVideoUrl(d.videoUrl ?? ""); setIsBreakfast(!!d.isBreakfast); } })
         .catch(() => {});
     } else if (open && !item) {
       setName(""); setDescription(""); setPrice(""); setCategoryId("");
-      setCalories(""); setIsAvailable(true); setImageUrl(""); setVideoUrl("");
+      setCalories(""); setIsAvailable(true); setIsBreakfast(false); setImageUrl(""); setVideoUrl("");
     }
   }, [open, item]);
 
@@ -121,6 +123,7 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
         videoUrl: videoUrl || undefined,
         copyRecipesFromId: item && !item.id ? item.cloneFromId : undefined,
         isAvailable,
+        isBreakfast,
       };
       const API_BASE = import.meta.env.VITE_API_BASE ?? "";
       if (item?.id) {
@@ -186,6 +189,10 @@ function ItemDialog({ item, categories, open, onClose, onSaved }: { item?: any; 
               </SelectContent>
             </Select>
           </div>
+          <label className="col-span-2 flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={isBreakfast} onChange={e => setIsBreakfast(e.target.checked)} />
+            Breakfast item (can be served as a hotel guest's included breakfast, billed to Sulimha Durbar)
+          </label>
           <div className="col-span-2 space-y-1">
             <Label>Description</Label>
             <Textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Rich double shot espresso..." className="resize-none h-20" />

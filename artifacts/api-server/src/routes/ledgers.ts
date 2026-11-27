@@ -109,9 +109,10 @@ async function modeLedger(mode: string, from: string, to: string) {
       }
     }
   }
-  const receiptMode = mode === "qr" ? "nabil_qr" : mode === "bank" ? "bank" : mode === "credit" ? undefined : null;
+  const receiptMode = mode === "qr" ? "nabil_qr" : mode === "bank" ? "bank" : mode === "credit" || mode === "card" ? undefined : null;
   if (receiptMode !== null) {
     for (const r of await receiptsBetween(from, to, receiptMode)) {
+      if (mode === "card" && modeOf(r.mode) !== "card") continue; // card receipts (hotel check-out) on the card ledger
       const who = r.customerName ?? `customer #${r.customerId}`;
       if (mode === "credit") items.push({ t: r.createdAt.getTime(), day: r.receiptDate, type: "receipt", ref: r.voucherNo, description: `Received from ${who} (${MODE_LABEL[r.mode] ?? (r.mode === "bank" ? "Bank" : r.mode)})`, inAmt: 0, outAmt: r.amount });
       else items.push({ t: r.createdAt.getTime(), day: r.receiptDate, type: "receipt", ref: r.voucherNo, description: `Received from ${who}`, inAmt: r.amount, outAmt: 0 });

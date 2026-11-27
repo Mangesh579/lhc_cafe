@@ -140,7 +140,8 @@ export async function customerBalances(customerId?: number, ex: Exec = db): Prom
 // Bills paid before this rule (points given in full at payment, loyalty_paid_basis empty) are left as they were.
 export async function syncLoyaltyForOrder(tx: Tx, orderId: number, reason: string, user: string): Promise<{ deltaPoints: number } | null> {
   const [o] = await tx.select().from(ordersTable).where(eq(ordersTable.id, orderId));
-  if (!o || !o.loyaltyCustomerId || o.isNc || o.paymentStatus !== "paid") return null;
+  // No points on hotel stay bills (owner, 2026-11-26): neither the guest's extras nor the breakfasts billed to Sulimha
+  if (!o || !o.loyaltyCustomerId || o.isNc || o.roomStayId || o.paymentStatus !== "paid") return null;
   if (o.loyaltyPaidBasis == null && o.loyaltyPointsEarned != null) return null;
   const rows = await tx.select().from(orderPaymentsTable).where(eq(orderPaymentsTable.orderId, orderId));
   const total = round2(num(o.totalAmount)), vat = round2(num(o.vatAmount));

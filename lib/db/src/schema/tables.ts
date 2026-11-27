@@ -10,6 +10,7 @@ export const cafeTablesTable = pgTable("cafe_tables", {
   token: text("token").notNull().unique(),
   isActive: boolean("is_active").notNull().default(true),
   isOccupied: boolean("is_occupied").notNull().default(false),
+  isRoom: boolean("is_room").notNull().default(false), // a Sulimha Durbar hotel room (named 103, 104, ...); stays are opened on it
   openedAt: text("opened_at"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

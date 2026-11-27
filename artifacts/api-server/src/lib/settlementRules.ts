@@ -42,9 +42,11 @@ export function salesByMachineDay(orders: LedgerOrder[], receipts: Pick<LedgerRe
       if (!seen.has(m)) { c.bills++; seen.add(m); }
     }
   }
+  // Customer receipts by QR or card (a hotel guest paying at check-out) are machine money on their receipt date
   for (const r of receipts) {
-    if (machineOfMode(r.mode) !== "qr") continue;
-    const c = cell(r.receiptDate, "qr");
+    const m = machineOfMode(r.mode);
+    if (!m) continue;
+    const c = cell(r.receiptDate, m);
     c.gross += r.amount;
     c.bills++;
   }

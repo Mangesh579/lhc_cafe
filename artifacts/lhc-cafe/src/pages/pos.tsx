@@ -408,7 +408,7 @@ export default function POS() {
         <div className="rounded-md border border-dashed p-3 space-y-2">
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isNc} onChange={e => setIsNc(e.target.checked)} className="w-4 h-4" />
-            <span className="text-sm font-semibold">Not Chargeable (NC) — hotel guest / owner</span>
+            <span className="text-sm font-semibold">Not Chargeable (NC) — owner / staff (hotel guests: use Room on the payment screen)</span>
           </label>
           {isNc && (
             <div className="space-y-2 pt-1">

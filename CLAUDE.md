@@ -44,7 +44,15 @@ General
 - No service charge. No customer surcharge on cards. One cash drawer.
 - Sales posting and purchase posting happen the next day (review screens that post a day's data to the ledger, then lock it).
 - Staff: 5 people, no SSF, TDS only. Barista school course fees must be in the system.
-- Hotel guests (owner, 2026-11-25; not built yet): Sulimha Durbar is a separate business that pays LHC for its guests' included breakfasts at cost price. A guest's extras (snacks, dinner) are normal sales, paid at the end of the stay. Plan: room stays, with breakfast orders at cost billed to Sulimha Durbar and extras on the guest's stay, kept apart (plan to be written first).
+- Hotel guests (owner, 2026-11-25; not built yet): Sulimha Durbar is a separate business that pays LHC for its guests' included breakfasts at cost price. A guest's extras (snacks, dinner) are normal sales, paid at the end of the stay. Built 2026-11-26 (docs/specs/room-stays.md, migration 012). The owner's answers:
+  - the rooms are the tables named 103 ... 402;
+  - Sulimha's reception opens and closes stays with its own login (role reception, one per receptionist, Room Stays page only);
+  - an included breakfast is billed to Sulimha Durbar at a fixed Rs 800 per person (a setting; VAT added on top once registered), with only menu items marked Breakfast;
+  - a breakfast that is not included is an extra at menu prices;
+  - extras are credit invoices on the guest, paid at LHC before check-out (cash, QR or card);
+  - a guest who leaves with extras unpaid: the admin closes the stay with a reason and the extras move to Sulimha Durbar;
+  - no loyalty points on stay bills;
+  - LHC's breakfast cost view uses the menu price where a recipe has no cost yet.
 
 Receivables (answers of 2026-11-23)
 - Receivables and payables are individual bills. One receipt can settle several invoices, for loyalty customers only.

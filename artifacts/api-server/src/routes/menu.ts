@@ -54,6 +54,7 @@ router.get("/menu-items", authenticate, async (req, res): Promise<void> => {
       categoryId: menuItemsTable.categoryId,
       categoryName: menuCategoriesTable.name,
       isAvailable: menuItemsTable.isAvailable,
+      isBreakfast: menuItemsTable.isBreakfast,
       imageUrl: menuItemsTable.imageUrl,
       videoUrl: menuItemsTable.videoUrl,
       calories: menuItemsTable.calories,
@@ -72,11 +73,11 @@ router.get("/menu-items", authenticate, async (req, res): Promise<void> => {
 });
 
 router.post("/menu-items", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const { name, description, price, categoryId, isAvailable, imageUrl, videoUrl, calories } = req.body;
+  const { name, description, price, categoryId, isAvailable, imageUrl, videoUrl, calories, isBreakfast } = req.body;
   if (!name || price === undefined) { res.status(400).json({ error: "Name and price required" }); return; }
   const [item] = await db.insert(menuItemsTable).values({
     name, description: description ?? null, price: String(price),
-    categoryId: categoryId ?? null, isAvailable: isAvailable ?? true,
+    categoryId: categoryId ?? null, isAvailable: isAvailable ?? true, isBreakfast: isBreakfast === true,
     imageUrl: imageUrl ?? null, videoUrl: videoUrl ?? null, calories: calories ?? null,
   }).returning();
   await db.insert(menuChangelogsTable).values({ menuItemId: item.id, action: "item_created", newValue: `${name} @ Rs.${price}`, changedBy: req.user?.username ?? "admin" });
@@ -102,6 +103,7 @@ router.get("/menu-items/:id", authenticate, async (req, res): Promise<void> => {
       categoryId: menuItemsTable.categoryId,
       categoryName: menuCategoriesTable.name,
       isAvailable: menuItemsTable.isAvailable,
+      isBreakfast: menuItemsTable.isBreakfast,
       imageUrl: menuItemsTable.imageUrl,
       videoUrl: menuItemsTable.videoUrl,
       calories: menuItemsTable.calories,
@@ -132,8 +134,9 @@ router.get("/menu-items/:id", authenticate, async (req, res): Promise<void> => {
 router.patch("/menu-items/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   // console.log("PATCH menu-items body:", JSON.stringify(req.body));
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const { name, description, price, categoryId, isAvailable, imageUrl, videoUrl, calories } = req.body;
+  const { name, description, price, categoryId, isAvailable, imageUrl, videoUrl, calories, isBreakfast } = req.body;
   const updateData: Record<string, unknown> = {};
+  if (isBreakfast !== undefined) updateData.isBreakfast = isBreakfast === true; // hotel guests' included breakfast
   console.log("PATCH menu-item body:", JSON.stringify(req.body));
   console.log("videoUrl value:", videoUrl);
   if (name !== undefined) updateData.name = name;

@@ -688,3 +688,111 @@ None.
 
 ### Decisions made (by Claude; please confirm)
 - One reward item per bill, one unit, at the price it was sold at.
+
+
+## 2026-11-26: Plan for hotel room stays
+
+### Summary
+- Skills used: ponytail, backend-patterns, database-migrations.
+- Wrote docs/specs/room-stays.md: a room stay ties bills together. Included breakfasts become credit invoices to Sulimha Durbar at cost, extras become credit invoices to the guest at menu prices, and check-out is one receipt (cash, QR or card on any machine) settling the extras, with a folio print. It reuses credit invoices, receivables and receipts. Draft migration 012 is described: hotel_rooms, room_stays, orders.room_stay_id and stay_charge, optional customer email, no_points, card modes on receipts.
+- Nothing built. Eight questions for the owner and the accountant are in section 11.
+
+### Files
+- New: docs/specs/room-stays.md. Changed: CLAUDE.md, docs/HANDOFF.md.
+
+### Tables
+- None changed.
+
+### Migration
+None (012 is a draft in the plan, not written).
+
+### Tests
+- None (plan only).
+
+
+## 2026-11-26: Room stays plan updated with the owner's answers
+
+### Summary
+- docs/specs/room-stays.md now has the owner's answers (section 12):
+  - a fixed Rs 800 per breakfast, VAT added on top once registered;
+  - only menu items marked breakfast;
+  - Sulimha's reception opens stays (a new reception role, Stays page only);
+  - no loyalty points for hotel guests;
+  - the rooms are the tables 103 to 402.
+- The plan is changed to match: hotel_rooms dropped for cafe_tables.is_room, menu_items.is_breakfast, orders.breakfast_count, a hotel_settings price, the reception role, and no_points dropped (points are off on stay orders).
+- Five questions are still open (section 13): a guest who leaves with unpaid extras, the menu price as the stand-in cost, Rs 800 per person or per room, reception logins, whether the room tables exist.
+
+### Files
+- Changed: docs/specs/room-stays.md.
+
+### Migration
+None (012 is still a draft in the plan).
+
+### Tests
+- None (plan only).
+
+
+## 2026-11-26: Hotel room stays (migration 012)
+
+### Summary
+- Skills used: ponytail, tdd, backend-patterns, react-patterns, database-migrations.
+- Owner's answers (docs/specs/room-stays.md sections 12 and 14):
+  - Rs 800 per person for an included breakfast, VAT on top later;
+  - the menu price stands in for a missing recipe cost in LHC's cost view;
+  - breakfast items only;
+  - reception opens stays, with one login each;
+  - no points;
+  - the rooms are the tables named 103 ... 402;
+  - a guest who leaves with unpaid extras: the admin moves them to Sulimha.
+- **Room Stays page:** rooms with the guest, dates, breakfasts today against guests, and extras "paid" or "Rs X to pay at LHC". Check in (the guest is found by phone or added; email optional), change, check out, cancel (only with no bills). The folio with a check-out payment (receipt by cash, QR or any card machine, oldest bill first) and a folio print. History with Excel. Settings: the breakfast price and the Sulimha Durbar customer.
+- **Payment screen (Orders), "Hotel room" box** (filled in when the bill is on a room table): pay now, charge to room (a credit invoice on the guest, no credit-limit warning), or included breakfast (a credit invoice to Sulimha Durbar at the price x breakfasts; breakfast items only; refused if breakfast is not included; warns of items with no recipe cost).
+- **Reception role:** the API refuses everything except /api/stays and auth/me and change-password; the app shows only Room Stays. A Users page option.
+- **Receipts:** the four card modes. Card receipts count in that machine's settlement, the card ledger, and the collections Excel (Receipts - Card).
+- **Menu:** a Breakfast tick box. **NC label** is now "owner / staff".
+- **No points** on stay bills (syncLoyaltyForOrder skips them).
+- **Shared reissueInvoice** (from Wrong customer) moves unpaid extras to Sulimha when the admin closes a stay; the re-issued bill keeps its stay link.
+
+### Files
+- New: db/migrations/012_room_stays.sql; lib/db/src/schema/stays.ts; api-server src/lib/stayRules.ts, src/routes/stays.ts, tests stayRules, stays (.test.ts); lhc-cafe src/pages/stays.tsx.
+- Changed:
+  - lib/db schema: orders.ts, menu-items.ts, tables.ts, loyalty.ts, index.ts.
+  - api-server: middlewares/auth.ts (reception guard), routes/orders.ts (roomCharge), routes/receivables.ts (reissueInvoice, card modes message), routes/menu.ts (isBreakfast), routes/settlements.ts, routes/ledgers.ts, routes/index.ts, lib/receivables.ts (no points on stay bills), lib/receivableRules.ts (card receipt modes), lib/ledgerData.ts (receiptsCard), lib/settlementRules.ts (card receipts), __tests__/settlements.test.ts.
+  - lhc-cafe: App.tsx, components/layout/Sidebar.tsx, contexts/notifications.tsx, lib/payments.ts, pages/orders.tsx, pages/menu.tsx, pages/users.tsx, pages/ledgers.tsx, pages/pos.tsx.
+  - Docs: CLAUDE.md, docs/HANDOFF.md, docs/specs/room-stays.md.
+
+### Tables
+- New: room_stays, hotel_settings.
+- Changed:
+  - cafe_tables (+is_room; the 12 room tables set);
+  - orders (+room_stay_id, stay_charge, breakfast_count, check);
+  - menu_items (+is_breakfast);
+  - loyalty_customers (email optional);
+  - customer_receipts (mode check adds the card modes).
+
+### Migration
+db/migrations/012_room_stays.sql: NOT YET RUN on the server.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 30 files, 228 tests pass. New:
+  - stayRules (6):
+    - check-in cleaned, email optional, the required fields and dates;
+    - breakfast bill 2 x 800 = 1600, a non-breakfast item and count 0 refused;
+    - cost view 691 with the menu price for a no-recipe item.
+  - stays (9, real routes on PGlite):
+    - reception refused on orders and receivables, allowed on stays and auth/me; rooms listed by name;
+    - check-in on rooms only, one open stay per room, guest without an email;
+    - breakfast needs the Sulimha customer (admin-only setting), then Rs 1,600 on Sulimha, credit, stay fields, note, no-recipe list, LHC cost for the admin only, breakfasts today;
+    - a non-breakfast item refused;
+    - extras on the guest: reception sees only the amount owed, cannot close, cannot cancel with bills;
+    - check-out by card on LHC HBL POS plus cash, no points, reception closes;
+    - breakfast refused when not included; unpaid extras: supervisor refused, admin needs a reason, then the extra is re-issued to Sulimha;
+    - cancel needs a reason;
+    - migration 012 runs twice, marks rooms by name (with spaces), keeps emails, allows card receipts and an email-less customer, one open stay per room, and a breakfast bill needs a count. This test found and fixed a NULL gap in the check.
+  - settlements (+1): card receipts go to their machine.
+- Typecheck api-server, lhc-cafe, libs clean; both artifacts build.
+- Not run: the screens in a browser; the reception login in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- Room charges are made on the payment screen (not the POS), because room bills often come from the room's QR.
+- A guest found by phone is reused; a new guest goes on the customer list (with no points on stay bills).
+- The breakfast warning counts adults plus children against the breakfasts used today; it never blocks.

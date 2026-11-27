@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, orderPaymentsTable, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable, wasteLogsTable, orderKotCancellationsTable } from "@workspace/db";
+import { db, orderPaymentsTable, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable, wasteLogsTable, orderKotCancellationsTable, roomStaysTable } from "@workspace/db";
 import { eq, and, gte, lte, desc, sql, inArray } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth";
 import { applyPrepWaste } from "../lib/prepWaste";
@@ -13,6 +13,8 @@ import { MONTHLY_RETIRED_MSG } from "../lib/monthlyRetired";
 import { validateSplit, partsFor, summaryMethod, creditAmountOf, round2, billDiscount, PAYMENT_MODES, MODE_LABEL } from "../lib/payments";
 import { allocatedByOrder, customerBalances, creditNotesByOrder, syncLoyaltyForOrder } from "../lib/receivables";
 import { creditLimitWarning, outstandingOf } from "../lib/receivableRules";
+import { breakfastBill, breakfastCost } from "../lib/stayRules";
+import { hotelSettings } from "./stays";
 
 const router = Router();
 router.use(hideCosts);
@@ -358,7 +360,8 @@ router.patch("/orders/:id/status", authenticate, async (req, res): Promise<void>
 router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void> => {
   try {
   const id = parseId(req.params.id);
-  const { paymentMethod, paymentStatus, loyaltyCustomerId, vatAmount, billType, finalTotal, otherPartyName, otherPartyPan, nonTaxableAmount, isNc, ncPersonName, ncReason, payments } = req.body;
+  const { paymentMethod, paymentStatus, loyaltyCustomerId, vatAmount, billType, finalTotal, otherPartyName, otherPartyPan, nonTaxableAmount, isNc, ncPersonName, ncReason, roomCharge } = req.body;
+  let { payments } = req.body;
   const updateData: Record<string, unknown> = {};
   if (isNc !== undefined) updateData.isNc = isNc;
   if (ncPersonName !== undefined) updateData.ncPersonName = ncPersonName || null;
@@ -387,9 +390,43 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   if (order.paymentStatus === "cancelled") { res.status(400).json({ error: "This order was cancelled." }); return; }
   if (order.paymentStatus === "converted") { res.status(400).json({ error: CONVERTED_MSG }); return; }
 
-  const billTotal = round2(parseFloat(String(finalTotal !== undefined ? finalTotal : order.totalAmount)));
-  const customerId: number | null = loyaltyCustomerId ? Number(loyaltyCustomerId) : order.loyaltyCustomerId;
+  let billTotal = round2(parseFloat(String(finalTotal !== undefined ? finalTotal : order.totalAmount)));
+  let customerId: number | null = loyaltyCustomerId ? Number(loyaltyCustomerId) : order.loyaltyCustomerId;
   const nc = isNc !== undefined ? !!isNc : order.isNc;
+
+  // Hotel room stays (owner, 2026-11-26): "extra" = a credit invoice on the guest, paid at check-out; "breakfast" = the
+  // included breakfast, a credit invoice to Sulimha Durbar at the fixed price x breakfasts (only breakfast items).
+  let stayNote: string | null = null;
+  let noRecipeCost: string[] = [];
+  if (roomCharge && !nc) {
+    const [stay] = await db.select().from(roomStaysTable).where(eq(roomStaysTable.id, Number(roomCharge.stayId)));
+    if (!stay || stay.status !== "open") { res.status(400).json({ error: "That room has no open stay. Ask reception to open it." }); return; }
+    const [room] = await db.select({ name: cafeTablesTable.name }).from(cafeTablesTable).where(eq(cafeTablesTable.id, stay.tableId));
+    const [guest] = await db.select({ name: loyaltyCustomersTable.name }).from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, stay.customerId));
+    if (roomCharge.kind === "breakfast") {
+      if (!stay.breakfastIncluded) { res.status(400).json({ error: "Breakfast is not included in this stay. Charge it to the room at menu prices instead." }); return; }
+      const settings = await hotelSettings();
+      if (!settings.sulimhaCustomerId) { res.status(400).json({ error: "Choose which customer is Sulimha Durbar first (Stays > Settings)." }); return; }
+      const items = await db.select({ name: menuItemsTable.name, isBreakfast: menuItemsTable.isBreakfast, quantity: orderItemsTable.quantity, unitCost: orderItemsTable.unitCost, unitPrice: orderItemsTable.unitPrice })
+        .from(orderItemsTable).leftJoin(menuItemsTable, eq(menuItemsTable.id, orderItemsTable.menuItemId)).where(eq(orderItemsTable.orderId, id));
+      const count = Number(roomCharge.breakfasts);
+      const v = breakfastBill(items.map(i => ({ name: i.name ?? "item", isBreakfast: !!i.isBreakfast })), count, settings.breakfastPrice);
+      if ("error" in v) { res.status(400).json({ error: v.error }); return; }
+      noRecipeCost = breakfastCost(items.map(i => ({ name: i.name ?? "item", quantity: i.quantity, unitCost: i.unitCost, unitPrice: i.unitPrice }))).noRecipeCost;
+      billTotal = v.total;
+      customerId = settings.sulimhaCustomerId;
+      stayNote = `Hotel breakfast x ${count} @ Rs. ${settings.breakfastPrice.toFixed(2)}, room ${room?.name ?? ""} (${guest?.name ?? "guest"}), billed to Sulimha Durbar`;
+      // VAT is added on top once LHC is VAT registered (owner); until then none
+      Object.assign(updateData, { totalAmount: String(v.total), discountAmount: "0", vatAmount: "0", billType: "pan", nonTaxableAmount: "0", stayCharge: "breakfast", breakfastCount: count });
+    } else if (roomCharge.kind === "extra") {
+      customerId = stay.customerId;
+      stayNote = `Charged to room ${room?.name ?? ""} (${guest?.name ?? "guest"}), paid at check-out`;
+      Object.assign(updateData, { stayCharge: "extra" });
+    } else { res.status(400).json({ error: "Choose hotel breakfast or charge to room." }); return; }
+    updateData.roomStayId = stay.id;
+    updateData.notes = [order.notes, stayNote].filter(Boolean).join(" | ");
+    payments = [{ mode: "credit", amount: billTotal }];
+  }
 
   // Complimentary chosen at the payment step (owner, 2026-11-26): the open bill becomes NC, booked like an NC order
   // placed at the POS: at the ingredient cost of what was given, with the person's name, and no money received.
@@ -425,7 +462,7 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   const creditPart = creditAmountOf(parts);
 
   let creditWarning: string | null = null;
-  if (creditPart > 0) {
+  if (creditPart > 0 && !roomCharge) {
     const [cust] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, customerId!));
     if (!cust) { res.status(400).json({ error: "Credit needs a customer from the loyalty list." }); return; }
     const [bal] = await customerBalances(cust.id); // creditLimit there is the customer's own limit, or the default for everyone
@@ -468,7 +505,7 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
 
   const result = await getOrderWithItems(id);
   if (!result) { res.status(404).json({ error: "Order not found" }); return; }
-  res.json(alreadyPaid ? result : { ...result, creditWarning });
+  res.json(alreadyPaid ? result : { ...result, creditWarning, noRecipeCost });
   } catch (err: any) {
     console.error("PAYMENT ROUTE ERROR:", err?.message, err?.stack);
     res.status(500).json({ error: "Failed to process payment", detail: err?.message });

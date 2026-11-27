@@ -48,6 +48,12 @@ export default function Orders() {
   const [ncWhy, setNcWhy] = useState("");
   // Reward item (loyalty reward): one unit of an item on the bill comes off before the staff % (owner, 2026-11-26)
   const [rewardItemId, setRewardItemId] = useState<number | null>(null);
+  // Hotel room stays (2026-11-26): charge the bill to an open stay, as the guest's extra or as the included breakfast (Sulimha)
+  const [openStays, setOpenStays] = useState<any[]>([]);
+  const [breakfastPrice, setBreakfastPrice] = useState(800);
+  const [roomKind, setRoomKind] = useState<"" | "extra" | "breakfast">("");
+  const [roomStayId, setRoomStayId] = useState<number | null>(null);
+  const [breakfasts, setBreakfasts] = useState("1");
   const [billType, setBillType] = useState<"pan" | "vat">("pan");
   const [otherPartyName, setOtherPartyName] = useState("");
   const [otherPartyPan, setOtherPartyPan] = useState("");
@@ -124,6 +130,15 @@ export default function Orders() {
     setDiscount("");
     setDiscountComment("");
     setNcOn(false); setNcName(""); setNcWhy(""); setRewardItemId(null);
+    setRoomKind(""); setRoomStayId(null); setOpenStays([]);
+    fetch(`${API_BASE}/api/stays/rooms`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } })
+      .then(r => r.ok ? r.json() : null).then(d => {
+        if (!d) return;
+        const stays = d.rooms.filter((r: any) => r.stay).map((r: any) => r.stay);
+        setOpenStays(stays); setBreakfastPrice(d.settings.breakfastPrice);
+        const here = stays.find((st: any) => st.tableId === order.tableId);
+        if (here) { setRoomStayId(here.id); setBreakfasts(String(Math.max(1, here.adults - here.breakfastsToday))); }
+      }).catch(() => {});
     setBillType("pan");
     setOtherPartyName("");
     setOtherPartyPan("");
@@ -222,6 +237,30 @@ export default function Orders() {
   const handlePayment = async () => {
     if (!paymentModalOrder || paying) return;
     const { discountValue, total, vatAmount, finalTotal } = computeBill();
+    if (roomKind) {
+      if (!roomStayId) { toast({ title: "Choose the room", variant: "destructive" }); return; }
+      setPaying(true);
+      try {
+        const r = await fetch(`${API_BASE}/api/orders/${paymentModalOrder.id}/payment`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
+          body: JSON.stringify({ paymentStatus: "paid", roomCharge: { stayId: roomStayId, kind: roomKind, breakfasts: parseInt(breakfasts) || 0 } }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d?.error ?? "The room charge was not recorded.");
+        queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
+        const st = openStays.find(x => x.id === roomStayId);
+        toast({
+          title: roomKind === "breakfast" ? `Breakfast billed to Sulimha Durbar (${d.invoiceNumber ?? ""})` : `Charged to room ${st?.room ?? ""} (${d.invoiceNumber ?? ""})`,
+          description: [roomKind === "breakfast" ? `${breakfasts} x ${rs(breakfastPrice)}` : `${st?.guestName ?? "The guest"} pays at check-out.`,
+            d.noRecipeCost?.length ? `No recipe cost yet for: ${d.noRecipeCost.join(", ")}.` : null].filter(Boolean).join(" "),
+        });
+        setPaymentModalOrder(null);
+      } catch (err: any) {
+        toast({ title: "Failed to record", description: err?.message, variant: "destructive" });
+      } finally { setPaying(false); }
+      return;
+    }
     if (ncOn) {
       if (!ncName.trim()) { toast({ title: "Enter who it is for", description: "A complimentary bill needs the guest's name or room.", variant: "destructive" }); return; }
       setPaying(true);
@@ -866,6 +905,38 @@ export default function Orders() {
               })()}
             </div>
 
+            {openStays.length > 0 && (() => {
+              const st = openStays.find(x => x.id === roomStayId);
+              const over = st && roomKind === "breakfast" && st.breakfastsToday + (parseInt(breakfasts) || 0) > st.adults + st.children;
+              return (
+                <div className="rounded-md border border-sky-200 bg-sky-50/50 p-2.5 space-y-2 text-sm">
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase">Hotel room (Sulimha Durbar guest)</Label>
+                  <select className="h-9 rounded-md border border-input bg-background px-2 text-sm w-full" value={roomStayId ?? ""} onChange={e => { const id = e.target.value ? Number(e.target.value) : null; setRoomStayId(id); const x = openStays.find(y => y.id === id); if (x) setBreakfasts(String(Math.max(1, x.adults - x.breakfastsToday))); }}>
+                    <option value="">Not a hotel guest</option>
+                    {openStays.map(x => <option key={x.id} value={x.id}>Room {x.room} · {x.guestName}</option>)}
+                  </select>
+                  {st && (
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={roomKind === ""} onChange={() => setRoomKind("")} /> Pay now (normal payment)</label>
+                      <label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={roomKind === "extra"} onChange={() => { setRoomKind("extra"); setNcOn(false); }} /> Charge to room: the guest pays at check-out</label>
+                      {st.breakfastIncluded
+                        ? <label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={roomKind === "breakfast"} onChange={() => { setRoomKind("breakfast"); setNcOn(false); }} /> Included breakfast: billed to Sulimha Durbar ({rs(breakfastPrice)} per person)</label>
+                        : <p className="text-xs text-muted-foreground">Breakfast is not included in this stay: charge it to the room.</p>}
+                      {roomKind === "breakfast" && (
+                        <div className="flex items-center gap-2 pl-6">
+                          <Input type="number" min="1" value={breakfasts} onChange={e => setBreakfasts(e.target.value)} className="h-8 w-20" />
+                          <span>breakfasts = {rs((parseInt(breakfasts) || 0) * breakfastPrice)} · today so far {st.breakfastsToday} of {st.adults + st.children} guests</span>
+                        </div>
+                      )}
+                      {over && <p className="text-xs font-medium text-amber-700 pl-6">More breakfasts today than guests in the room. Check before saving.</p>}
+                      {roomKind === "breakfast" && <p className="text-xs text-muted-foreground pl-6">Only breakfast items can be on this bill. Anything else goes on a separate bill, charged to the room.</p>}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {!roomKind && <>
             <div className="rounded-md border p-2.5 space-y-2">
               <label className="flex items-start gap-2 text-sm cursor-pointer">
                 <input type="checkbox" className="mt-1" checked={ncOn} onChange={e => setNcOn(e.target.checked)} />
@@ -1024,6 +1095,7 @@ export default function Orders() {
               )}
             </div>
             </>}
+            </>}
 
             <div className="bg-muted/30 rounded-md p-3 space-y-1 max-h-36 overflow-y-auto">
               {paymentModalOrder?.items?.map((item: any) => (
@@ -1052,7 +1124,7 @@ export default function Orders() {
             }} className="gap-2" disabled={!paymentModalOrder}>
               <Printer className="w-4 h-4" /> Print Bill
             </Button>
-            <Button onClick={handlePayment} disabled={paying || (ncOn ? !ncName.trim() : (usesCredit && !creditCustomer))}>{paying ? "Saving…" : ncOn ? "Record Complimentary (NC)" : usesCredit ? "Record Credit Sale" : computeBill().total < 0.005 ? "Settle Rs 0 bill" : "Mark Paid"}</Button>
+            <Button onClick={handlePayment} disabled={paying || (roomKind ? !roomStayId || (roomKind === "breakfast" && !(parseInt(breakfasts) >= 1)) : ncOn ? !ncName.trim() : (usesCredit && !creditCustomer))}>{paying ? "Saving…" : roomKind === "extra" ? "Charge to room" : roomKind === "breakfast" ? "Bill breakfast to Sulimha" : ncOn ? "Record Complimentary (NC)" : usesCredit ? "Record Credit Sale" : computeBill().total < 0.005 ? "Settle Rs 0 bill" : "Mark Paid"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
