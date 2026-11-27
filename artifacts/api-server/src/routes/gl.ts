@@ -260,6 +260,16 @@ router.get("/gl/days/:day", authenticate, async (req: AuthRequest, res: Response
   const r: any = await reviewDay(day);
   res.json({ ...r, lateLines: undefined });
 });
+// Read-only rehearsal on real data: any past day, even before the ledger start date. Never writes anything.
+router.get("/gl/preview/:day", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  const day = String(req.params.day);
+  if (!isDay(day)) { res.status(400).json({ error: "A valid day is required." }); return; }
+  if (day >= nepalDay(new Date())) { res.status(400).json({ error: "Preview a day that has ended." }); return; }
+  const r: any = await reviewDay(day, { preview: true });
+  res.json({ ...r, lateLines: undefined });
+});
+
 router.post("/gl/days/:day/post", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res)) return;
   const day = String(req.params.day);

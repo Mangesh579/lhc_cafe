@@ -153,6 +153,36 @@ describe("late changes are reversed and re-posted on the day being posted", () =
   });
 });
 
+describe("Rs 0 bills and the read-only preview (2026-11-27)", () => {
+  it("a day with a Rs 0 reward bill (payment 'none', no payment rows) posts cleanly; a reversed bill is not posted again", async () => {
+    const id = await bill("2026-12-19", [[latte, 1, 250]], [], { paymentMethod: "none", totalAmount: "0", discountAmount: "250" });
+    const r = await review("2026-12-19");
+    expect(r.problems.filter((p: any) => p.level === "fix")).toEqual([]);
+    expect(r.late).toEqual([]); // the bill cancelled on the 17th has a reversed entry: never picked up as late again
+    expect(r.entries).toEqual([expect.objectContaining({ sourceType: "order", sourceId: id, lines: [{ accountCode: "4950", debit: 250, credit: 0 }, { accountCode: "4010", debit: 0, credit: 250 }] })]);
+    expect((await api("acct", "POST", "/gl/days/2026-12-19/post", { note: "Drawer not used" })).body.entries).toBe(1);
+  });
+
+  it("previews any past day, even before the ledger start, without posting or writing anything", async () => {
+    await bill("2026-12-10", [[sandwich, 1, 400]], [["cash", 400]]);
+    const count = async () => [(await ctx.db.select().from(journalEntriesTable)).length, (await ctx.client.query<any>(`SELECT count(*)::int AS n FROM posting_days`)).rows[0].n];
+    const before = await count();
+    expect((await api("staff", "GET", "/gl/preview/2026-12-10")).status).toBe(403);
+    expect((await api("acct", "GET", "/gl/preview/2026-12-20")).body.error).toMatch(/ended/);
+    const p = (await api("acct", "GET", "/gl/preview/2026-12-10")).body;
+    expect(p).toMatchObject({ preview: true, canPost: false, status: "open" });
+    expect(p.blockers).toEqual(["Preview only: nothing is posted from here.", "The ledger starts on 2026-12-16 (1 Poush 2083). Nothing before it posts."]);
+    expect(p.entries.map((e: any) => e.lines.map((l: any) => [l.accountCode, l.debit, l.credit]))).toEqual([[["1100", 400, 0], ["4000", 0, 400]]]);
+    expect(p.reconciliation.find((x: any) => x.check.startsWith("Sales"))).toMatchObject({ ledger: 400, operational: 400, ok: true });
+    // a posted day can be previewed too (it shows it is posted and has nothing left to post)
+    const q = (await api("acct", "GET", "/gl/preview/2026-12-16")).body;
+    expect(q.blockers).toContain("2026-12-16 is already posted.");
+    expect(q.entries).toEqual([]);
+    expect(await count()).toEqual(before);
+    expect((await api("acct", "POST", "/gl/days/2026-12-10/post", { note: "x" })).body.error).toMatch(/starts on 2026-12-16/);
+  });
+});
+
 describe("operational changes for posting", () => {
   it("VAT bills are refused while VAT is off; the admin alone switches it on", async () => {
     const id = await bill("2026-12-20", [[latte, 1, 250]], [["cash", 250]], { paymentStatus: "pending", orderStatus: "served", invoiceNumber: null, paidAt: null });

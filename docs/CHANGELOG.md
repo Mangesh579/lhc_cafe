@@ -1099,3 +1099,39 @@ db/migrations/014_ledger_posting.sql: NOT YET RUN on the server.
 
 - The owner ran db/migrations/014_ledger_posting.sql on the server (after a backup) and deployed ledger 3b (70fb1c9). Recorded as run in CLAUDE.md and docs/HANDOFF.md.
 - Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
+
+
+## 2026-11-27: Ledger 3b fixes: Rs 0 bills, read-only preview, faster late check
+
+### Summary
+- Skills used: ponytail, tdd, backend-patterns, react-patterns.
+- **Rs 0 bills:** saleEntry skips payment parts of Rs 0. A Rs 0 bill (payment_method 'none', no payment rows, so it reached the rules as a 'none' part of Rs 0) no longer raises "no account". A fully discounted bill posts sales at the gross value and the discount to 4950, with no payment line.
+- **Preview a day** (Chart of Accounts > Post a day; GET /gl/preview/:day, admin and accountant):
+  - any day that has ended, even before the ledger start date, shows what would post, the problems and the reconciliation;
+  - the banner says "Preview", and there is no Post button;
+  - the API marks canPost false and never writes;
+  - posting stays only on POST /gl/days/:day/post, with its own checks.
+- **Late check:** unposted late sources are found by the database: sources with no journal entry at all (NOT EXISTS on journal_entries), instead of re-reading every source since the start date.
+  - Same results: a source with any entry is either in force (checked as a late change) or was reversed because it was cancelled or voided, which cannot be undone.
+- **Fix found by the preview test:** the "already posted" check on a day's own sources now looks at every entry in force, whatever its date. A source posted late or re-posted on a later day is no longer shown again when that earlier day is previewed. Posting itself was not affected (a day's later days are never posted before it).
+
+### Files
+- Changed: api-server src/lib/postingRules.ts, src/lib/glPosting.ts, src/routes/gl.ts, tests postingRules (+2), glPosting (+2); lhc-cafe src/components/PostDay.tsx.
+
+### Tables
+- None changed.
+
+### Migration
+None.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 36 files, 283 tests pass; typecheck api-server, lhc-cafe and libs clean; both artifacts build.
+- New:
+  - postingRules: a Rs 0 reward bill (a 'none' part of Rs 0) gives 4950 / 4010 with no problem; a Rs 0 bill from a 100% discount picked as card gives the sales and the discount only.
+  - glPosting: a day with a Rs 0 reward bill and no payment rows posts cleanly, and the bill cancelled earlier is not picked up again as late. The preview:
+    - staff refused, today refused;
+    - before the start date it shows the entry and the reconciliation (sales 400 = 400) with canPost false;
+    - a posted day previews as already posted with nothing left;
+    - no journal entry or posting day is written;
+    - POST on that day is still refused.
+- Not run: the preview in a browser; anything against production.
