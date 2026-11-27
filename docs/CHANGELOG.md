@@ -1422,3 +1422,14 @@ None.
   - the admin cannot reopen a November day;
   - an item-wise note dated on a locked day is refused, and one dated today is accepted.
 - Not run: the screens in a browser; anything against production.
+
+## 2026-11-27 (n): Step 4 plan (reports from the ledger)
+- Wrote docs/specs/step4-reports.md, a plan only; nothing is built.
+- It covers:
+  - Day Book, General Ledger with drill-down, Cash and Bank Books, Trial Balance (as at and for a period);
+  - Profit and Loss, Balance Sheet, customer and supplier statements from the journal, and the month-against-month comparison;
+  - admin and accountant only, read-only, Excel and PDF with BS dates and lakh grouping, performance for a year of data;
+  - 15 questions for the accountant, each with a recommended answer;
+  - build parts 4a, 4b and 4c with their tests.
+- Proposed migration 016_report_indexes.sql (indexes only) for 4a; not written yet.
+- Open: the "Aegis-style" comparison format is not described anywhere; the accountant is asked for a sample (question 9.8).
