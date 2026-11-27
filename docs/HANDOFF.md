@@ -130,7 +130,7 @@
   - **Drill-down:** voucher, entry, source document (read-only, with "Open in <page>"; only purchase bills open the exact document), plus the Consumption view.
   - **Not yet:** the P&L, Balance Sheet, statements and comparison (4b), and the Excel and PDF exports (4c).
 
-34. Reports part 4b, 2026-11-28 (docs/specs/step4-reports.md section 13). Needs migration 018 (not yet applied).
+34. Reports part 4b, 2026-11-28 (docs/specs/step4-reports.md section 13). Migration 018 run (recorded 2026-11-28).
   - **Profit and Loss:**
     - the layout of the Step 4 decisions;
     - this period, previous, change, fiscal year to date, each with % of net sales, and the key ratios;
@@ -165,9 +165,10 @@
 - 015_period_lock.sql (recorded 2026-11-27, by the owner): posting_days.reopened_on, day_reopens, period_closes.
 - 016_stock_adjustments.sql (recorded 2026-11-28, by the owner): inventory_logs.kind and unit_cost.
 - 017_report_indexes.sql (recorded 2026-11-28, by the owner): report indexes on journal_lines and journal_entries.
+- 018_report_settings.sql (recorded 2026-11-28, by the owner): report_settings (the highlight rule, 20% and Rs 1,000).
 
 # Not yet applied on the server
-- 018_report_settings.sql (2026-11-28): report_settings (the highlight rule, 20% and Rs 1,000). Run after a backup, before deploy.sh.
+- None.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
