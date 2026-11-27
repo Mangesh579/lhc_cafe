@@ -796,3 +796,9 @@ db/migrations/012_room_stays.sql: NOT YET RUN on the server.
 - Room charges are made on the payment screen (not the POS), because room bills often come from the room's QR.
 - A guest found by phone is reused; a new guest goes on the customer list (with no points on stay bills).
 - The breakfast warning counts adults plus children against the breakfasts used today; it never blocks.
+
+
+## 2026-11-27: Migration 012 run
+
+- The owner ran db/migrations/012_room_stays.sql on the server (after a backup), merged room-stays into main from the terminal (f8af8aa) and deployed hotel room stays. Recorded as run in CLAUDE.md and docs/HANDOFF.md.
+- Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
