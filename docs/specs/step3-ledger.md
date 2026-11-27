@@ -339,3 +339,26 @@ Each part ends with typecheck, build, `pnpm test`, a CHANGELOG entry and the ful
     - **unsettled machines 1250/1260/1270/1280:** against Settlements from the settlement start date.
 - **Posting:** one transaction; the posting_days row is written first, so the same day cannot post twice.
 - **Deferred to 3c (with consumption):** the ingredient cost put back by a "not served" cancel (Dr 1400/1410, Cr 5000/5010), and NC bills (5200). 3b posts no inventory or cost lines.
+
+## 16. Part 3c as built (2026-11-27; see docs/CHANGELOG.md)
+- **No migration:** every field 3c needs already exists (014 added the banks and accounts).
+- **Posting rules** (lib/postingRules.ts), journal series of their own:
+  - **purchase bills (PB):** 1400 kitchen / 1410 drink lines at line total, VAT in cost while VAT is off; against 2100 with the supplier (credit), 1100 (drawer) or 1200/1210 (cheque or online, from paid_from_account). Opening bills are not posted;
+  - **supplier payments (SP):** 2100 with the supplier against 1100 or the bank. An advance is the same, so the supplier goes negative;
+  - **debit notes (DJ):** 2100 against 1400/1410 by line department;
+  - **expenses (EX):** through expense_account_map, against 1100 (drawer or cash) or 1200/1210 by expenses.bank_account. Card or QR, a missing bank or an unmapped category is a must-fix. Petty cash with no bill posts the same way and is flagged "no bill". Rows of purchase bills, debit notes, Record purchase and settlement bank charges are never posted;
+  - **cash movements (CM):** a deposit to 1200/1210 by its bank, an owner draw to 3100, other in/out to its account;
+  - **drawer close (CC, one per day):** a short Dr 7050, an over Cr 7050;
+  - **consumption (CO, one per day):**
+    - sold items' unit_cost x quantity, Dr 5000/5010 by category kind;
+    - NC bills Dr 5200; Waste Log entries (not prep waste, not equipment) Dr 5100;
+    - all against 1400/1410, split by each menu item's recipe cost by ingredient department (by category kind when the recipe has no cost);
+    - "not served" cancels put the stock back (Dr 1400/1410, Cr 5000/5010);
+    - items with no recipe cost are flagged with the sales they carry.
+- **Late changes:** every 3c type is reversed or re-posted at the next revision when it changes after posting, and posted late when entered after its day.
+  - A day's consumption is rebuilt when its sales change. A late sale on a day with no consumption entry adds one.
+  - Problems of a posted document are raised again only if its entry changes.
+- **Reconciliation:**
+  - **Cash:** the day's 1100 movement (without the short/over) against the Cash Drawer's expected change; the 1100 balance at the close against the counted cash.
+  - **Payables:** total and each supplier against credit bills less payments and debit notes as at the day.
+  - **Stock (information only, never a problem):** 1400/1410 against stock x cost per unit now.

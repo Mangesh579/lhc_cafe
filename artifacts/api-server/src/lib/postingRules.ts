@@ -132,3 +132,143 @@ export function sameLines(a: Line[], b: Line[]): boolean {
   const key = (ls: Line[]) => ls.map(l => `${l.accountCode}|${l.customerId ?? ""}|${l.supplierId ?? ""}|${round2(l.debit).toFixed(2)}|${round2(l.credit).toFixed(2)}`).sort().join(";");
   return key(a) === key(b);
 }
+
+// ── Part 3c: purchases, supplier payments, debit notes, expenses, the drawer and consumption ──
+
+export const PAYABLE = "2100", CASH = "1100", DRAWINGS = "3100", CASH_SHORT_OVER = "7050";
+const INVENTORY: Record<string, string> = { kitchen: "1400", drink: "1410" };
+const CONSUMPTION: Record<string, string> = { food: "5000", beverage: "5010" };
+export const NC_COST = "5200", WASTE = "5100";
+export const dayKey = (day: string) => Number(day.replace(/-/g, "")); // a day as a source id (consumption, drawer close)
+
+// Inventory lines by department (kitchen 1400, drink 1410); an unknown department is a must-fix
+function inventoryLines(lines: { department: string; lineTotal: number }[], side: "debit" | "credit", ref: string, problems: Problem[]): Line[] {
+  const out: Line[] = [];
+  for (const l of lines) {
+    const acct = INVENTORY[l.department];
+    if (!acct) { problems.push({ level: "fix", code: "department", message: `${ref}: a line with department "${l.department}" (not kitchen or drink).`, ref }); continue; }
+    out.push({ accountCode: acct, debit: side === "debit" ? round2(l.lineTotal) : 0, credit: side === "credit" ? round2(l.lineTotal) : 0 });
+  }
+  return out;
+}
+
+export type BillSource = { billId: number; pjNumber: string; billNumber: string; day: string; supplierId: number; supplierName: string; terms: string; paidVia: string | null; paidFromAccount: string | null; total: number; lines: { department: string; lineTotal: number }[] };
+
+// A purchase bill increases stock, never cost (step 2 spec section 13). VAT stays in the line cost while VAT is off.
+export function purchaseBillEntry(b: BillSource): Built {
+  const problems: Problem[] = [];
+  const stock = inventoryLines(b.lines, "debit", b.pjNumber, problems);
+  const linesTotal = round2(stock.reduce((s, l) => s + l.debit, 0));
+  if (stock.length && Math.abs(linesTotal - b.total) >= 0.005) {
+    const big = stock.reduce((a, c) => (c.debit > a.debit ? c : a));
+    big.debit = round2(big.debit + b.total - linesTotal);
+    problems.push({ level: "ack", code: "bill_total", message: `${b.pjNumber}: lines add up to Rs. ${linesTotal.toFixed(2)}, the bill is Rs. ${b.total.toFixed(2)}.`, ref: b.pjNumber });
+  }
+  let credit: Line | null = null;
+  if (b.terms === "credit") credit = { accountCode: PAYABLE, debit: 0, credit: round2(b.total), supplierId: b.supplierId };
+  else if (b.paidVia === "drawer") credit = { accountCode: CASH, debit: 0, credit: round2(b.total) };
+  else if (BANK_ACCOUNT[b.paidFromAccount ?? ""]) credit = { accountCode: BANK_ACCOUNT[b.paidFromAccount!], debit: 0, credit: round2(b.total) };
+  else problems.push({ level: "fix", code: "bill_bank", message: `${b.pjNumber}: paid by ${b.paidVia ?? "?"} with no bank recorded.`, ref: b.pjNumber });
+  if (problems.some(p => p.level === "fix") || !credit) return { entry: null, problems };
+  return { entry: { voucherType: "PB", narration: `${b.pjNumber}: bill ${b.billNumber} from ${b.supplierName}`, sourceType: "purchase_bill", sourceId: b.billId, sourceRef: b.pjNumber, date: b.day, lines: tidy([...stock, credit]) }, problems };
+}
+
+export type PaymentSource = { paymentId: number; voucherNo: string; day: string; supplierId: number; paidVia: string; paidFromAccount: string | null; amount: number };
+
+// A supplier payment (CV from the drawer, PV by cheque or online); an advance also debits 2100 (the supplier goes negative)
+export function supplierPaymentEntry(p: PaymentSource): Built {
+  const credit = p.paidVia === "drawer" ? CASH : BANK_ACCOUNT[p.paidFromAccount ?? ""];
+  if (!credit) return { entry: null, problems: [{ level: "fix", code: "payment_bank", message: `${p.voucherNo}: paid by ${p.paidVia} with no bank recorded.`, ref: p.voucherNo }] };
+  return { entry: { voucherType: "SP", narration: `${p.voucherNo}: supplier payment`, sourceType: "supplier_payment", sourceId: p.paymentId, sourceRef: p.voucherNo, date: p.day,
+    lines: [{ accountCode: PAYABLE, debit: round2(p.amount), credit: 0, supplierId: p.supplierId }, { accountCode: credit, debit: 0, credit: round2(p.amount) }] }, problems: [] };
+}
+
+export type DebitNoteSource = { noteId: number; noteNo: string; day: string; supplierId: number; total: number; lines: { department: string; lineTotal: number }[] };
+
+// A purchase return lowers what is owed and the stock
+export function debitNoteEntry(n: DebitNoteSource): Built {
+  const problems: Problem[] = [];
+  const stock = inventoryLines(n.lines, "credit", n.noteNo, problems);
+  if (problems.length) return { entry: null, problems };
+  const lines = tidy([{ accountCode: PAYABLE, debit: round2(n.total), credit: 0, supplierId: n.supplierId }, ...stock]);
+  if (!balanced(lines)) return { entry: null, problems: [{ level: "fix", code: "unbalanced", message: `${n.noteNo}: lines do not add up to the note.`, ref: n.noteNo }] };
+  return { entry: { voucherType: "DJ", narration: `${n.noteNo}: purchase return`, sourceType: "debit_note", sourceId: n.noteId, sourceRef: n.noteNo, date: n.day, lines }, problems: [] };
+}
+
+export type ExpenseSource = { expenseId: number; voucherNo: string | null; day: string; category: string; accountCode: string | null; amount: number; paymentMethod: string; paidFromDrawer: boolean; bankAccount: string | null; billNumber: string | null };
+
+// An expense through expense_account_map. Petty cash with no bill posts the same way, flagged for the accountant's review.
+export function expenseEntry(e: ExpenseSource): Built {
+  const ref = e.voucherNo ?? `Expense #${e.expenseId}`;
+  const problems: Problem[] = [];
+  if (!e.accountCode) problems.push({ level: "fix", code: "expense_map", message: `${ref}: expense category "${e.category}" has no account (Chart of Accounts > Expense categories).`, ref });
+  let credit: string | null = null;
+  if (e.paidFromDrawer || e.paymentMethod === "cash") credit = CASH;
+  else if (e.paymentMethod === "bank_transfer" || e.paymentMethod === "cheque") {
+    credit = BANK_ACCOUNT[e.bankAccount ?? ""] ?? null;
+    if (!credit) problems.push({ level: "fix", code: "expense_bank", message: `${ref}: paid by ${e.paymentMethod.replace("_", " ")} with no bank recorded.`, ref });
+  } else problems.push({ level: "fix", code: "expense_mode", message: `${ref}: paid by ${e.paymentMethod}; tell the accountant which account it came from.`, ref });
+  if (e.paidFromDrawer && !e.billNumber) problems.push({ level: "ack", code: "no_bill", message: `${ref}: petty cash with no bill (Rs. ${e.amount.toFixed(2)}, ${e.category}).`, ref });
+  if (problems.some(p => p.level === "fix") || !credit) return { entry: null, problems };
+  return { entry: { voucherType: "EX", narration: `${ref}: ${e.category}${e.billNumber ? `, bill ${e.billNumber}` : e.paidFromDrawer ? ", no bill" : ""}`, sourceType: "expense", sourceId: e.expenseId, sourceRef: ref, date: e.day,
+    lines: [{ accountCode: e.accountCode!, debit: round2(e.amount), credit: 0 }, { accountCode: credit, debit: 0, credit: round2(e.amount) }] }, problems };
+}
+
+export type MovementSource = { movementId: number; day: string; kind: string; amount: number; bankAccount: string | null; accountCode: string | null; reference: string | null };
+
+export function cashMovementEntry(m: MovementSource): Built {
+  const ref = `Drawer ${m.kind.replace("_", " ")} #${m.movementId}`;
+  let other: string | null = null, cashIn = false;
+  if (m.kind === "deposit") other = BANK_ACCOUNT[m.bankAccount ?? ""] ?? null;
+  else if (m.kind === "owner_draw") other = DRAWINGS;
+  else if (m.kind === "other_in" || m.kind === "other_out") { other = m.accountCode; cashIn = m.kind === "other_in"; }
+  if (!other) return { entry: null, problems: [{ level: "fix", code: m.kind === "deposit" ? "deposit_bank" : "movement_account", message: `${ref}: ${m.kind === "deposit" ? "no bank recorded" : "no account recorded"}.`, ref }] };
+  const a = round2(m.amount);
+  return { entry: { voucherType: "CM", narration: `${ref}${m.reference ? ` (${m.reference})` : ""}`, sourceType: "cash_movement", sourceId: m.movementId, sourceRef: ref, date: m.day,
+    lines: cashIn ? [{ accountCode: CASH, debit: a, credit: 0 }, { accountCode: other, debit: 0, credit: a }] : [{ accountCode: other, debit: a, credit: 0 }, { accountCode: CASH, debit: 0, credit: a }] }, problems: [] };
+}
+
+// The closed drawer's counted difference: short (negative) Dr 7050, over (positive) Cr 7050
+export function cashCloseEntry(c: { day: string; difference: number }): Built {
+  const d = round2(c.difference);
+  if (Math.abs(d) < 0.005) return { entry: null, problems: [] };
+  const a = Math.abs(d);
+  return { entry: { voucherType: "CC", narration: `Cash ${d < 0 ? "short" : "over"} at the close of ${c.day}`, sourceType: "cash_close", sourceId: dayKey(c.day), sourceRef: `Drawer ${c.day}`, date: c.day,
+    lines: d < 0 ? [{ accountCode: CASH_SHORT_OVER, debit: a, credit: 0 }, { accountCode: CASH, debit: 0, credit: a }] : [{ accountCode: CASH, debit: a, credit: 0 }, { accountCode: CASH_SHORT_OVER, debit: 0, credit: a }] }, problems: [] };
+}
+
+export type ConsumptionSource = {
+  day: string;
+  sold: { cost: number; kind: string | null; kitchenShare: number }[];      // ingredient cost of the day's sold items
+  nc: { cost: number; kitchenShare: number }[];                              // NC bills at ingredient cost
+  restored: { cost: number; kind: string | null; kitchenShare: number }[];  // "not served" cancels: stock put back
+  waste: { value: number; department: string }[];                            // Waste Log entries (not prep waste)
+  uncosted: { count: number; sales: number };                                // sold items with no recipe cost
+};
+
+// One entry per day: consumption Dr 5000/5010 (category kind), NC Dr 5200, waste Dr 5100, all against 1400/1410 by
+// ingredient department; the stock a "not served" cancel put back reverses its consumption.
+export function consumptionEntry(c: ConsumptionSource): Built {
+  const problems: Problem[] = [];
+  const debit = new Map<string, number>(), credit = new Map<string, number>();
+  const add = (m: Map<string, number>, k: string, v: number) => { if (v > 0.00001) m.set(k, (m.get(k) ?? 0) + v); };
+  const stock = (m: Map<string, number>, cost: number, kitchenShare: number) => { add(m, "1400", cost * kitchenShare); add(m, "1410", cost * (1 - kitchenShare)); };
+  for (const s of c.sold) { add(debit, CONSUMPTION[s.kind ?? ""] ?? "5000", s.cost); stock(credit, s.cost, s.kitchenShare); }
+  for (const n of c.nc) { add(debit, NC_COST, n.cost); stock(credit, n.cost, n.kitchenShare); }
+  for (const w of c.waste) { add(debit, WASTE, w.value); add(credit, INVENTORY[w.department] ?? "1400", w.value); }
+  const back = new Map<string, number>(), backCr = new Map<string, number>();
+  for (const r of c.restored) { stock(back, r.cost, r.kitchenShare); add(backCr, CONSUMPTION[r.kind ?? ""] ?? "5000", r.cost); }
+  if (c.uncosted.count) problems.push({ level: "ack", code: "no_recipe_cost", message: `Consumption on ${c.day} is short: ${c.uncosted.count} item${c.uncosted.count === 1 ? "" : "s"} sold with no recipe cost (sales Rs. ${c.uncosted.sales.toFixed(2)}).` });
+  const order = ["5000", "5010", NC_COST, WASTE];
+  const lines: Line[] = [
+    ...[...debit.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0])).map(([k, v]) => ({ accountCode: k, debit: round2(v), credit: 0 })),
+    ...[...back.entries()].sort().map(([k, v]) => ({ accountCode: k, debit: round2(v), credit: 0 })),
+    ...[...credit.entries()].sort().map(([k, v]) => ({ accountCode: k, debit: 0, credit: round2(v) })),
+    ...[...backCr.entries()].sort().map(([k, v]) => ({ accountCode: k, debit: 0, credit: round2(v) })),
+  ].filter(l => l.debit > 0.004 || l.credit > 0.004);
+  if (!lines.length) return { entry: null, problems };
+  // rounding the splits can leave a paisa: put it on the biggest credit line so the entry balances
+  const diff = round2(lines.reduce((s, l) => s + l.debit - l.credit, 0));
+  if (Math.abs(diff) >= 0.005) { const big = lines.filter(l => l.credit > 0).reduce((a, b) => (b.credit > a.credit ? b : a)); big.credit = round2(big.credit + diff); }
+  return { entry: { voucherType: "CO", narration: `Consumption, NC and waste for ${c.day}`, sourceType: "consumption", sourceId: dayKey(c.day), sourceRef: `Consumption ${c.day}`, date: c.day, lines }, problems };
+}
