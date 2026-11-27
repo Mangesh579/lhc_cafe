@@ -2,7 +2,7 @@
 // Entries are only ever added: a mistake is put right by reverseEntry. The 013 triggers refuse edits, deletes, unbalanced
 // entries and lines on header or inactive accounts, as a backstop to the checks here.
 import { accountsTable, journalEntriesTable, journalLinesTable, ledgerSettingsTable } from "@workspace/db";
-import { and, eq, gte, lte, sql, asc } from "drizzle-orm";
+import { and, eq, gte, lte, sql, asc, desc } from "drizzle-orm";
 import { checkEntryLines, mirrorLines, accountBalance, type AccountInfo, type EntryLine } from "./glRules";
 import { fiscalLabel, nextVoucherNumber } from "./fiscal";
 import { round2 } from "./payments";
@@ -29,11 +29,24 @@ export async function accountMap(ex: Db): Promise<Map<string, AccountInfo & { ty
 export type NewEntry = {
   entryDate: string; voucherType: string; narration: string; kind: "post" | "reverse" | "opening" | "manual";
   sourceType?: string | null; sourceId?: number | null; sourceRef?: string | null; reversesEntryId?: number | null;
+  revision?: number; // set only on a reversal (the revision it reverses); 'post'/'opening' entries get theirs from nextRevision
   lines: unknown; user: string;
 };
 
+// The revision a new 'post'/'opening' entry for a source takes: 1 the first time; after that the next one, and only when the
+// revision in force has been reversed (principle 5: reverse the original, then post the corrected entry).
+async function nextRevision(tx: Db, sourceType: string, sourceId: number): Promise<number> {
+  const [last] = await tx.select({ id: journalEntriesTable.id, revision: journalEntriesTable.revision, entryNo: journalEntriesTable.entryNo }).from(journalEntriesTable)
+    .where(and(eq(journalEntriesTable.sourceType, sourceType), eq(journalEntriesTable.sourceId, sourceId), sql`${journalEntriesTable.kind} IN ('post', 'opening')`))
+    .orderBy(desc(journalEntriesTable.revision)).limit(1);
+  if (!last) return 1;
+  const [rev] = await tx.select({ id: journalEntriesTable.id }).from(journalEntriesTable).where(eq(journalEntriesTable.reversesEntryId, last.id));
+  if (!rev) throw new LedgerError(400, `${last.entryNo} (revision ${last.revision}) is still in force for this document. Reverse it before posting the corrected entry.`);
+  return last.revision + 1;
+}
+
 // Posts one balanced entry. Refuses a date before the ledger start date (the opening entry must be on it).
-export async function postEntry(tx: Db, e: NewEntry): Promise<{ id: number; entryNo: string }> {
+export async function postEntry(tx: Db, e: NewEntry): Promise<{ id: number; entryNo: string; revision: number }> {
   if (!isDay(e.entryDate)) throw new LedgerError(400, "Enter the entry date.");
   const narration = String(e.narration ?? "").trim().slice(0, 500);
   if (!narration) throw new LedgerError(400, "Enter a narration (what the entry is for).");
@@ -43,16 +56,18 @@ export async function postEntry(tx: Db, e: NewEntry): Promise<{ id: number; entr
   }
   const v = checkEntryLines(e.lines, await accountMap(tx));
   if ("error" in v) throw new LedgerError(400, v.error);
+  const sourced = (e.kind === "post" || e.kind === "opening") && e.sourceType != null && e.sourceId != null;
+  const revision = sourced ? await nextRevision(tx, e.sourceType!, e.sourceId!) : (e.revision ?? 1);
   const at = new Date(`${e.entryDate}T06:00:00Z`);
   const entryNo = await nextVoucherNumber(tx, e.voucherType, PREFIX[e.voucherType] ?? e.voucherType, at);
   const [row] = await tx.insert(journalEntriesTable).values({
     entryNo, voucherType: e.voucherType, entryDate: e.entryDate, fiscalYear: fiscalLabel(at), narration, kind: e.kind,
-    sourceType: e.sourceType ?? null, sourceId: e.sourceId ?? null, sourceRef: e.sourceRef ?? null, reversesEntryId: e.reversesEntryId ?? null, createdBy: e.user,
+    sourceType: e.sourceType ?? null, sourceId: e.sourceId ?? null, sourceRef: e.sourceRef ?? null, reversesEntryId: e.reversesEntryId ?? null, revision, createdBy: e.user,
   }).returning();
   for (const [i, l] of v.lines.entries()) {
     await tx.insert(journalLinesTable).values({ entryId: row.id, lineNo: i + 1, accountCode: l.accountCode, debit: String(l.debit), credit: String(l.credit), customerId: l.customerId, supplierId: l.supplierId, memo: l.memo });
   }
-  return { id: row.id, entryNo };
+  return { id: row.id, entryNo, revision };
 }
 
 export async function entryWithLines(ex: Db, id: number) {
@@ -73,7 +88,7 @@ export async function reverseEntry(tx: Db, id: number, date: string, reason: str
   const [done] = await tx.select({ id: journalEntriesTable.id, no: journalEntriesTable.entryNo }).from(journalEntriesTable).where(eq(journalEntriesTable.reversesEntryId, id));
   if (done) throw new LedgerError(400, `${e.entryNo} is already reversed by ${done.no}.`);
   const lines: EntryLine[] = e.lines.map((l: any) => ({ accountCode: l.accountCode, debit: l.debit, credit: l.credit, customerId: l.customerId, supplierId: l.supplierId, memo: l.memo }));
-  return postEntry(tx, { entryDate: date, voucherType: "JV", narration: `Reversal of ${e.entryNo}: ${reason_}`, kind: "reverse", reversesEntryId: id, sourceType: e.sourceType, sourceId: e.sourceId, sourceRef: e.sourceRef, lines: mirrorLines(lines), user });
+  return postEntry(tx, { entryDate: date, voucherType: "JV", narration: `Reversal of ${e.entryNo}: ${reason_}`, kind: "reverse", reversesEntryId: id, revision: e.revision, sourceType: e.sourceType, sourceId: e.sourceId, sourceRef: e.sourceRef, lines: mirrorLines(lines), user });
 }
 
 // Trial balance up to a day (inclusive): every account with movements, its debit and credit totals and its balance

@@ -3,7 +3,9 @@
 -- the opening-balance draft.
 --   accounts                 the chart approved 2026-11-24, plus 1280, 3050, 4020, 5150 and 7110 (inactive) of 2026-11-27
 --   expense_account_map      the accountant's defaults (CLAUDE.md "Step 3 answers"), to be confirmed on the Accounts page
---   journal_entries/_lines   immutable (UPDATE/DELETE refused) and balanced (checked at commit); lines only on postable, active accounts
+--   journal_entries/_lines   immutable (UPDATE/DELETE refused) and balanced (checked at commit); lines only on postable, active accounts.
+--                            revision: a source posts as revision 1; after a late change it is reversed and re-posted as revision 2, ...
+--                            (one 'post' per source and revision). Re-running this file also adds revision to an older 013 table.
 --   ledger_settings          start date Poush 1, 2083 BS = 2026-12-16, lock 3 days, opening balances "draft" until the owner confirms
 --   opening_balance_lines    the draft opening balances, editable with opening_balance_log as the audit trail
 --
@@ -130,13 +132,18 @@ CREATE TABLE IF NOT EXISTS journal_entries (
   source_id          integer,
   source_ref         text,
   kind               text NOT NULL CHECK (kind IN ('post','reverse','opening','manual')),
+  revision           integer NOT NULL DEFAULT 1 CHECK (revision >= 1),
   reverses_entry_id  integer REFERENCES journal_entries(id),
   created_by         text NOT NULL,
   created_at         timestamp NOT NULL DEFAULT now(),
   CONSTRAINT journal_entries_reverse_chk CHECK ((kind = 'reverse') = (reverses_entry_id IS NOT NULL))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_no_idx ON journal_entries(entry_no);
-CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_source_idx ON journal_entries(source_type, source_id, kind) WHERE source_type IS NOT NULL AND kind IN ('post', 'opening');
+-- One 'post' (or 'opening') entry per source and revision; a corrected entry takes the next revision (principle 5).
+-- ADD COLUMN and the index rebuild make a re-run fix a database that ran the first version of this file.
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS revision integer NOT NULL DEFAULT 1;
+DROP INDEX IF EXISTS journal_entries_source_idx;
+CREATE UNIQUE INDEX journal_entries_source_idx ON journal_entries(source_type, source_id, revision) WHERE source_type IS NOT NULL AND kind IN ('post', 'opening');
 CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_reverses_idx ON journal_entries(reverses_entry_id) WHERE reverses_entry_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS journal_entries_date_idx ON journal_entries(entry_date);
 
@@ -236,3 +243,4 @@ COMMIT;
 --   SELECT * FROM ledger_settings;                                                                          -- 2026-12-16, 3, draft
 --   SELECT count(*) FROM journal_entries;                                                                   -- 0
 --   SELECT tgname FROM pg_trigger WHERE tgname LIKE 'journal_%' ORDER BY 1;                                 -- 5 triggers
+--   SELECT indexdef FROM pg_indexes WHERE indexname = 'journal_entries_source_idx';                         -- (source_type, source_id, revision)
