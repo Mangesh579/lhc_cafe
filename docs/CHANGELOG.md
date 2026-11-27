@@ -895,3 +895,25 @@ None.
     - the bill's items carry isBreakfast;
     - a third breakfast today is saved (not blocked) with the warning.
 - Not run: the payment dialog's preselect and the printed bill in a browser (the frontend has no test runner); anything against production.
+
+
+## 2026-11-27: Plan for step 3 (ledger)
+
+### Summary
+- Skills used: ponytail, backend-patterns, database-migrations.
+- Wrote docs/specs/step3-ledger.md:
+  - tables: accounts with headers and an active flag, an expense-category map, immutable balanced journal entries and lines with customer/supplier sub-ledger ids, posting days, ledger settings, month closes; opening balances as one opening entry;
+  - how every event posts, with its source document;
+  - the next-day review screen with problems, late-change reversals and reconciliation against Collections, the drawer, Receivables, Payables and Settlements;
+  - lock after N days and the Nepali month close;
+  - the build in parts 3a (accounts and engine), 3b (sales, credit notes, receipts, settlements, review), 3c (purchases, payments, expenses, drawer, consumption) and 3d (lock and month close), with the tests for each.
+- 13 questions for the owner and the accountant (section 12). Nothing built.
+
+### Files
+- New: docs/specs/step3-ledger.md. Changed: docs/HANDOFF.md.
+
+### Migration
+None (013 to 016 are drafts in the plan).
+
+### Tests
+- None (plan only).

@@ -114,7 +114,7 @@
 - **API docs:** the OpenAPI spec and generated client still list only cash and nabil_qr as payment methods.
 
 # Next work
-Roadmap step 3 in CLAUDE.md: chart of accounts, vouchers (RV, CV, JV, PV), double-entry posting, next-day posting and the period lock. Before writing it:
+Roadmap step 3 in CLAUDE.md: chart of accounts, vouchers (RV, CV, JV, PV), double-entry posting, next-day posting and the period lock. Plan written 2026-11-27 in docs/specs/step3-ledger.md (parts 3a to 3d), waiting for the owner's and accountant's review and the answers to its section 12; no code until approved. Before writing it:
 - ask the accountant for the Sulimha Durbar receivable account;
 - follow the posting rules in docs/specs/step2-suppliers.md section 13 and docs/specs/room-stays.md section 5;
 - credit notes post to 4900 Sales returns.
