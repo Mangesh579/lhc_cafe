@@ -87,7 +87,7 @@
   - **VAT:** VAT bills are refused (payment API and screen; the reprint too) until the admin switches VAT on (Chart of Accounts settings).
   - **Bank field:** Nabil or HBL is now required on receipts by bank (Receivables), drawer deposits (Cash Drawer), and expenses by bank transfer or cheque.
   - **Other cash in/out:** needs its account (4200, 7100, 3000, 3100).
-  - Needs migration 014.
+  - Migration 014 run (recorded 2026-11-27).
 
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
@@ -104,8 +104,10 @@
 - 012_room_stays.sql (recorded 2026-11-27, by the owner): cafe_tables.is_room, room_stays, hotel_settings, orders.room_stay_id, stay_charge and breakfast_count, menu_items.is_breakfast, loyalty_customers.email optional, card modes on customer_receipts.
 - 013_ledger_accounts_journal.sql (recorded 2026-11-27, by the owner; the edited version with journal_entries.revision): accounts, expense_account_map, journal_entries (with revision) and journal_lines (with triggers), ledger_settings (start 2026-12-16, lock 3), opening_balance_lines, opening_balance_log.
 
+- 014_ledger_posting.sql (recorded 2026-11-27, by the owner): menu_categories.revenue_kind, ledger_settings.vat_enabled, bank_account on customer_receipts / cash_movements / expenses, cash_movements.account_code, posting_days.
+
 # Not yet applied on the server
-- 014_ledger_posting.sql (written 2026-11-27): menu_categories.revenue_kind, ledger_settings.vat_enabled, bank_account on customer_receipts / cash_movements / expenses, cash_movements.account_code, posting_days. Run before deploying item 28.
+- None.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
