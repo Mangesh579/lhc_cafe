@@ -310,3 +310,24 @@ describe("migration 018", () => {
     expect(r.n).toBe(1);
   });
 });
+
+describe("4c fixes to 4b", () => {
+  const rule = { pct: 20, min: 1000 };
+  it("A1: from 0 there is no percentage; the row is highlighted when the change is above the amount, toned by direction", () => {
+    expect(changeOf(1500, 0, "up", rule)).toEqual({ change: 1500, changePct: null, highlight: true, tone: "good" });
+    expect(changeOf(1500, 0, "down", rule)).toEqual({ change: 1500, changePct: null, highlight: true, tone: "bad" });
+    expect(changeOf(-1500, 0, "up", rule)).toMatchObject({ changePct: null, highlight: true, tone: "bad" });
+    expect(changeOf(800, 0, "down", rule)).toEqual({ change: 800, changePct: null, highlight: false, tone: null });
+    expect(changeOf(0, 0, "up", rule)).toMatchObject({ highlight: false, tone: null });
+  });
+  it("A3: the settings must be 0 to 1,000 % and 0 to 1,00,00,00,000 rupees", async () => {
+    for (const [p, m, msg] of [[-1, 100, /percentage must be between 0 and 1,000/], [1001, 100, /percentage/], ["abc", 100, /percentage/], ["", 100, /percentage/],
+      [10, -1, /amount must be between 0 and 1,00,00,00,000/], [10, 1_000_000_001, /amount/], [10, "x", /amount/], [10, null, /amount/]] as [any, any, RegExp][]) {
+      const r = await api("PATCH", "/gl/report-settings", { highlightPct: p, highlightMin: m });
+      expect(r.status, `${p} ${m}`).toBe(400);
+      expect(r.body.error).toMatch(msg);
+    }
+    for (const [p, m] of [[0, 0], [1000, 1_000_000_000], ["25", "500"]]) expect((await api("PATCH", "/gl/report-settings", { highlightPct: p, highlightMin: m })).status).toBe(200);
+    await api("PATCH", "/gl/report-settings", { highlightPct: 20, highlightMin: 1000 });
+  });
+});

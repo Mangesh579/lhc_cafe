@@ -10,6 +10,9 @@ import { resolvePeriod, asAt, postedInfo, reportMeta } from "../lib/reports/peri
 import { dayBook, generalLedger, book, trialBalancePeriod, journalParties, BOOKS, VOUCHER_TYPES, KINDS } from "../lib/reports/books";
 import { entryDetail, sourceDocument, consumptionView, SOURCE_LINKS } from "../lib/reports/drilldown";
 import { bsLabel, bsMonthRange } from "../lib/fiscal";
+import { EXPORTS, ExportError } from "../lib/reports/exportDocs";
+import { toXlsx, toPdf, PDF_LIMIT, PDF_TOO_BIG } from "../lib/reportExport";
+import { fileName } from "../lib/reportFormat";
 import { profitLoss, balanceSheet, compareView, customerStatement, supplierStatement, partySummary, reportSettings, fyRange } from "../lib/reports/statements";
 
 const router = Router();
@@ -111,6 +114,26 @@ router.get("/reports/suppliers/:id/statement", authenticate, only, async (req: A
   res.json({ ...p, ...st });
 });
 void bsMonthRange; void fyRange;
+
+// ── Step 4c: Excel and PDF of every report, from the same functions as the screen. GET only; nothing is written. ──
+const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+router.get("/reports/export/:report", authenticate, only, async (req: AuthRequest, res: Response): Promise<void> => {
+  const format = String(req.query.format ?? "");
+  if (format !== "xlsx" && format !== "pdf") { res.status(400).json({ error: "Choose the format: xlsx or pdf." }); return; }
+  const make = EXPORTS[String(req.params.report)];
+  if (!make) { res.status(404).json({ error: "No such report." }); return; }
+  let doc;
+  try { doc = await make(req.query as Record<string, any>); }
+  catch (e) { if (e instanceof ExportError) { res.status(e.status).json({ error: e.message }); return; } throw e; }
+  if (format === "pdf" && doc.count > PDF_LIMIT) { res.status(400).json({ error: PDF_TOO_BIG, count: doc.count, limit: PDF_LIMIT }); return; }
+  const by = { user: req.user?.username ?? "user", at: new Date() };
+  res.setHeader("Content-Disposition", `attachment; filename="${fileName(doc.fileReport, doc.filePeriod, format)}"`);
+  res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
+  res.setHeader("Cache-Control", "no-store");
+  if (format === "pdf") { res.type("application/pdf").send(await toPdf(doc, by)); return; }
+  res.type(XLSX_TYPE);
+  await toXlsx(doc, res, by);
+});
 
 // The customers and suppliers that appear in the journal (for the party pickers)
 router.get("/reports/parties", authenticate, only, async (_req: AuthRequest, res: Response): Promise<void> => {

@@ -29,6 +29,10 @@ async function buildAll() {
     // - use path traversal to read files (e.g. @google-cloud/secret-manager loads sibling .proto files)
     external: [
       "*.node",
+      // step 4c: pdfkit (under pdfmake) reads its font files from disk at run time; exceljs streams zip parts
+      "exceljs",
+      "pdfmake",
+      "pdfkit",
       "sharp",
       "better-sqlite3",
       "sqlite3",

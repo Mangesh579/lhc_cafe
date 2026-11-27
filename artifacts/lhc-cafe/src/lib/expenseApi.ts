@@ -66,3 +66,15 @@ export async function openReceipt(attachmentId: number) {
   const blob = await r.blob();
   window.open(URL.createObjectURL(blob), "_blank");
 }
+
+// Step 4c: download a file (a report export) with the token; saves it under the server's file name
+export async function apiDownload(path: string, fallbackName: string) {
+  const r = await fetch(`${API_BASE}/api${path}`, { headers: { Authorization: `Bearer ${token()}` } });
+  if (!r.ok) { const data = await r.json().catch(() => null); throw { status: r.status, error: data?.error ?? "The download failed" }; }
+  const name = (r.headers.get("content-disposition") ?? "").match(/filename="([^"]+)"/)?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement("a");
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return name;
+}
