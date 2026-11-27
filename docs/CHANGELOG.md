@@ -1495,3 +1495,75 @@ None.
 
 ## 2026-11-28: Migration 016 recorded as run
 - The owner ran db/migrations/016_stock_adjustments.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 3e entry above. Docs only; no code, no SQL, nothing to deploy.
+
+## 2026-11-28: Reports part 4a, the books from the ledger
+
+### Summary
+- **New Reports page** (/reports, sidebar "Reports", admin and accountant only), with four tabs. Each reads the journal only and is a GET.
+  - **Day Book:** every voucher by day with its lines, day totals and the total for the whole filter. Filters: voucher type (SJ ... SA, JV, OPEN), kind (posted, correction, late, reversal, manual, opening), account, customer or supplier, and text in the narration, reference or voucher number. 200 vouchers a page.
+  - **General Ledger:** one account, with the opening balance, each line (date in BS and AD, voucher, the other side of the entry, narration, party, memo), the running balance with Dr/Cr, the period totals and the closing. 500 lines a page; the running balance is computed over the whole period, so a page never changes it.
+    - 1300 and 2100 take a customer or supplier; without one, a list of every party's opening, debit, credit and closing.
+    - A header account shows a summary of its children.
+  - **Cash and Bank Books:** 1100, 1200 and 1210 in book form: receipts, payments, the balance, a closing line per day, and a reference column for the banks. The Cash Book shows the drawer's counted cash on closed days beside the closing.
+  - **Trial Balance:** for the period (six columns: opening, period and closing, Dr and Cr, grouped by type with subtotals) or as at a date. Accounts with nothing in them are hidden by default.
+- **Periods** in BS: a BS month, a fiscal year (Shrawan 1 to the end of Ashadh; 2083/84 starts at the ledger start), one day, or from-to. Every report shows its period in BS and AD, "Posted up to <day>", and "<n> day(s) in this period are not posted yet; their figures are not included." A period before the ledger start says so.
+- **Amounts** are in lakh grouping (1,23,45,678.50), with negatives in brackets.
+- **Drill-down:**
+  - Any voucher number opens its entry: lines with names, what it reverses or what reversed it, and the other entries for the same document.
+  - The entry shows its source document read-only (fields and items) with an "Open in <page>" button. Only the purchase bill opens the exact document on its page (/suppliers?bill=); the other pages have no deep links yet, so the button opens the page.
+  - Consumption entries open the new Consumption view (every consumption entry of the day, with lines and memos). It is also reachable as /reports?consumption=<day>.
+  - Every source_type is covered, stock_adjustment included.
+- Chart of Accounts > Trial balance now points to the Reports page.
+
+### Endpoints (all GET, admin and accountant; 403 for everyone else)
+- /reports/meta;
+- /reports/day-book;
+- /reports/ledger/:code;
+- /reports/book/:code (1100, 1200, 1210);
+- /reports/trial-balance (?to= as at; ?month, ?fy, ?day or ?from&to for the period);
+- /reports/entries/:id;
+- /reports/source/:type/:id;
+- /reports/consumption/:day;
+- /reports/parties.
+
+### Files
+- New:
+  - api-server: src/lib/reports/periods.ts, src/lib/reports/books.ts, src/lib/reports/drilldown.ts, src/routes/reports.ts; src/__tests__/reports4a.test.ts, src/__tests__/reportsPerf.test.ts;
+  - lhc-cafe: src/pages/reports.tsx, src/components/reports/common.tsx;
+  - db/migrations/017_report_indexes.sql.
+- Changed: api-server src/routes/index.ts; lhc-cafe src/App.tsx, src/components/layout/Sidebar.tsx, src/pages/chart-of-accounts.tsx; CLAUDE.md, docs/HANDOFF.md, docs/specs/step4-reports.md (section 12).
+
+### Tables and migration
+- No table or column changes.
+- db/migrations/017_report_indexes.sql, indexes only:
+  - journal_lines(account_code, entry_id);
+  - journal_lines(customer_id) and journal_lines(supplier_id), each where not null;
+  - journal_entries(voucher_type, entry_date).
+- NOT run on the server yet. Idempotent (tested twice). The reports work without it, only slower on a large journal, but run it before deploying as usual.
+
+### Decisions
+- The Day Book's "correction" and "late" kinds are posted entries whose narration says "(corrected: ...)" or "(late: ...)", as glPosting writes them.
+- The source document is shown inside Reports instead of adding deep links to eight pages. It reads that document's own table for its fields; every amount in the reports still comes from the journal.
+- The Trial Balance "as at" on the Reports page takes the end date of a one-day or from-to period, otherwise today.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 45 files, 431 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- New, reports4a (20), on the step 3c worked days plus a credit customer:
+  - BS periods: Poush 2083, FY 2083/84 from the ledger start, FY 2084/85 from Shrawan 1 to the end of Ashadh, a day, a bad range;
+  - "Posted up to" on every report, and the warning (3 unposted days of Poush to the 20th; none for a posted day; before the start);
+  - Day Book totals equal the Trial Balance movement; each voucher-type filter returns only its type and they add up to all; the kind, account, customer and text filters;
+  - General Ledger: opening + movement = closing for every account with entries, on both normal sides; the closing equals the Trial Balance; the other side; page 2 changes no total;
+  - the 1300 and 2100 party lists add up to the account, and one party's ledger equals its line (Asha 500 - 300 = 200); a header summary; an unknown account gives 404;
+  - Cash Book: the closing equals 1100, and the 16th and 17th equal the counts (1,730 and 1,765); Bank Books equal 1200 and 1210; 1300 is refused as a book;
+  - Trial Balance: opening + movement = closing per account, and all six columns and the subtotals balance; the period closing equals the as-at balance; hide-zero;
+  - drill-down: every source_type in the posting code has a link; every entry opens, and a source document opens for every source type in the journal; the purchase bill opens its own bill; the Consumption view;
+  - staff and supervisor get 403 on every route;
+  - reports never write: every table's row count is unchanged after calling every endpoint;
+  - migration 017 runs twice.
+- New, reportsPerf (13): a generated year (50,000 entries, 200,000 lines, 50 customers, 20 suppliers) on PGlite.
+  - Every endpoint answered in under 0.5 seconds; the limit is 5 seconds.
+  - The year's Day Book total equals the Trial Balance movement.
+- Not run: the screens in a browser; anything against production.

@@ -23,6 +23,7 @@ import Receivables from "@/pages/receivables";
 import Settlements from "@/pages/settlements";
 import Stays from "@/pages/stays";
 import ChartOfAccounts from "@/pages/chart-of-accounts";
+import Reports from "@/pages/reports";
 import Suppliers from "@/pages/suppliers";
 import PurchaseBill from "@/pages/purchase-bill";
 import AccountConversion from "@/pages/account-conversion";
@@ -112,6 +113,7 @@ function Router() {
         <Route path="/settlements" component={Settlements} />
         <Route path="/stays" component={Stays} />
         <Route path="/chart-of-accounts" component={ChartOfAccounts} />
+        <Route path="/reports" component={Reports} />
         <Route path="/suppliers" component={Suppliers} />
         <Route path="/purchases/new" component={PurchaseBill} />
         <Route path="/tables" component={Tables} />

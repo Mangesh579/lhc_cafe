@@ -124,6 +124,12 @@
   - **Cost:** the change is valued at the cost per unit recorded with the log. A log with no cost is an acknowledge-level problem and does not post.
   - **Other logs** (orders, purchases, debit notes, waste, cancels) are not adjustments; their own documents post them.
 
+33. Reports part 4a, 2026-11-28 (docs/specs/step4-reports.md section 12). Needs migration 017 (not yet applied; indexes only).
+  - **Reports page** (/reports, admin and accountant): Day Book, General Ledger (with the 1300/2100 party lists), Cash and Bank Books, Trial Balance for a period (six columns) or as at a date. All read from the journal, GET only.
+  - **Every report** shows its period in BS and AD, "Posted up to", and a warning for days not posted yet.
+  - **Drill-down:** voucher, entry, source document (read-only, with "Open in <page>"; only purchase bills open the exact document), plus the Consumption view.
+  - **Not yet:** the P&L, Balance Sheet, statements and comparison (4b), and the Excel and PDF exports (4c).
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -144,7 +150,7 @@
 - 016_stock_adjustments.sql (recorded 2026-11-28, by the owner): inventory_logs.kind and unit_cost.
 
 # Not yet applied on the server
-- None.
+- 017_report_indexes.sql (2026-11-28): indexes on journal_lines and journal_entries for the reports. Run after a backup, before deploy.sh.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
