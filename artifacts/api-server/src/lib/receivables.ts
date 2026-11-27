@@ -4,6 +4,8 @@ import { nepalDay } from "./ledgerData";
 import { partsFor, creditAmountOf, round2 } from "./payments";
 import { dueDateOf, daysBetween, outstandingOf, effectiveTerms, loyaltyBasis, pointsFor, DEFAULT_CREDIT_DAYS, type CreditDefaults } from "./receivableRules";
 import type { Tx } from "./fiscal";
+import { stayText, type StayInfo } from "./stayRules";
+import { stayInfoByOrder } from "./stayInfo";
 
 type Exec = Tx | typeof db;
 const num = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
@@ -21,6 +23,7 @@ export type CreditInvoice = {
   orderId: number; invoiceNumber: string | null; customerId: number | null; customerName: string | null; customerPhone: string | null;
   day: string; at: string; billTotal: number; creditAmount: number; creditNotes: number; receivable: number;
   allocated: number; outstanding: number; dueDate: string; daysOverdue: number;
+  stay: StayInfo | null; stayText: string; // a hotel stay bill: room, guest and breakfasts
 };
 
 // Settled, chargeable orders that have a credit part: from order_payments, or (older rows) payment_method = 'credit'
@@ -74,6 +77,7 @@ export async function creditInvoices(filter: { customerId?: number; orderIds?: n
   for (const p of pays) payMap.set(p.orderId, [...(payMap.get(p.orderId) ?? []), p]);
   const alloc = await allocatedByOrder(ids, ex);
   const notes = await creditNotesByOrder(ids, ex);
+  const stays = await stayInfoByOrder(ids, ex); // hotel stay bills: room, guest, breakfasts (statement and invoice text)
   const today = nepalDay(new Date());
   return rows.map(r => {
     const at = new Date(r.paidAt ?? r.backdatedAt ?? r.createdAt);
@@ -89,6 +93,7 @@ export async function creditInvoices(filter: { customerId?: number; orderIds?: n
       day, at: at.toISOString(), billTotal: round2(num(r.totalAmount)), creditAmount, creditNotes: cn,
       receivable: round2(creditAmount - cn), allocated, outstanding,
       dueDate, daysOverdue: outstanding > 0 ? Math.max(0, daysBetween(dueDate, today)) : 0,
+      stay: stays.get(r.id) ?? null, stayText: stayText(stays.get(r.id) ?? null),
     };
   }).sort((a, b) => a.at.localeCompare(b.at));
 }

@@ -72,7 +72,7 @@ router.get("/receivables/customers/:id", authenticate, async (req: AuthRequest, 
   const items = [
     ...notes.filter(n => n.status === "active").map(n => ({ day: n.noteDate, t: new Date(n.createdAt).toISOString(), type: "credit_note", ref: n.noteNo, orderId: n.orderId,
       description: `Credit note on ${n.invoiceNumber ?? `order #${n.orderId}`}: ${n.reason}`, debit: 0, credit: n.total })),
-    ...invoices.map(i => ({ day: i.day, t: i.at, type: "invoice", ref: i.invoiceNumber ?? `Order #${i.orderId}`, orderId: i.orderId, description: i.creditAmount < i.billTotal ? `Credit sale (part of a Rs. ${i.billTotal.toFixed(2)} bill)` : "Credit sale", debit: i.creditAmount, credit: 0 })),
+    ...invoices.map(i => ({ day: i.day, t: i.at, type: "invoice", ref: i.invoiceNumber ?? `Order #${i.orderId}`, orderId: i.orderId, description: `${i.creditAmount < i.billTotal ? `Credit sale (part of a Rs. ${i.billTotal.toFixed(2)} bill)` : "Credit sale"}${i.stayText ? ` · ${i.stayText}` : ""}`, debit: i.creditAmount, credit: 0 })),
     ...receipts.filter(r => r.status === "active").map(r => ({ day: r.receiptDate, t: new Date(r.createdAt).toISOString(), type: "receipt", ref: r.voucherNo, orderId: null, description: `Receipt (${r.modeLabel})${r.reference ? ` · ${r.reference}` : ""}`, debit: 0, credit: r.amount })),
   ].sort((a, b) => a.day.localeCompare(b.day) || a.t.localeCompare(b.t));
   let bal = 0;

@@ -41,6 +41,18 @@ function toNepaliDateTime(dateStr: string): string {
 const creditNotesOf = (o: any): number => Number(o?.salesCreditNotes ?? 0);
 const creditNotesNetOf = (o: any): number => Number(o?.salesCreditNotesNet ?? 0);
 const isReissue = (o: any): boolean => !!o?.reissueOf;
+const escHtml = (v: unknown) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// Hotel stay bills (2026-11-27): the printed bill names the guest, the room and, for an included breakfast, the breakfasts
+function stayBillLines(o: any): string {
+  const st = o?.stay;
+  if (!st) return "";
+  if (st.stayCharge === "breakfast") {
+    const n = Number(st.breakfastCount ?? 0), each = n > 0 ? (parseFloat(String(o.totalAmount)) - parseFloat(String(o.vatAmount ?? 0))) / n : 0;
+    return `<p style="font-weight:bold;">Billed To: ${escHtml(o.loyaltyCustomerName ?? "Sulimha Durbar")}</p>
+      <p>Hotel breakfast (included): ${n} x Rs. ${each.toFixed(2)}</p><p>Room: ${escHtml(st.room)} · Guest: ${escHtml(st.guestName)}</p>`;
+  }
+  return `<p>Room: ${escHtml(st.room)} · Guest: ${escHtml(st.guestName)} (charged to room)</p>`;
+}
 const netAfterNotes = (o: any): number => Math.round((parseFloat(String(o.totalAmount)) - creditNotesOf(o)) * 100) / 100;
 const moveNote = (o: any): string => o?.reissueOf ? `Re-issue of ${o.reissueOf} (not counted again)`
   : [o?.movedTo ? `Moved to ${o.movedTo}` : null, ...((o?.creditNoteList ?? []) as any[]).filter(n => n.kind !== "reissue").map(n => `${n.noteNo} ${n.noteDate}`)].filter(Boolean).join(", ");
@@ -540,6 +552,7 @@ export default function OrderLog() {
           ${(order as any).invoiceNumber ? `<p style="font-weight:bold;">Invoice No: ${(order as any).invoiceNumber}</p>` : ""}
           <p>${new Date().toLocaleString()} (reprinted)</p>
           ${(order as any).otherPartyName ? `<p>Billed To: ${(order as any).otherPartyName}</p>` : ""}
+          ${stayBillLines(order)}
           ${(order as any).otherPartyPan ? `<p>PAN: ${(order as any).otherPartyPan}</p>` : ""}
           <div style="border-top:1px dashed #999;border-bottom:1px dashed #999;padding:8px 0;margin:8px 0;">
             ${order.items?.map((i: any) => `<div style="display:flex;justify-content:space-between;"><span>${i.quantity}× ${i.menuItemName}</span><span>Rs. ${parseFloat(i.subtotal).toFixed(0)}</span></div>`).join("")}
@@ -910,6 +923,7 @@ export default function OrderLog() {
                         {order.paymentStatus}
                       </Badge>
                     )}
+                    {(order as any).stayText && <Badge variant="secondary" className="text-xs bg-sky-50 text-sky-800">{(order as any).stayText}</Badge>}
                     {creditNotesOf(order) > 0 && <Badge variant="secondary" className="text-xs bg-red-50 text-red-700">Credit notes −{rs(creditNotesOf(order))}</Badge>}
                     {(order as any).movedTo && <Badge variant="secondary" className="text-xs">Moved to invoice {(order as any).movedTo}</Badge>}
                     {isReissue(order) && <Badge variant="secondary" className="text-xs">Re-issue of {(order as any).reissueOf}: not counted again</Badge>}

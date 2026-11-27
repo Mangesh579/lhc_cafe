@@ -107,6 +107,20 @@ describe("charging bills to the stay", () => {
     expect(f.breakfastsToday).toBe(2);
   });
 
+  it("the breakfast invoice names the guest, the room and the breakfasts (invoice, Sulimha statement); a third today warns", async () => {
+    const st = (await api("acct", "GET", `/receivables/customers/${sulimha}`)).body;
+    expect(st.invoices[0]).toMatchObject({ billTotal: 1600, stayText: "Hotel breakfast x 2 · Room 103 · Ram Thapa", stay: { room: "103", guestName: "Ram Thapa", stayCharge: "breakfast", breakfastCount: 2 } });
+    expect(st.ledger.find((e: any) => e.type === "invoice").description).toBe("Credit sale · Hotel breakfast x 2 · Room 103 · Ram Thapa");
+    const o = (await api("admin", "GET", `/orders/${st.invoices[0].orderId}`)).body;
+    expect(o).toMatchObject({ stayText: "Hotel breakfast x 2 · Room 103 · Ram Thapa", loyaltyCustomerName: "Sulimha Durbar" });
+    // a bill of breakfast items carries the flag the payment dialog uses to preselect "Included breakfast"
+    const id = await bill(room103, [[coffee, 1, 250, null]]);
+    expect((await api("staff", "GET", `/orders/${id}`)).body.items).toEqual([expect.objectContaining({ isBreakfast: true })]);
+    const r = await api("staff", "PATCH", `/orders/${id}/payment`, { paymentStatus: "paid", roomCharge: { stayId, kind: "breakfast", breakfasts: 1 } });
+    expect(r.status).toBe(200); // not blocked
+    expect(r.body.breakfastWarning).toBe("3 breakfasts today for 2 guests in this room (2 already billed). Check before the next one.");
+  });
+
   it("refuses a non-breakfast item on a breakfast bill", async () => {
     const id = await bill(room103, [[eggs, 1, 450, null], [club, 1, 500, null]]);
     expect((await api("staff", "PATCH", `/orders/${id}/payment`, { paymentStatus: "paid", roomCharge: { stayId, kind: "breakfast", breakfasts: 1 } })).body.error).toMatch(/Club sandwich is not a breakfast item/);

@@ -861,3 +861,37 @@ None needed.
 - A Wrong-customer move is not a sales return: neither the note nor the re-issued invoice is counted.
 - A Sulimha transfer counts in Money received at the amount received (after Sulimha's fee), on the settlement's date.
 - Breakfast lines share the total by their menu value.
+
+
+## 2026-11-27: Hotel breakfast invoices name the guest, room and breakfasts; breakfast preselected
+
+### Summary
+- Skills used: ponytail, tdd, backend-patterns, react-patterns.
+- **Stay text on invoices:** an invoice charged to a stay now carries its stay text: "Hotel breakfast x N · Room R · Guest" for an included breakfast (billed to Sulimha Durbar), or "Room R · Guest (charged to room)" for an extra. It shows in:
+  - the Order Log: a badge, and the reprinted bill (Billed To: Sulimha Durbar; Hotel breakfast (included): N x Rs. price; Room and Guest);
+  - Receivables: under the invoice number in the invoices list, and in the ledger description, i.e. Sulimha Durbar's statement ("Credit sale · Hotel breakfast x 2 · Room 103 · Ram Thapa");
+  - the API: orders and credit invoices carry `stay` {room, guestName, stayCharge, breakfastCount} and `stayText`.
+- **Old invoices:** the text is read through orders.room_stay_id each time, so no invoice row is changed.
+- **Payment screen:** when the bill's room has an open stay with breakfast included and every item is a breakfast item, "Included breakfast" is preselected and the count is filled from the stay's adults (it was adults less today's breakfasts). Order items now carry isBreakfast.
+- **Warning (never a block):** when the stay's breakfasts today with this bill would be more than its guests (adults plus children). The dialog shows the counts, and the payment answer returns breakfastWarning, shown in the toast.
+
+### Files
+- New: api-server src/lib/stayInfo.ts (stayInfoByOrder).
+- Changed: api-server src/lib/stayRules.ts (stayText, breakfastWarning), src/lib/receivables.ts (stay on credit invoices), src/routes/receivables.ts (ledger description), src/routes/orders.ts (stay on orders, isBreakfast on items, breakfastWarning); tests stayRules (+2), stays (+1); lhc-cafe pages/order-log.tsx, pages/receivables.tsx, pages/orders.tsx; docs/HANDOFF.md.
+
+### Tables
+- None changed.
+
+### Migration
+None.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 32 files, 244 tests pass; typecheck api-server, lhc-cafe and libs clean; both artifacts build.
+- New:
+  - stayRules: stay text for a breakfast and an extra, and empty without a stay; the warning at 2+1 for 2 guests, none at 2+1 for 3, none at 0+2 for 2.
+  - stays (real routes on PGlite):
+    - Sulimha's statement: the invoice shows stay and stayText, and the ledger reads "Credit sale · Hotel breakfast x 2 · Room 103 · Ram Thapa";
+    - GET /orders/:id has the stay text and Sulimha as the customer;
+    - the bill's items carry isBreakfast;
+    - a third breakfast today is saved (not blocked) with the warning.
+- Not run: the payment dialog's preselect and the printed bill in a browser (the frontend has no test runner); anything against production.

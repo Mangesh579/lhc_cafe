@@ -137,7 +137,12 @@ export default function Orders() {
         const stays = d.rooms.filter((r: any) => r.stay).map((r: any) => r.stay);
         setOpenStays(stays); setBreakfastPrice(d.settings.breakfastPrice);
         const here = stays.find((st: any) => st.tableId === order.tableId);
-        if (here) { setRoomStayId(here.id); setBreakfasts(String(Math.max(1, here.adults - here.breakfastsToday))); }
+        if (here) {
+          setRoomStayId(here.id);
+          setBreakfasts(String(Math.max(1, here.adults))); // owner, 2026-11-27: filled from the stay's adults
+          const items: any[] = order.items ?? [];
+          if (here.breakfastIncluded && items.length > 0 && items.every(i => i.isBreakfast)) setRoomKind("breakfast");
+        }
       }).catch(() => {});
     setBillType("pan");
     setOtherPartyName("");
@@ -253,7 +258,7 @@ export default function Orders() {
         toast({
           title: roomKind === "breakfast" ? `Breakfast billed to Sulimha Durbar (${d.invoiceNumber ?? ""})` : `Charged to room ${st?.room ?? ""} (${d.invoiceNumber ?? ""})`,
           description: [roomKind === "breakfast" ? `${breakfasts} x ${rs(breakfastPrice)}` : `${st?.guestName ?? "The guest"} pays at check-out.`,
-            d.noRecipeCost?.length ? `No recipe cost yet for: ${d.noRecipeCost.join(", ")}.` : null].filter(Boolean).join(" "),
+            d.noRecipeCost?.length ? `No recipe cost yet for: ${d.noRecipeCost.join(", ")}.` : null, d.breakfastWarning].filter(Boolean).join(" "),
         });
         setPaymentModalOrder(null);
       } catch (err: any) {
@@ -911,7 +916,7 @@ export default function Orders() {
               return (
                 <div className="rounded-md border border-sky-200 bg-sky-50/50 p-2.5 space-y-2 text-sm">
                   <Label className="text-xs font-semibold text-muted-foreground uppercase">Hotel room (Sulimha Durbar guest)</Label>
-                  <select className="h-9 rounded-md border border-input bg-background px-2 text-sm w-full" value={roomStayId ?? ""} onChange={e => { const id = e.target.value ? Number(e.target.value) : null; setRoomStayId(id); const x = openStays.find(y => y.id === id); if (x) setBreakfasts(String(Math.max(1, x.adults - x.breakfastsToday))); }}>
+                  <select className="h-9 rounded-md border border-input bg-background px-2 text-sm w-full" value={roomStayId ?? ""} onChange={e => { const id = e.target.value ? Number(e.target.value) : null; setRoomStayId(id); const x = openStays.find(y => y.id === id); if (x) setBreakfasts(String(Math.max(1, x.adults))); }}>
                     <option value="">Not a hotel guest</option>
                     {openStays.map(x => <option key={x.id} value={x.id}>Room {x.room} · {x.guestName}</option>)}
                   </select>
@@ -928,7 +933,7 @@ export default function Orders() {
                           <span>breakfasts = {rs((parseInt(breakfasts) || 0) * breakfastPrice)} · today so far {st.breakfastsToday} of {st.adults + st.children} guests</span>
                         </div>
                       )}
-                      {over && <p className="text-xs font-medium text-amber-700 pl-6">More breakfasts today than guests in the room. Check before saving.</p>}
+                      {over && <p className="text-xs font-medium text-amber-700 pl-6">{st.breakfastsToday + (parseInt(breakfasts) || 0)} breakfasts today for {st.adults + st.children} guests ({st.breakfastsToday} already billed). Check before saving; it is not blocked.</p>}
                       {roomKind === "breakfast" && <p className="text-xs text-muted-foreground pl-6">Only breakfast items can be on this bill. Anything else goes on a separate bill, charged to the room.</p>}
                     </div>
                   )}

@@ -61,3 +61,17 @@ export function breakfastCost(items: { name: string; quantity: number; unitCost:
   }
   return { cost: round2(cost), noRecipeCost };
 }
+
+// A warning, never a block (owner, 2026-11-27): the stay's breakfasts today, with this bill, are more than its guests
+export function breakfastWarning(usedToday: number, count: number, adults: number, children: number): string | null {
+  const guests = adults + children, after = usedToday + count;
+  return after > guests ? `${after} breakfasts today for ${guests} guest${guests === 1 ? "" : "s"} in this room (${usedToday} already billed). Check before the next one.` : null;
+}
+
+// What an invoice charged to a stay says about it (invoice, printed bill, statement). Derived from room_stay_id at read
+// time, so older invoices are not changed.
+export type StayInfo = { room: string; guestName: string; stayCharge: string | null; breakfastCount: number | null };
+export function stayText(s: StayInfo | null): string {
+  if (!s) return "";
+  return s.stayCharge === "breakfast" ? `Hotel breakfast x ${s.breakfastCount ?? 0} · Room ${s.room} · ${s.guestName}` : `Room ${s.room} · ${s.guestName} (charged to room)`;
+}
