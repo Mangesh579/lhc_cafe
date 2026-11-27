@@ -13,6 +13,7 @@ import { useAuth } from "@/contexts/auth";
 import { apiJson } from "@/lib/expenseApi";
 import { rs } from "@/lib/payments";
 import * as XLSX from "xlsx";
+import { PostDayTab, MenuCategoriesTab } from "@/components/PostDay";
 
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
 const TYPE_LABEL: Record<string, string> = { asset: "Asset", liability: "Liability", equity: "Equity", income: "Income", expense: "Expense" };
@@ -27,7 +28,7 @@ export default function ChartOfAccounts() {
   const [settings, setSettings] = useState<any>(null);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [map, setMap] = useState<any>(null);
-  const [tab, setTab] = useState("accounts");
+  const [tab, setTab] = useState("post");
   const fail = (e: any, title = "Not saved") => toast({ title, description: e?.error, variant: "destructive" });
 
   const load = useCallback(async () => {
@@ -63,12 +64,16 @@ export default function ChartOfAccounts() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap h-auto">
+          <TabsTrigger value="post">Post a day</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
           <TabsTrigger value="map">Expense categories</TabsTrigger>
           <TabsTrigger value="journals">Journals</TabsTrigger>
           <TabsTrigger value="tb">Trial balance</TabsTrigger>
           <TabsTrigger value="opening">Opening balances</TabsTrigger>
+          <TabsTrigger value="categories">Menu categories</TabsTrigger>
         </TabsList>
+        <TabsContent value="post"><PostDayTab /></TabsContent>
+        <TabsContent value="categories"><MenuCategoriesTab /></TabsContent>
         <TabsContent value="accounts"><AccountsTab accounts={accounts} onChanged={load} /></TabsContent>
         <TabsContent value="map"><MapTab map={map} postable={postable} onChanged={load} /></TabsContent>
         <TabsContent value="journals"><JournalsTab postable={postable} settings={settings} /></TabsContent>
@@ -95,6 +100,11 @@ function SettingsCard({ settings, isAdmin, onSaved }: { settings: any; isAdmin: 
       <p className="text-xs uppercase tracking-wider text-muted-foreground">Ledger start date</p>
       <p className="text-lg font-bold">{settings.startDateBs} <span className="text-sm font-normal text-muted-foreground">({settings.startDate})</span></p>
       <p className="text-xs text-muted-foreground">Nothing before it is posted. A posted day locks after {settings.lockAfterDays} days. Today: {settings.todayBs}.</p>
+      <p className="text-xs">VAT: {settings.vatEnabled ? <strong className="text-green-700">on</strong> : <strong>off (VAT bills are refused until LHC is VAT registered)</strong>}
+        {isAdmin && <button type="button" className="ml-2 underline text-primary" onClick={async () => {
+          if (!confirm(settings.vatEnabled ? "Switch VAT off? VAT bills will be refused again." : "Switch VAT on? Only after LHC is VAT registered.")) return;
+          try { await apiJson("/gl/settings", "PATCH", { vatEnabled: !settings.vatEnabled }); onSaved(); } catch (e: any) { toast({ title: "Not saved", description: e?.error, variant: "destructive" }); }
+        }}>{settings.vatEnabled ? "Switch off" : "Switch on"}</button>}</p>
       {!edit ? <button type="button" className="text-xs underline text-primary" onClick={() => setEdit(true)}>Change</button> : (
         <div className="space-y-2 pt-1">
           {isAdmin && <div className="space-y-1"><Label className="text-xs">Start date (AD)</Label><Input type="date" value={start} disabled={settings.entries > 0} onChange={e => setStart(e.target.value)} className="h-8" />

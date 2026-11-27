@@ -10,6 +10,7 @@ export const expensesTable = pgTable("expenses", {
   vendor: text("vendor"),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"),
+  bankAccount: text("bank_account"), // paid by bank transfer or cheque: from which bank (nabil | hbl), step 3b
   isRecurring: boolean("is_recurring").notNull().default(false),
   paidFromDrawer: boolean("paid_from_drawer").notNull().default(false),
   billNumber: text("bill_number"), // the supplier's bill, when there is one (optional for petty cash since 2026-11-25)

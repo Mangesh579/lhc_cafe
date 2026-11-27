@@ -307,3 +307,35 @@ Each part ends with typecheck, build, `pnpm test`, a CHANGELOG entry and the ful
   - the trial balance;
   - opening balances: fill from the system, type, the log, and confirm by the admin;
   - settings: the start date shown in BS and AD.
+
+## 15. Part 3b as built (2026-11-27; see docs/CHANGELOG.md)
+- **Migration 014:**
+  - `menu_categories.revenue_kind` (food | beverage);
+  - `ledger_settings.vat_enabled` (false);
+  - `bank_account` on `customer_receipts`, `cash_movements` and `expenses`;
+  - `cash_movements.account_code`;
+  - `posting_days`.
+- **Required from now on:**
+  - the bank on receipts by bank, deposits, and expenses by bank transfer or cheque;
+  - the account (4200, 7100, 3000 or 3100) on other cash in/out.
+  - VAT bills are refused by the payment API and screen until the admin switches VAT on.
+- **Posting rules** (lib/postingRules.ts), one entry per document:
+  - bills (SJ): debits by payment mode; sales by category kind; 4950 for the discount; 4020 for hotel breakfasts; 2200 for VAT;
+  - credit notes (SJ): 4900, 2200, 1300; a Wrong-customer move is a 1300 to 1300 transfer;
+  - receipts (RJ);
+  - settlements (ST): the bank, 7000, the machine.
+  - Journal numbers have their own series (SJ, RJ, ST), so the RV, CV and PV document numbers are untouched.
+- **Review (lib/glPosting.ts, Chart of Accounts > Post a day):**
+  - **Blockers:** before the start date; not yet ended; out of date order.
+  - **Must fix:** opening balances not confirmed; a category not marked Food or Beverage; a credit part with no customer; an unknown mode; a bank receipt with no bank; a bill with no items.
+  - **To acknowledge (with a note):** the drawer not closed; a VAT bill; a card with no machine; items not adding up to the bill; any reconciliation difference.
+  - **Late changes on the day posted:**
+    - a cancelled or voided document is reversed;
+    - a changed one is reversed and re-posted at the next revision;
+    - a document dated on an already-posted day is posted late.
+  - **Reconciliation:**
+    - **sales before VAT and VAT:** the day's own entries against Collections;
+    - **receivables at the end of the day:** total and per customer, against Receivables' own figures as at that day (a re-issued invoice counts from its move);
+    - **unsettled machines 1250/1260/1270/1280:** against Settlements from the settlement start date.
+- **Posting:** one transaction; the posting_days row is written first, so the same day cannot post twice.
+- **Deferred to 3c (with consumption):** the ingredient cost put back by a "not served" cancel (Dr 1400/1410, Cr 5000/5010), and NC bills (5200). 3b posts no inventory or cost lines.

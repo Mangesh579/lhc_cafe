@@ -15,6 +15,7 @@ import { allocatedByOrder, customerBalances, creditNotesByOrder, syncLoyaltyForO
 import { creditLimitWarning, outstandingOf } from "../lib/receivableRules";
 import { breakfastBill, breakfastCost, allocateTotal, stayText, breakfastWarning, type StayInfo } from "../lib/stayRules";
 import { stayInfoByOrder } from "../lib/stayInfo";
+import { ledgerSettings } from "../lib/ledger";
 import { creditNotesBetween, creditNoteEffect, reissuedOrderIds, nepalDay } from "../lib/ledgerData";
 import { hotelSettings } from "./stays";
 
@@ -402,6 +403,11 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
 
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+
+  // Owner and accountant, 2026-11-27: VAT bills are stopped while LHC is not VAT registered (Chart of Accounts > settings)
+  if ((billType === "vat" || (vatAmount !== undefined && Number(vatAmount) > 0)) && !(await ledgerSettings(db)).vatEnabled) {
+    res.status(400).json({ error: "VAT bills are stopped until LHC is VAT registered. Print a PAN bill." }); return;
+  }
 
   if (paymentStatus !== "paid") {
     if (order.paymentStatus === "paid") { res.status(400).json({ error: "This order is already paid. Use a correction instead of editing it directly." }); return; }

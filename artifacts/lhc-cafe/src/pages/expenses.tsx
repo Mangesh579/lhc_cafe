@@ -21,7 +21,7 @@ import ProfitLoss from "@/components/ProfitLoss";
 const money = (n: number) => `Rs. ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const methodLabel = (v: string) => v === "credit" ? "Credit (supplier bill)" : PAYMENT_METHODS.find(m => m.value === v)?.label ?? v;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const EMPTY = { type: "indirect", category: INDIRECT_CATEGORIES[0], subcategory: "", expenseDate: "", amount: "", paymentMethod: "cash", vendor: "", description: "", isRecurring: false, frequency: "monthly", paidFromDrawer: false, billNumber: "" };
+const EMPTY = { type: "indirect", category: INDIRECT_CATEGORIES[0], subcategory: "", expenseDate: "", amount: "", paymentMethod: "cash", vendor: "", description: "", isRecurring: false, frequency: "monthly", paidFromDrawer: false, billNumber: "", bankAccount: "" };
 
 export default function Expenses() {
   const { user } = useAuth();
@@ -85,7 +85,7 @@ export default function Expenses() {
 
   const openEdit = async (r: any) => {
     setEditing(r);
-    setForm({ type: r.type, category: r.category, subcategory: r.subcategory ?? "", expenseDate: r.expenseDate, amount: String(parseFloat(r.amount)), paymentMethod: r.paymentMethod, vendor: r.vendor ?? "", description: r.description ?? "", isRecurring: r.isRecurring, frequency: r.frequency ?? "monthly" });
+    setForm({ type: r.type, category: r.category, subcategory: r.subcategory ?? "", expenseDate: r.expenseDate, amount: String(parseFloat(r.amount)), paymentMethod: r.paymentMethod, vendor: r.vendor ?? "", description: r.description ?? "", isRecurring: r.isRecurring, frequency: r.frequency ?? "monthly", bankAccount: r.bankAccount ?? "" } as any);
     setFiles([]); setFormOpen(true);
     try {
       setAttachments(await apiJson(`/expenses/${r.id}/attachments`));
@@ -377,6 +377,8 @@ export default function Expenses() {
                 </Select>
               </div>
               <div className="space-y-1"><Label>Paid to / vendor</Label><Input value={form.vendor} onChange={e => setForm({ ...form, vendor: e.target.value })} /></div>
+              {(form.paymentMethod === "bank_transfer" || form.paymentMethod === "cheque") && <div className="space-y-1"><Label>Paid from which bank? *</Label>
+                <select className="h-9 rounded-md border border-input bg-background px-2 text-sm w-full" value={(form as any).bankAccount ?? ""} onChange={e => setForm({ ...form, bankAccount: e.target.value } as any)}><option value="">Choose…</option><option value="nabil">Nabil Bank</option><option value="hbl">HBL</option></select></div>}
               {!editing && <div className="space-y-1"><Label>Bill no. (if any)</Label><Input value={form.billNumber ?? ""} onChange={e => setForm({ ...form, billNumber: e.target.value })} /></div>}
               {form.paymentMethod === "cash" && !editing && (
                 <label className="col-span-2 flex items-center gap-2 text-sm cursor-pointer">

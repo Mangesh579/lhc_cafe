@@ -253,6 +253,9 @@ export default function OrderLog() {
   const canSeeProfit = (user?.role as string | undefined) === "admin" || (user?.role as string | undefined) === "accountant";
   const { toast } = useToast();
   const [printOrder, setPrintOrder] = useState<any>(null);
+  // A VAT bill can be reprinted only if it was one, or once VAT is on (VAT bills are stopped until registration)
+  const [vatOn, setVatOn] = useState(false);
+  useEffect(() => { fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/gl/vat-status`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } }).then(r => r.ok ? r.json() : null).then(d => setVatOn(!!d?.vatEnabled)).catch(() => {}); }, []);
   const [printBillType, setPrintBillType] = useState<"pan" | "vat">("pan");
   const [printReason, setPrintReason] = useState("");
   const [printSaving, setPrintSaving] = useState(false);
@@ -1181,7 +1184,7 @@ export default function OrderLog() {
             ) : (
               <div className="flex gap-2">
                 <Button variant={printBillType === "pan" ? "default" : "outline"} size="sm" onClick={() => setPrintBillType("pan")} className="flex-1">PAN Bill</Button>
-                <Button variant={printBillType === "vat" ? "default" : "outline"} size="sm" onClick={() => setPrintBillType("vat")} className="flex-1">VAT Bill</Button>
+                <Button variant={printBillType === "vat" ? "default" : "outline"} size="sm" disabled={!vatOn && !(parseFloat(String((printOrder as any)?.vatAmount ?? 0)) > 0)} onClick={() => setPrintBillType("vat")} className="flex-1">VAT Bill</Button>
               </div>
             )}
             <div className="space-y-1">

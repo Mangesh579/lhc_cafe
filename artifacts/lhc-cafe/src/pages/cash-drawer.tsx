@@ -31,7 +31,7 @@ export default function CashDrawer() {
   const [loading, setLoading] = useState(true);
   const [openAmt, setOpenAmt] = useState("");
   const [payout, setPayout] = useState({ type: "direct", category: DIRECT_CATEGORIES[0], vendor: "", billNumber: "", amount: "", description: "" });
-  const [move, setMove] = useState({ kind: "deposit", amount: "", description: "", reference: "" });
+  const [move, setMove] = useState({ kind: "deposit", amount: "", description: "", reference: "", bankAccount: "", accountCode: "" });
   const [closeOpen, setCloseOpen] = useState(false);
   const [counted, setCounted] = useState("");
   const [closeNote, setCloseNote] = useState("");
@@ -154,10 +154,13 @@ export default function CashDrawer() {
                 <select className={SELECT} value={move.kind} onChange={e => setMove({ ...move, kind: e.target.value })}>
                   {KINDS.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
                 </select>
+                {move.kind === "deposit" && <select className={SELECT} value={move.bankAccount} onChange={e => setMove({ ...move, bankAccount: e.target.value })}><option value="">Deposited into which bank? *</option><option value="nabil">Nabil Bank</option><option value="hbl">HBL</option></select>}
+                {(move.kind === "other_in" || move.kind === "other_out") && <select className={SELECT} value={move.accountCode} onChange={e => setMove({ ...move, accountCode: e.target.value })}>
+                  <option value="">Account *</option><option value="4200">4200 Other income</option><option value="7100">7100 Other expenses</option><option value="3000">3000 Owner's capital</option><option value="3100">3100 Drawings</option></select>}
                 <Input type="number" placeholder="Amount (Rs.)" value={move.amount} onChange={e => setMove({ ...move, amount: e.target.value })} />
                 <Input placeholder="Description" value={move.description} onChange={e => setMove({ ...move, description: e.target.value })} />
                 <Input placeholder="Reference (deposit slip no.)" value={move.reference} onChange={e => setMove({ ...move, reference: e.target.value })} />
-                <Button size="sm" disabled={busy || !(parseFloat(move.amount) > 0)} onClick={() => act(async () => { await apiJson("/cash/movements", "POST", { date, ...move, amount: parseFloat(move.amount) }); setMove({ ...move, amount: "", description: "", reference: "" }); }, "Movement recorded")}>Record movement</Button>
+                <Button size="sm" disabled={busy || !(parseFloat(move.amount) > 0) || (move.kind === "deposit" && !move.bankAccount) || ((move.kind === "other_in" || move.kind === "other_out") && !move.accountCode)} onClick={() => act(async () => { await apiJson("/cash/movements", "POST", { date, ...move, amount: parseFloat(move.amount) }); setMove({ ...move, amount: "", description: "", reference: "" }); }, "Movement recorded")}>Record movement</Button>
               </CardContent></Card>
             </div>
           )}

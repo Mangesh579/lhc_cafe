@@ -12,6 +12,8 @@ const router = Router();
 
 const DRAWER_ROLES = ["admin", "supervisor", "head_barista", "accountant"];
 const MOVE_KINDS = ["deposit", "owner_draw", "other_in", "other_out"];
+// Step 3b (accountant): other cash in / out names its account; a deposit names its bank
+export const OTHER_CASH_ACCOUNTS = ["4200", "7100", "3000", "3100"];
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const num = (v: unknown) => parseFloat(String(v));
 const clean = (v: unknown, max: number): string | null => { const s = String(v ?? "").trim().slice(0, max); return s || null; };
@@ -114,9 +116,14 @@ router.post("/cash/movements", authenticate, async (req: AuthRequest, res: Respo
   const amt = num(req.body?.amount);
   if (!MOVE_KINDS.includes(req.body?.kind)) { res.status(400).json({ error: "Choose the kind of movement." }); return; }
   if (!(amt > 0)) { res.status(400).json({ error: "Enter an amount above 0." }); return; }
+  const kind = req.body.kind;
+  const bankAccount = kind === "deposit" ? String(req.body?.bankAccount ?? "") : null;
+  if (kind === "deposit" && !["nabil", "hbl"].includes(bankAccount!)) { res.status(400).json({ error: "Choose the bank the cash was deposited into: Nabil or HBL." }); return; }
+  const accountCode = kind === "other_in" || kind === "other_out" ? String(req.body?.accountCode ?? "") : null;
+  if (accountCode !== null && !OTHER_CASH_ACCOUNTS.includes(accountCode)) { res.status(400).json({ error: "Choose the account: 4200 Other income, 7100 Other expenses, 3000 Owner's capital or 3100 Drawings." }); return; }
   const [row] = await db.insert(cashMovementsTable).values({
-    day, kind: req.body.kind, amount: String(round2(amt)), description: clean(req.body?.description, 300), reference: clean(req.body?.reference, 80),
-    createdBy: req.user?.username ?? "user",
+    day, kind, amount: String(round2(amt)), description: clean(req.body?.description, 300), reference: clean(req.body?.reference, 80),
+    bankAccount, accountCode, createdBy: req.user?.username ?? "user",
   }).returning();
   res.status(201).json(row);
 });
