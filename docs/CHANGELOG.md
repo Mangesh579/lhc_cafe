@@ -1465,7 +1465,7 @@ None.
 - No existing row changed: older logs stay kind null and never post.
 
 ### Migration
-- db/migrations/016_stock_adjustments.sql. NOT run on the server yet. Idempotent (tested twice on PGlite). Run it after a backup and before deploy.sh: the new code writes the new columns, so the API must not be deployed before it.
+- db/migrations/016_stock_adjustments.sql. Run on the server by the owner (recorded 2026-11-28). Idempotent (tested twice on PGlite). Run it after a backup and before deploy.sh: the new code writes the new columns, so the API must not be deployed before it.
 
 ### Decisions
 - The direct edit snapshots the cost after the same request's change, so an edit that sets both the stock and a new cost values the change at the new cost.
@@ -1492,3 +1492,6 @@ None.
   - the rule's zero-cost and rounding cases;
   - migration 016 runs twice.
 - Not run: the screens in a browser; anything against production.
+
+## 2026-11-28: Migration 016 recorded as run
+- The owner ran db/migrations/016_stock_adjustments.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 3e entry above. Docs only; no code, no SQL, nothing to deploy.
