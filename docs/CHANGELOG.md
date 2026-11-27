@@ -1349,7 +1349,7 @@ None.
   - at most one close in force per month (a unique partial index).
 
 ### Migration
-- db/migrations/015_period_lock.sql. NOT run on the server yet. Idempotent (tested twice on PGlite). Run it after a backup and before deploy.sh.
+- db/migrations/015_period_lock.sql. Run on the server by the owner (recorded 2026-11-27). Idempotent (tested twice on PGlite). Run it after a backup and before deploy.sh.
 - Named 015, not 016 as asked: the last migration is 014, and 016 would leave a gap in the numbering.
 
 ### Decisions
@@ -1382,3 +1382,6 @@ None.
   - month reopen: admin only, with a reason; afterwards a day reopen works;
   - closed again after that day re-locks, with a history of 2.
 - Not run: the screens in a browser; anything against production.
+
+## 2026-11-27 (l): Migration 015 recorded as run
+- The owner ran db/migrations/015_period_lock.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 3d entry above. Docs only; no code, no SQL, nothing to deploy.
