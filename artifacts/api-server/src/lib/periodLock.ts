@@ -9,7 +9,8 @@ import { ledgerSettings } from "./ledger";
 import { nepalDay, addDays, isDay } from "./ledgerData";
 import { bsLabel } from "./fiscal";
 
-export type LockStatus = { day: string; posted: boolean; locked: boolean; monthClosed: boolean; lockOn: string | null; reopenedOn: string | null };
+// beforeStart: once the opening balances are confirmed, every day before the ledger start is locked (no reopen)
+export type LockStatus = { day: string; posted: boolean; locked: boolean; monthClosed: boolean; beforeStart: boolean; lockOn: string | null; reopenedOn: string | null };
 
 // Pure: whether a posted day is locked today (lockOn = the first locked day)
 export function lockOnDay(day: string, reopenedOn: string | null, lockAfterDays: number): string {
@@ -23,11 +24,13 @@ export async function closedMonthOf(day: string, ex: any = db) {
 }
 
 export async function lockStatusOf(day: string, ex: any = db): Promise<LockStatus> {
+  const settings = await ledgerSettings(ex);
+  if (settings.openingStatus === "confirmed" && day < settings.startDate) return { day, posted: false, locked: true, monthClosed: false, beforeStart: true, lockOn: null, reopenedOn: null };
   const monthClosed = !!(await closedMonthOf(day, ex));
   const [p] = await ex.select().from(postingDaysTable).where(eq(postingDaysTable.day, day));
-  if (!p) return { day, posted: false, locked: monthClosed, monthClosed, lockOn: null, reopenedOn: null };
-  const lockOn = lockOnDay(day, p.reopenedOn ?? null, (await ledgerSettings(ex)).lockAfterDays);
-  return { day, posted: true, locked: monthClosed || nepalDay(new Date()) >= lockOn, monthClosed, lockOn, reopenedOn: p.reopenedOn ?? null };
+  if (!p) return { day, posted: false, locked: monthClosed, monthClosed, beforeStart: false, lockOn: null, reopenedOn: null };
+  const lockOn = lockOnDay(day, p.reopenedOn ?? null, settings.lockAfterDays);
+  return { day, posted: true, locked: monthClosed || nepalDay(new Date()) >= lockOn, monthClosed, beforeStart: false, lockOn, reopenedOn: p.reopenedOn ?? null };
 }
 
 export class PeriodLockedError extends Error { status = 400; }
@@ -37,6 +40,7 @@ export async function assertOpenPeriod(day: unknown, what: string, opts: { alt?:
   if (!isDay(day)) return; // no usable date: the route's own validation answers
   const s = await lockStatusOf(day, opts.ex);
   if (!s.locked) return;
+  if (s.beforeStart) throw new PeriodLockedError(`${what} is dated ${day} (${bsLabel(day)}), which is before the ledger start (the opening balances are confirmed); ${opts.alt ? opts.alt : "enter it on today's date or ask the admin."}`);
   const fix = opts.alt ?? `Enter it on today's date or ask the admin to reopen the ${s.monthClosed ? "month" : "day"}.`;
   throw new PeriodLockedError(`${what} is dated ${day} (${bsLabel(day)}), which is locked${s.monthClosed ? " (its month is closed)" : ""}. ${fix}`);
 }

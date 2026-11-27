@@ -105,6 +105,7 @@ export async function reopenDay(day: string, reason: unknown, user: string) {
   const m = await closedMonthOf(day);
   if (m) throw new LedgerError(400, `${day} is in ${bsMonthRange(m.bsYear, m.bsMonth).label}, which is closed. Reopen the month first.`);
   const s = await lockStatusOf(day);
+  if (s.beforeStart) throw new LedgerError(400, `${day} is before the ledger start; the opening balances are confirmed, so it cannot be reopened.`);
   if (!s.posted) throw new LedgerError(400, `${day} is not posted, so it is not locked.`);
   if (!s.locked) throw new LedgerError(400, `${day} is not locked (it locks on ${s.lockOn}).`);
   const today = nepalDay(new Date());
