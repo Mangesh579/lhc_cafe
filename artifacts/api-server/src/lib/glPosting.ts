@@ -141,7 +141,8 @@ async function consumptionFor(day: string, reissued: Set<number>): Promise<Built
   }).filter(l => l.cost > 0);
   const ncLines = ncItems.map(i => ({ cost: num(i.unitCost) * Number(i.quantity), kitchenShare: share(i.menuItemId, i.kind) })).filter(l => l.cost > 0);
   const restored = restoredRows.map(i => ({ cost: num(i.unitCost) * Number(i.quantity), kind: i.kind, kitchenShare: share(i.menuItemId, i.kind) })).filter(l => l.cost > 0);
-  const costs = new Map((await db.select({ id: inventoryItemsTable.id, c: inventoryItemsTable.costPerUnit }).from(inventoryItemsTable)).map(r => [r.id, r.c]));
+  const invRows = await db.select({ id: inventoryItemsTable.id, c: inventoryItemsTable.costPerUnit, d: inventoryItemsTable.department }).from(inventoryItemsTable);
+  const costs = new Map(invRows.map(r => [r.id, r.c])), depts = new Map(invRows.map(r => [r.id, r.d]));
   let unvalued = 0;
   const waste: { value: number; department: string }[] = [];
   for (const w of wasteRows) {
@@ -150,7 +151,8 @@ async function consumptionFor(day: string, reissued: Set<number>): Promise<Built
       if (w.inventoryItemId && costs.get(w.inventoryItemId) != null) value = num(w.quantity) * num(costs.get(w.inventoryItemId));
       else if (w.menuItemId) value = (await menuItemCosting(w.menuItemId)).totalCost * num(w.quantity);
     }
-    if (value > 0) waste.push({ value: round2(value), department: w.department }); else unvalued++;
+    // stock is credited by the ingredient's own department; the waste record's department only when no ingredient is linked
+    if (value > 0) waste.push({ value: round2(value), department: (w.inventoryItemId ? depts.get(w.inventoryItemId) : null) ?? w.department }); else unvalued++;
   }
   const built = consumptionEntry({ day, sold: soldLines, nc: ncLines, restored, waste, uncosted });
   if (unvalued) built.problems.push({ level: "ack", code: "waste_unvalued", message: `${unvalued} Waste Log entr${unvalued === 1 ? "y" : "ies"} on ${day} with no value or cost (not posted).` });
@@ -194,7 +196,11 @@ async function docs3c(fromDay: string, toDay: string, onlyUnposted: boolean) {
   for (const n of await debitNoteSources(and(eq(debitNotesTable.status, "active"), gte(debitNotesTable.noteDate, fromDay), lte(debitNotesTable.noteDate, toDay), ne("debit_note", debitNotesTable.id)))) out.push({ type: "debit_note", ...n });
   for (const e of await expenseSources(and(eq(expensesTable.status, "active"), gte(expensesTable.expenseDate, fromDay), lte(expensesTable.expenseDate, toDay), ne("expense", expensesTable.id)))) out.push({ type: "expense", ...e });
   for (const m of await movementSources(and(eq(cashMovementsTable.status, "active"), gte(cashMovementsTable.day, fromDay), lte(cashMovementsTable.day, toDay), ne("cash_movement", cashMovementsTable.id)))) out.push({ type: "cash_movement", ...m });
-  for (const c of await closeSources(and(eq(cashDaysTable.status, "closed"), gte(cashDaysTable.day, fromDay), lte(cashDaysTable.day, toDay), ne("cash_close", sql`to_char(${cashDaysTable.day}, 'YYYYMMDD')::int`)))) out.push({ type: "cash_close", ...c });
+  // the drawer close only: a reversed entry does not count (a drawer reopened and closed again must post its new difference)
+  const closeKey = sql`to_char(${cashDaysTable.day}, 'YYYYMMDD')::int`;
+  const noCloseInForce = onlyUnposted ? sql`NOT EXISTS (SELECT 1 FROM journal_entries je WHERE je.source_type = 'cash_close' AND je.source_id = ${closeKey} AND je.kind = 'post'
+    AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reverses_entry_id = je.id))` : sql`true`;
+  for (const c of await closeSources(and(eq(cashDaysTable.status, "closed"), gte(cashDaysTable.day, fromDay), lte(cashDaysTable.day, toDay), noCloseInForce))) out.push({ type: "cash_close", ...c });
   return out;
 }
 

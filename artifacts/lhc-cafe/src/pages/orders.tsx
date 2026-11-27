@@ -21,6 +21,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useNotifications } from "@/contexts/notifications";
 import { useAuth } from "@/contexts/auth";
 import { buildKotHtml, printReceiptHtml, wrapReceipt } from "@/lib/kot";
+import { InvoiceFixButtons } from "@/components/InvoiceFix";
 import { PAY_MODES, modeLabel, round2, rs, paymentSummary } from "@/lib/payments";
 
 const POLL_INTERVAL = 5_000;
@@ -803,6 +804,10 @@ export default function Orders() {
                   {/* Inline notes editor — locked once paid, per invoice immutability policy */}
                   {order.paymentStatus === "paid" ? (
                     <div>
+                      {(order as any).creditAmount > 0 && (order as any).creditOutstanding > 0 && (
+                        <div className="mb-2"><InvoiceFixButtons compact invoice={{ orderId: order.id, invoiceNumber: (order as any).invoiceNumber, day: String((order as any).paidAt ?? order.createdAt).slice(0, 10), outstanding: (order as any).creditOutstanding, roomStayId: (order as any).stay?.stayId ?? null }}
+                          onDone={() => queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() })} /></div>
+                      )}
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Order Notes (locked — order is paid)</h4>
                       <p className="text-sm text-muted-foreground bg-muted/30 rounded p-2">{order.notes || "No notes."}</p>
                       {(order as any).corrections?.length > 0 && (

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Response } from "express";
-import { db, customerReceiptsTable, receiptAllocationsTable, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable, creditNotesTable, creditNoteItemsTable, creditSettingsTable, orderPaymentsTable } from "@workspace/db";
+import { db, customerReceiptsTable, receiptAllocationsTable, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable, creditNotesTable, creditNoteItemsTable, creditSettingsTable, orderPaymentsTable, roomStaysTable } from "@workspace/db";
 import { and, eq, gte, lte, desc, inArray, sql } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { isDay, nepalDay, isDrawerClosed } from "../lib/ledgerData";
@@ -412,7 +412,13 @@ async function wholeInvoice(tx: any, orderId: number) {
   if (!data) throw new HttpError(400, "That is not a credit invoice (or it was cancelled).");
   const inv = data.invoice;
   if (inv.creditAmount < inv.billTotal - 0.005) throw new HttpError(400, "Part of this bill was paid in cash, QR or card. Use an item-wise credit note instead.");
-  if (inv.allocated > 0) throw new HttpError(400, `Receipts of Rs. ${inv.allocated.toFixed(2)} are allocated to this invoice. Void those receipts first.`);
+  if (inv.allocated > 0) {
+    // name the receipts (2026-11-27): staff fixing a room bill need to know the guest already paid, and what to void
+    const rv = await tx.select({ no: customerReceiptsTable.voucherNo }).from(receiptAllocationsTable)
+      .innerJoin(customerReceiptsTable, eq(customerReceiptsTable.id, receiptAllocationsTable.receiptId))
+      .where(and(eq(receiptAllocationsTable.orderId, orderId), eq(customerReceiptsTable.status, "active")));
+    throw new HttpError(400, `The guest has already paid for this bill (Rs. ${inv.allocated.toFixed(2)}). Void receipt${rv.length === 1 ? "" : "s"} ${rv.map((r: any) => r.no).join(", ")} first.`);
+  }
   const v = fullCreditNote({ items: data.items, itemsSubtotal: data.itemsSubtotal, netPreVat: data.netPreVat, vatAmount: data.vatAmount, maxCredit: inv.outstanding });
   if ("error" in v) throw new HttpError(400, v.error);
   return { o, inv, v };
@@ -461,12 +467,24 @@ router.post("/receivables/invoices/:orderId/move", authenticate, async (req: Aut
   if (!can(req, res, ADMIN_ROLES, "Only the admin or the accountant can move an invoice to another customer.")) return;
   const orderId = idOf(req.params.orderId);
   const reason = clean(req.body?.reason, 300);
-  const toId = Number(req.body?.customerId);
+  let toId = Number(req.body?.customerId);
+  const stayId = req.body?.stayId ? Number(req.body.stayId) : null;
   if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
-  if (!Number.isInteger(toId) || toId <= 0) { res.status(400).json({ error: "Choose the right customer." }); return; }
   const user = req.user?.username ?? "user";
+  // "Move to another room" (2026-11-27): the new invoice goes on that open stay. Extras go on its guest; an included
+  // breakfast stays billed to Sulimha Durbar and needs breakfast included in the other stay.
+  if (stayId) {
+    const [st] = await db.select().from(roomStaysTable).where(eq(roomStaysTable.id, stayId));
+    const [o] = await db.select().from(ordersTable).where(eq(ordersTable.id, orderId));
+    if (!st || st.status !== "open") { res.status(400).json({ error: "Choose a room with an open stay." }); return; }
+    if (!o?.roomStayId) { res.status(400).json({ error: "This bill is not charged to a room. Use Wrong customer instead." }); return; }
+    if (o.roomStayId === st.id) { res.status(400).json({ error: "The bill is already on that room." }); return; }
+    if (o.stayCharge === "breakfast" && !st.breakfastIncluded) { res.status(400).json({ error: "Breakfast is not included in that stay." }); return; }
+    toId = o.stayCharge === "breakfast" ? o.loyaltyCustomerId! : st.customerId;
+  }
+  if (!Number.isInteger(toId) || toId <= 0) { res.status(400).json({ error: "Choose the right customer." }); return; }
   try {
-    const out = await db.transaction(async (tx) => reissueInvoice(tx, orderId, toId, reason, user));
+    const out = await db.transaction(async (tx) => reissueInvoice(tx, orderId, toId, reason, user, stayId));
     const [note] = await notesWithItems(eq(creditNotesTable.id, out.noteId));
     res.status(201).json({ note, newInvoice: { orderId: out.orderId, invoiceNumber: out.invoiceNumber } });
   } catch (e: any) {
@@ -477,11 +495,12 @@ router.post("/receivables/invoices/:orderId/move", authenticate, async (req: Aut
 
 // Wrong customer: a full credit note on the old invoice and the same bill re-issued to another customer.
 // Also used when a hotel guest leaves with extras unpaid: the admin moves them to Sulimha Durbar (owner, 2026-11-26).
-export async function reissueInvoice(tx: any, orderId: number, toId: number, reason: string, user: string): Promise<{ noteId: number; orderId: number; invoiceNumber: string }> {
+// targetStayId: "Move to another room" puts the re-issued invoice on that stay (the customer may be the same: Sulimha for breakfast)
+export async function reissueInvoice(tx: any, orderId: number, toId: number, reason: string, user: string, targetStayId: number | null = null): Promise<{ noteId: number; orderId: number; invoiceNumber: string }> {
       const [to] = await tx.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, toId));
       if (!to) throw new HttpError(404, "Customer not found.");
       const { o, inv, v } = await wholeInvoice(tx, orderId);
-      if (o.loyaltyCustomerId === toId) throw new HttpError(400, "The invoice is already on that customer.");
+      if (o.loyaltyCustomerId === toId && !(targetStayId && targetStayId !== o.roomStayId)) throw new HttpError(400, "The invoice is already on that customer.");
       if (inv.creditNotes > 0) throw new HttpError(400, "This invoice has credit notes. Void them first, or cancel the invoice instead.");
       await lockCustomer(tx, toId);
       // The new invoice: same visit, items and amounts, dated on the visit day (its fiscal year), on the right customer
@@ -494,7 +513,7 @@ export async function reissueInvoice(tx: any, orderId: number, toId: number, rea
         loyaltyPointsEarned: 0, loyaltyPaidBasis: "0", // points come when the customer pays
         invoiceNumber, paidAt: o.paidAt, backdatedAt: o.backdatedAt, createdAt: o.createdAt, createdBy: o.createdBy, accountBill: false, isNc: false,
         notes: `Re-issued from invoice ${inv.invoiceNumber} (was on ${inv.customerName ?? "another customer"}): ${reason}`,
-        roomStayId: o.roomStayId, stayCharge: o.stayCharge, breakfastCount: o.breakfastCount,
+        roomStayId: targetStayId ?? o.roomStayId, stayCharge: o.stayCharge, breakfastCount: o.breakfastCount,
       }).returning();
       // Items keep their KOTs and cost snapshot. Stock is not touched: the food was served once.
       const items = await tx.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId)).orderBy(orderItemsTable.id);

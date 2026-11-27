@@ -98,6 +98,22 @@
 
   New checks: cash (the day's movement against the drawer's expected change, and the balance at the close against the count) and payables (each supplier). Stock is shown for information only. No migration.
 
+30. Fixing room-charged bills where staff work, 2026-11-27 (docs/specs/room-stays.md).
+  - **Where:** Order Log (opened order), the Orders page (a paid credit bill still on screen) and the Stays folio (each extra and breakfast).
+  - **Admin and accountant see:**
+    - **Cancel invoice:** reason, plus "Food was not served, put the stock back"; the existing cancel route.
+    - **Credit note:** the item-wise dialog, now one shared component, also used by Receivables.
+    - **Move to another room**, for a room-charged bill: a chosen open stay; the existing re-issue, now with a target stay that sets room_stay_id. Extras go to that stay's guest; an included breakfast stays on Sulimha Durbar and needs breakfast included.
+  - **Everyone else sees:** "To fix a mistake on this bill ask the admin or accountant (Cancel invoice)".
+  - **Receipts in the way:** a refusal because of allocated receipts now says "The guest has already paid for this bill" and names the receipt voucher(s) to void.
+  - **Folio:** a bill moved away no longer shows on its old folio.
+  - **Expenses (ledger 3c fix):**
+    - cash only from the drawer; card and QR refused for new expenses or a changed method; existing rows untouched;
+    - the posting rule makes cash-not-from-drawer a must-fix;
+    - the expense form ticks "Paid from the cash drawer" by default and offers no card or QR for new expenses.
+  - **Ledger 3c fixes:** a drawer reopened and closed again posts its new difference (the close counts as unposted when it has no entry in force); waste is credited by the ingredient's own department.
+  - No migration.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.

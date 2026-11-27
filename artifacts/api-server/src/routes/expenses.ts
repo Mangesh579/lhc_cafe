@@ -19,6 +19,13 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const TYPES = ["direct", "indirect"];
 const METHODS = ["cash", "bank_transfer", "card", "qr", "cheque"];
+// 2026-11-27 (ledger): cash is paid from the drawer; anything else is a bank transfer or a cheque (with its bank)
+function methodRule(method: unknown, fromDrawer: boolean): string | null {
+  const m = METHODS.includes(String(method)) ? String(method) : "cash";
+  if (m === "cash" && !fromDrawer) return "Cash is paid from the drawer: tick \"Paid from the cash drawer\", or choose bank transfer or cheque.";
+  if (m === "card" || m === "qr") return "Pay expenses from the drawer (cash), or by bank transfer or cheque.";
+  return null;
+}
 // Step 3b: paid by bank transfer or cheque -> which bank (nabil | hbl); false = missing; null = not a bank payment
 function bankFor(method: unknown, bank: unknown): string | null | false {
   if (method !== "bank_transfer" && method !== "cheque") return null;
@@ -152,6 +159,8 @@ router.post("/expenses", authenticate, requireAdminOrAccountant, async (req: Aut
   if (b.paymentMethod === "cash" && b.paidFromDrawer && await isDrawerClosed(b.expenseDate)) { res.status(400).json({ error: "That day's cash drawer is already closed." }); return; }
   const bankAccount = bankFor(b.paymentMethod, b.bankAccount);
   if (bankAccount === false) { res.status(400).json({ error: "Choose the bank it was paid from: Nabil or HBL." }); return; }
+  const methodError = methodRule(b.paymentMethod, !!b.paidFromDrawer);
+  if (methodError) { res.status(400).json({ error: methodError }); return; }
   const user = req.user?.username ?? "user";
   const fromDrawer = b.paymentMethod === "cash" && !!b.paidFromDrawer;
   // Cash out of the drawer is petty cash: it gets a CV number, like a payout on the Cash Drawer page
@@ -191,6 +200,11 @@ router.patch("/expenses/:id", authenticate, requireAdminOrAccountant, async (req
   if (isDate(b.expenseDate)) { track("date", ex.expenseDate, b.expenseDate); set.expenseDate = b.expenseDate; }
   if (b.description !== undefined) { const v = clean(b.description, 500); track("description", ex.description, v); set.description = v; }
   if (b.vendor !== undefined) { const v = clean(b.vendor, 120); track("vendor", ex.vendor, v); set.vendor = v; }
+  // a changed method must follow the rule; an existing row is never refused for a method it already has
+  if (METHODS.includes(b.paymentMethod) && b.paymentMethod !== ex.paymentMethod) {
+    const methodError = methodRule(b.paymentMethod, !!ex.paidFromDrawer);
+    if (methodError) { res.status(400).json({ error: methodError }); return; }
+  }
   if (METHODS.includes(b.paymentMethod)) { track("payment method", ex.paymentMethod, b.paymentMethod); set.paymentMethod = b.paymentMethod; }
   if (METHODS.includes(b.paymentMethod) || b.bankAccount !== undefined) {
     const bank = bankFor(b.paymentMethod ?? ex.paymentMethod, b.bankAccount ?? (ex as any).bankAccount);

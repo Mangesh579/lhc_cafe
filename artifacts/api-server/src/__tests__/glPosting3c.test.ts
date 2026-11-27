@@ -17,6 +17,7 @@ import {
   purchaseBillsTable, purchaseBillItemsTable, supplierPaymentsTable, debitNotesTable, debitNoteItemsTable, expensesTable, cashMovementsTable, cashDaysTable, wasteLogsTable,
 } from "@workspace/db";
 import { freshDb } from "./pgliteDb";
+import { eq } from "drizzle-orm";
 
 const mig = (f: string) => readFileSync(fileURLToPath(new URL(`../../../../db/migrations/${f}`, import.meta.url)), "utf8");
 let ctx: Awaited<ReturnType<typeof freshDb>>;
@@ -92,7 +93,7 @@ beforeAll(async () => {
     { day: "2026-12-16", kind: "deposit", amount: "400", bankAccount: "nabil", createdBy: "x" },
     { day: "2026-12-16", kind: "owner_draw", amount: "100", createdBy: "x" },
   ] as any);
-  await ctx.db.insert(wasteLogsTable).values({ inventoryItemId: rice, itemName: "Rice", quantity: "2", unit: "kg", reason: "spilled", wasteValue: "0", department: "kitchen", createdAt: new Date("2026-12-16T08:00:00Z") });
+  await ctx.db.insert(wasteLogsTable).values({ inventoryItemId: rice, itemName: "Rice", quantity: "2", unit: "kg", reason: "spilled", wasteValue: "0", department: "drink", createdAt: new Date("2026-12-16T08:00:00Z") });
   // drawer: 6,000 + 650 - payouts 2,300 - supplier 2,000 - deposit 400 - draw 100 = 1,850 expected; counted 1,730: Rs 120 short
   await ctx.db.insert(cashDaysTable).values({ day: "2026-12-16", openingBalance: "6000", status: "closed", expectedClosing: "1850", countedClosing: "1730", difference: "-120", note: "short" });
   // 17 Dec: nothing sold; counted Rs 35 over
@@ -135,7 +136,7 @@ describe("16 Dec: every 3c document posts as the plan says", () => {
     expect(linesOf(entry("cash_close"))).toEqual([["7050", 120, 0], ["1100", 0, 120]]);
   });
 
-  it("consumption equals the cost snapshots (5000 / 5010 by category), NC to 5200, waste to 5100, against stock by ingredient department", () => {
+  it("consumption equals the cost snapshots (5000 / 5010 by category), NC to 5200, waste to 5100 (credited by the ingredient's own department, not the record's), against stock by ingredient department", () => {
     expect(linesOf(entry("consumption"))).toEqual([["5000", 120, 0], ["5010", 40, 0], ["5200", 120, 0], ["5100", 40, 0], ["1400", 0, 280], ["1410", 0, 40]]);
   });
 
@@ -170,5 +171,29 @@ describe("17 Dec", () => {
     await ctx.db.update(supplierPaymentsTable).set({ status: "void" });
     const r = (await api("GET", "/gl/days/2026-12-18")).body;
     expect(r.late.map((l: any) => [l.action, l.sourceType])).toEqual([["reverse", "supplier_payment"]]);
+  });
+
+  it("a drawer reopened after posting reverses its short; closed again with another count, the new difference posts", async () => {
+    await ctx.db.update(cashDaysTable).set({ status: "open", countedClosing: null, difference: null }).where(eq(cashDaysTable.day, "2026-12-16"));
+    const r = (await api("GET", "/gl/days/2026-12-18")).body;
+    expect(r.late.map((l: any) => [l.action, l.sourceType, l.sourceId])).toEqual([["reverse", "supplier_payment", expect.any(Number)], ["reverse", "cash_close", 20261216]]);
+    expect((await api("POST", "/gl/days/2026-12-18/post", { note: "payment voided; drawer of the 16th recounted" })).status).toBe(201);
+    await ctx.db.update(cashDaysTable).set({ status: "closed", countedClosing: "1800", difference: "-50" }).where(eq(cashDaysTable.day, "2026-12-16"));
+    const r2 = (await api("GET", "/gl/days/2026-12-19")).body;
+    expect(r2.late.map((l: any) => [l.action, l.sourceType, l.draft?.lines.map((x: any) => [x.accountCode, x.debit, x.credit])])).toEqual([["add", "cash_close", [["7050", 50, 0], ["1100", 0, 50]]]]);
+  });
+});
+
+describe("expenses: cash only from the drawer (2026-11-27)", () => {
+  it("refuses cash that is not from the drawer, and card or QR; allows the drawer, and a cheque with its bank; an existing row keeps its method", async () => {
+    const base = { expenseDate: "2026-12-20", type: "indirect", category: "Laundry", amount: 300 };
+    expect((await api("POST", "/expenses", { ...base, paymentMethod: "cash" })).body.error).toMatch(/paid from the drawer/);
+    expect((await api("POST", "/expenses", { ...base, paymentMethod: "card" })).body.error).toMatch(/bank transfer or cheque/);
+    expect((await api("POST", "/expenses", { ...base, paymentMethod: "cash", paidFromDrawer: true })).status).toBe(201);
+    const ok = await api("POST", "/expenses", { ...base, paymentMethod: "cheque", bankAccount: "nabil" });
+    expect(ok.status).toBe(201);
+    expect((await api("PATCH", `/expenses/${ok.body.id}`, { paymentMethod: "cash" })).body.error).toMatch(/paid from the drawer/);
+    const [old] = await ctx.db.insert(expensesTable).values({ expenseDate: "2026-12-10", type: "indirect", category: "Laundry", amount: "100", paymentMethod: "cash", paidFromDrawer: false, createdBy: "x" } as any).returning();
+    expect((await api("PATCH", `/expenses/${old.id}`, { paymentMethod: "cash", description: "old row, same method" })).status).toBe(200);
   });
 });

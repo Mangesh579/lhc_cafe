@@ -12,6 +12,7 @@ import NepaliDate from "nepali-date-converter";
 import { format } from "date-fns";
 import { ChevronDown, ChevronUp, User, Download } from "lucide-react";
 import * as XLSX from "xlsx";
+import { InvoiceFixButtons } from "@/components/InvoiceFix";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useAuth } from "@/contexts/auth";
@@ -958,6 +959,9 @@ export default function OrderLog() {
             </div>
             {expandedOrders.has(order.id) && (
               <div className="px-4 pb-4 border-t bg-muted/10 space-y-1 pt-3">
+                {order.paymentStatus === "paid" && (order as any).creditAmount > 0 && !(order as any).movedTo && (order as any).creditOutstanding > 0 && (
+                  <div className="pb-2"><InvoiceFixButtons compact invoice={{ orderId: order.id, invoiceNumber: (order as any).invoiceNumber, day: String((order as any).paidAt ?? order.createdAt).slice(0, 10), outstanding: (order as any).creditOutstanding, roomStayId: (order as any).stay?.stayId ?? null }} onDone={() => refetchOrders()} /></div>
+                )}
                 {order.items?.map((item: any) => (
                     <div key={item.id} className="text-sm text-muted-foreground">
                       <div className="flex justify-between">

@@ -95,7 +95,7 @@ describe("cancel invoice", () => {
     expect((await api("acct", "POST", `/receivables/invoices/${split}/cancel`, { reason: "x" })).body.error).toMatch(/cash, QR or card/);
     const paid = await creditInvoice(ram);
     expect((await api("acct", "POST", "/receipts", { customerId: ram, amount: 100, mode: "bank", bankAccount: "nabil", reference: "T1", allocations: [{ orderId: paid, amount: 100 }] })).status).toBe(201);
-    expect((await api("acct", "POST", `/receivables/invoices/${paid}/cancel`, { reason: "x" })).body.error).toMatch(/Void those receipts first/);
+    expect((await api("acct", "POST", `/receivables/invoices/${paid}/cancel`, { reason: "x" })).body.error).toMatch(/already paid for this bill.*Void receipt RV-/);
   });
 });
 
