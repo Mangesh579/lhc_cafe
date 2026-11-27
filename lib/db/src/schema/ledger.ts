@@ -41,12 +41,14 @@ export const journalEntriesTable = pgTable("journal_entries", {
   sourceId: integer("source_id"),
   sourceRef: text("source_ref"),
   kind: text("kind").notNull(), // post | reverse | opening | manual
+  // A source posts as revision 1; after a late change it is reversed and re-posted as revision 2, and so on (principle 5)
+  revision: integer("revision").notNull().default(1),
   reversesEntryId: integer("reverses_entry_id"),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({
   entryNo: uniqueIndex("journal_entries_no_idx").on(t.entryNo),
-  onePostPerSource: uniqueIndex("journal_entries_source_idx").on(t.sourceType, t.sourceId, t.kind).where(sql`source_type IS NOT NULL AND kind IN ('post', 'opening')`),
+  onePostPerRevision: uniqueIndex("journal_entries_source_idx").on(t.sourceType, t.sourceId, t.revision).where(sql`source_type IS NOT NULL AND kind IN ('post', 'opening')`),
   reversedOnce: uniqueIndex("journal_entries_reverses_idx").on(t.reversesEntryId).where(sql`reverses_entry_id IS NOT NULL`),
   byDate: index("journal_entries_date_idx").on(t.entryDate),
 }));

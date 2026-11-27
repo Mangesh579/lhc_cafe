@@ -11,10 +11,10 @@ Every day's business already exists as source documents: bills, credit notes, re
 
 ## 2. Principles
 1. **The ledger is built from source documents. Nobody types sales or purchases into it by hand.** The only hand-made entries are journal vouchers (JV) by the accountant (corrections, depreciation later, opening balances), with a reason.
-2. **One source, one entry:**
+2. **One source, one entry in force:**
    - each invoice, credit note, receipt, settlement, purchase bill, payment, debit note, petty cash voucher, drawer movement and drawer close posts once;
    - consumption posts once per day;
-   - a unique key (source type + source id) makes double posting impossible.
+   - a unique key (source type + source id + **revision**) makes double posting impossible. A source posts as revision 1. After a late change (principle 5) the entry in force is reversed and the corrected entry is posted as revision 2, then 3, and so on. A new revision is refused while the previous one is not reversed.
 3. **Immutable:** the database refuses UPDATE or DELETE on journal entries and lines (a trigger). Every entry is balanced (total debit = total credit), checked by a deferred constraint at commit.
 4. **Dates:** an entry is dated on the Nepal day of its source, the same day the operational screens use (a bill on the day it was paid, a credit note on its note date, a receipt on its receipt date, a purchase bill on its bill date).
 5. **Late changes:** when a source changes after its day was posted (a bill cancelled, a receipt voided, a settlement voided), the original entry stays.
@@ -34,7 +34,8 @@ Every day's business already exists as source documents: bills, credit notes, re
   - **Dates and text:** entry date (Nepal day), fiscal year (BS), narration.
   - **Source:** source type, source id and source reference (the bill or voucher number people know).
   - **Kind:** `post`, `reverse`, `opening` or `manual`; `reverses_entry_id`; the posting day it belongs to; created by and at.
-  - **Unique** (source type, source id, kind) for `post`.
+  - **revision:** 1, 2, 3 ... per source; a reversal carries the revision it reverses.
+  - **Unique** (source type, source id, revision) for `post` and `opening`. A corrected entry takes the next revision, and only after the previous revision has been reversed (checked by the engine, backed by the index).
 - **`journal_lines`:**
   - entry id, line number, account code, debit, credit (exactly one above 0), memo;
   - **customer id** on 1300 lines and **supplier id** on 2100 lines. That is the sub-ledger: a customer's or supplier's balance is the sum of their lines, and must equal Receivables / Payables (section 7).
@@ -295,7 +296,7 @@ Each part ends with typecheck, build, `pnpm test`, a CHANGELOG entry and the ful
 ## 14. Part 3a as built (see docs/CHANGELOG.md)
 - **Migration 013:**
   - **Accounts and map:** `accounts` (seeded) and `expense_account_map` (seeded with the defaults, unconfirmed).
-  - **Journals:** `journal_entries` and `journal_lines`. The database refuses edits and deletes, unbalanced entries, and lines on header or inactive accounts.
+  - **Journals:** `journal_entries` (with `revision`) and `journal_lines`. The database refuses edits and deletes, unbalanced entries, and lines on header or inactive accounts, and allows one `post` per source and revision.
   - **Settings:** `ledger_settings` (start date 2026-12-16, lock 3 days).
   - **Opening draft:** `opening_balance_lines` and `opening_balance_log`.
   - `posting_days` and `month_closes` come with 3b and 3d.

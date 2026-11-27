@@ -104,6 +104,33 @@ describe("journal engine", () => {
   });
 });
 
+describe("revisions: a late change reverses the entry and re-posts the corrected one (principle 5)", () => {
+  it("post, reverse, repost as revision 2; a second revision without reversing is refused; a third works after reversing the second", async () => {
+    const { postEntry, reverseEntry } = await import("../lib/ledger");
+    const bill = (amount: number) => ({ entryDate: "2026-11-20", voucherType: "JV", narration: `Invoice 2083/84-00042, Rs. ${amount}`, kind: "post" as const,
+      sourceType: "order", sourceId: 42, sourceRef: "2083/84-00042", user: "posting", lines: [{ accountCode: "1100", debit: amount }, { accountCode: "4000", credit: amount }] });
+    const r1 = await ctx.db.transaction((tx: any) => postEntry(tx, bill(300)));
+    expect(r1.revision).toBe(1);
+    await expect(ctx.db.transaction((tx: any) => postEntry(tx, bill(250)))).rejects.toThrow(/still in force.*Reverse it/);
+    const rev1 = await ctx.db.transaction((tx: any) => reverseEntry(tx, r1.id, "2026-11-25", "bill corrected", "posting"));
+    expect(rev1.revision).toBe(1); // a reversal carries the revision it reverses
+    const r2 = await ctx.db.transaction((tx: any) => postEntry(tx, bill(250)));
+    expect(r2.revision).toBe(2);
+    await expect(ctx.db.transaction((tx: any) => postEntry(tx, bill(200)))).rejects.toThrow(/revision 2\) is still in force/);
+    await ctx.db.transaction((tx: any) => reverseEntry(tx, r2.id, "2026-11-26", "corrected again", "posting"));
+    const r3 = await ctx.db.transaction((tx: any) => postEntry(tx, bill(200)));
+    expect(r3.revision).toBe(3);
+    // the database refuses a second 'post' of the same source and revision, whatever the code does
+    await expect(ctx.client.exec(`BEGIN; INSERT INTO journal_entries (id, entry_no, voucher_type, entry_date, fiscal_year, narration, source_type, source_id, kind, revision, created_by) VALUES (950, 'X-950', 'JV', '2026-11-20', '2083/84', 'x', 'order', 42, 'post', 3, 'a');
+      INSERT INTO journal_lines (entry_id, line_no, account_code, debit, credit) VALUES (950, 1, '1100', 1, 0), (950, 2, '4000', 0, 1); COMMIT;`)).rejects.toThrow();
+    await ctx.client.exec(`ROLLBACK`).catch(() => {});
+    // the trial balance nets the three revisions to the one in force: 200
+    const tb = (await api("acct", "GET", "/gl/trial-balance")).body;
+    expect(tb.balanced).toBe(true);
+    expect(tb.rows.find((x: any) => x.code === "4000")).toMatchObject({ balance: 200 });
+  });
+});
+
 describe("chart of accounts and the expense map", () => {
   it("adds an account, never twice; deactivates only an account no expense category uses; an inactive account cannot be posted", async () => {
     expect((await api("acct", "POST", "/gl/accounts", { code: "6450", name: "Printing", type: "expense" })).body).toMatchObject({ code: "6450", normalSide: "debit", active: true });
@@ -171,5 +198,17 @@ it("migration 013 runs twice and seeds the chart, the map and the settings", asy
   expect((await client.query<any>(`SELECT code FROM accounts WHERE code IN ('1280','3050','4020','5150','7110') ORDER BY code`)).rows.map((r: any) => r.code)).toEqual(["1280", "3050", "4020", "5150", "7110"]);
   expect((await client.query<any>(`SELECT count(*)::int AS n FROM expense_account_map`)).rows).toEqual([{ n: 21 }]);
   expect((await client.query<any>(`SELECT start_date::text AS d, lock_after_days AS l, opening_status AS s FROM ledger_settings`)).rows).toEqual([{ d: "2026-12-16", l: 3, s: "draft" }]);
+  expect((await client.query<any>(`SELECT indexdef FROM pg_indexes WHERE indexname = 'journal_entries_source_idx'`)).rows[0].indexdef).toMatch(/\(source_type, source_id, revision\)/);
+  await client.close();
+}, 60000);
+
+it("re-running the new 013 fixes a database that ran the first 013 (adds revision, rebuilds the index)", async () => {
+  const { client } = await freshDb();
+  await client.exec(SQL);
+  await client.exec(`DROP INDEX journal_entries_source_idx; ALTER TABLE journal_entries DROP COLUMN revision;
+    CREATE UNIQUE INDEX journal_entries_source_idx ON journal_entries(source_type, source_id, kind) WHERE source_type IS NOT NULL AND kind IN ('post', 'opening');`);
+  await client.exec(SQL);
+  expect((await client.query<any>(`SELECT column_default FROM information_schema.columns WHERE table_name = 'journal_entries' AND column_name = 'revision'`)).rows).toEqual([{ column_default: "1" }]);
+  expect((await client.query<any>(`SELECT indexdef FROM pg_indexes WHERE indexname = 'journal_entries_source_idx'`)).rows[0].indexdef).toMatch(/\(source_type, source_id, revision\)/);
   await client.close();
 }, 60000);

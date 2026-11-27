@@ -971,3 +971,41 @@ db/migrations/013_ledger_accounts_journal.sql: NOT YET RUN on the server.
 - The opening entry uses its own number series (OP-...), because OB is already used for opening supplier bills.
 - The lock setting allows 2 or 3 days only (the accountant's range).
 - Opening balances filled "from the app" are today's figures and should be filled again on the start date.
+
+
+## 2026-11-27: Ledger 3a fix: journal entry revisions (migration 013 edited)
+
+### Summary
+- Skills used: ponytail, tdd, database-migrations.
+- **Design fix before 013 is run:** the unique index allowed one 'post' entry per source, but principle 5 needs a reversal followed by a corrected entry for the same source.
+  - journal_entries gains `revision integer NOT NULL DEFAULT 1`.
+  - The unique index journal_entries_source_idx is now (source_type, source_id, revision) for kinds 'post' and 'opening'.
+- **Engine (lib/ledger.ts):**
+  - postEntry gives a sourced 'post'/'opening' entry revision 1, or the next revision, but only when the revision in force has been reversed ("... is still in force for this document. Reverse it before posting the corrected entry.").
+  - reverseEntry's reversal carries the revision it reverses.
+  - Manual JVs stay revision 1.
+- **Migration 013 is edited, not 014**, because CLAUDE.md does not mark 013 as run. Because main already holds the ledger-3a merge (and 013 may have been run on the server before the merge), the edited 013 also repairs an older run: `ADD COLUMN IF NOT EXISTS revision` and a rebuild of the index (DROP INDEX IF EXISTS, then CREATE).
+- **Plan (docs/specs/step3-ledger.md):** principle 2 and the journal_entries table now describe revisions.
+
+### Files
+- Changed: db/migrations/013_ledger_accounts_journal.sql; lib/db/src/schema/ledger.ts; api-server src/lib/ledger.ts, src/__tests__/gl.test.ts; docs/specs/step3-ledger.md; docs/HANDOFF.md.
+
+### Tables
+- journal_entries: +revision (default 1); the unique index now covers revision.
+
+### Migration
+db/migrations/013_ledger_accounts_journal.sql (edited): NOT YET RUN on the server. If the first version was already run, running the edited file again adds the column and rebuilds the index.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 34 files, 261 tests pass; typecheck api-server, lhc-cafe and libs clean; both artifacts build.
+- New in gl:
+  - post as revision 1;
+  - a second post without reversing refused;
+  - reverse (the reversal carries revision 1);
+  - repost as revision 2;
+  - a third without reversing the second refused;
+  - reverse, then revision 3;
+  - the database refuses a duplicate source and revision;
+  - the trial balance nets to the revision in force (200);
+  - migration 013 creates the (source_type, source_id, revision) index;
+  - re-running the new 013 on a database built by the first 013 adds revision (default 1) and rebuilds the index.
