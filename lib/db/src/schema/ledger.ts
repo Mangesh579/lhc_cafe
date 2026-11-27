@@ -113,4 +113,34 @@ export const postingDaysTable = pgTable("posting_days", {
   note: text("note"),            // the accountant's note acknowledging them
   postedBy: text("posted_by").notNull(),
   postedAt: timestamp("posted_at").notNull().defaultNow(),
+  reopenedOn: date("reopened_on"), // step 3d: an admin reopen; the day locks again lock_after_days after this date
 });
+
+// Step 3d: every admin reopen of a locked day (who, when, why)
+export const dayReopensTable = pgTable("day_reopens", {
+  id: serial("id").primaryKey(),
+  day: date("day").notNull(),
+  reason: text("reason").notNull(),
+  reopenedBy: text("reopened_by").notNull(),
+  reopenedAt: timestamp("reopened_at").notNull().defaultNow(),
+});
+
+// Step 3d: a Nepali (BS) month closed by the accountant; a reopen (admin, with a reason) is recorded on the same row.
+// A month is closed while its latest row has no reopened_at.
+export const periodClosesTable = pgTable("period_closes", {
+  id: serial("id").primaryKey(),
+  bsYear: integer("bs_year").notNull(),
+  bsMonth: integer("bs_month").notNull(), // 1 = Baisakh ... 9 = Poush ... 12 = Chaitra
+  fromDay: date("from_day").notNull(),
+  toDay: date("to_day").notNull(),
+  status: text("status").notNull().default("closed"), // closed | reopened
+  note: text("note"),              // the accountant's note acknowledging any failing check
+  totals: text("totals"),          // JSON: the month's trial balance when it was closed
+  closedBy: text("closed_by").notNull(),
+  closedAt: timestamp("closed_at").notNull().defaultNow(),
+  reopenedBy: text("reopened_by"),
+  reopenedAt: timestamp("reopened_at"),
+  reopenReason: text("reopen_reason"),
+}, (t) => ({
+  byMonth: index("period_closes_month_idx").on(t.bsYear, t.bsMonth),
+}));

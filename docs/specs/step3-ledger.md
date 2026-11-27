@@ -362,3 +362,27 @@ Each part ends with typecheck, build, `pnpm test`, a CHANGELOG entry and the ful
   - **Cash:** the day's 1100 movement (without the short/over) against the Cash Drawer's expected change; the 1100 balance at the close against the counted cash.
   - **Payables:** total and each supplier against credit bills less payments and debit notes as at the day.
   - **Stock (information only, never a problem):** 1400/1410 against stock x cost per unit now.
+
+## 17. Part 3d as built (2026-11-27; see docs/CHANGELOG.md)
+- **Lock rule:**
+  - lockOn = (reopened_on if later than the day, else the day) + lock_after_days + 1, computed, not stored. Posted on D, the day is open through D+3 and locked from D+4.
+  - A closed BS month locks every day in it.
+- **Guard:** lib/periodLock.ts.
+  - assertOpenPeriod(day, what) throws PeriodLockedError; lockGuard(res, day, what) answers 400 { error, locked: true }.
+  - Called by every write route that dates a document (list in the CHANGELOG, 2026-11-27 (k)).
+  - Paid bills refused there point to Cancel invoice (a credit note dated today).
+- **Reopen a day:** POST /gl/days/:day/reopen (admin, reason). It sets posting_days.reopened_on to today and logs day_reopens. Refused when the day is not locked, not posted, or in a closed month.
+- **Month close:** lib/monthClose.ts.
+  - GET /gl/months: from the ledger start's BS month to the current one.
+  - GET /gl/months/:y/:m returns:
+    - blockers: not ended, days not posted, days not locked, already closed;
+    - the month-end checks: receivables, payables, the machines, and the cash count;
+    - the trial balance to the month end, and the month's movement;
+    - the summary;
+    - the history.
+  - POST /gl/months/:y/:m/close (admin or accountant): a note is required when a check fails, and the trial balance must balance.
+  - POST /gl/months/:y/:m/reopen (admin, reason).
+- **Tables (migration 015):** posting_days.reopened_on, day_reopens, period_closes (one close in force per month).
+- **Screens:**
+  - Post a day: the lock per day, and Reopen day for the admin.
+  - Chart of Accounts > Month close: the months, review, close or reopen, the summary, the trial balance, Excel.

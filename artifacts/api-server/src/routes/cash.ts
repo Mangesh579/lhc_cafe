@@ -5,6 +5,7 @@ import { eq, and, lt, gte, lte, desc } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { validatePayout } from "../lib/cashRules";
 import { nextVoucherNumber } from "../lib/fiscal";
+import { lockGuard } from "../lib/periodLock";
 import { supplierPaymentsBetween } from "../lib/supplierPaymentsRead";
 import { isDay, dayRangeUtc, paidOrdersBetween, nepalDay, cashSalesOf, receiptsBetween } from "../lib/ledgerData";
 
@@ -95,6 +96,7 @@ router.post("/cash/open", authenticate, async (req: AuthRequest, res: Response):
   const amt = num(req.body?.openingBalance);
   if (!isDay(day)) { res.status(400).json({ error: "A valid date is required." }); return; }
   if (isNaN(amt) || amt < 0) { res.status(400).json({ error: "Enter the opening cash (0 or more)." }); return; }
+  if (!(await lockGuard(res, day, "This drawer day"))) return;
   const [exists] = await db.select().from(cashDaysTable).where(eq(cashDaysTable.day, day));
   if (exists) { res.status(400).json({ error: "This day is already opened." }); return; }
   await db.insert(cashDaysTable).values({ day, openingBalance: String(round2(amt)), status: "open", openedBy: req.user?.username ?? "user" });
@@ -103,6 +105,7 @@ router.post("/cash/open", authenticate, async (req: AuthRequest, res: Response):
 
 async function requireOpenDay(day: unknown, res: Response): Promise<string | null> {
   if (!isDay(day)) { res.status(400).json({ error: "A valid date is required." }); return null; }
+  if (!(await lockGuard(res, day, "This drawer day"))) return null; // step 3d: movements, voids, payouts and the close
   const [rec] = await db.select().from(cashDaysTable).where(eq(cashDaysTable.day, day));
   if (!rec) { res.status(400).json({ error: "Open the day first, with its opening cash." }); return null; }
   if (rec.status === "closed") { res.status(400).json({ error: "This day's drawer is closed." }); return null; }
@@ -183,6 +186,7 @@ router.post("/cash/reopen", authenticate, async (req: AuthRequest, res: Response
   const day = req.body?.date;
   const reason = clean(req.body?.reason, 300);
   if (!isDay(day) || !reason) { res.status(400).json({ error: "A date and a reason are required." }); return; }
+  if (!(await lockGuard(res, day, "This drawer day"))) return;
   const [rec] = await db.select().from(cashDaysTable).where(eq(cashDaysTable.day, day));
   if (!rec || rec.status !== "closed") { res.status(400).json({ error: "That day is not closed." }); return; }
   await db.update(cashDaysTable).set({

@@ -1264,3 +1264,121 @@ None.
     - a drawer reopened after posting reverses its short, and closed again with another count, the new Rs 50 short posts late;
     - expenses: cash not from the drawer, and card, refused; the drawer and a cheque with its bank allowed; a changed method refused; an existing cash row edited with its own method allowed.
 - Not run: the screens in a browser; anything against production.
+
+## 2026-11-27 (k): Ledger part 3d, the period lock and the Nepali month close
+
+### Summary
+- **The lock:** a posted day is locked once ledger_settings.lock_after_days (3) days have passed after it. Posted on day D, it is still open on D+3 and locked from D+4. A posted day inside the 3 days stays editable; a change then is reversed and re-posted on the next posted day (3b/3c).
+- **One shared guard:** lib/periodLock.ts (assertOpenPeriod / lockGuard). Every write route that creates, edits, voids or backdates a document dated in a locked day refuses it with 400 `{ error, locked: true }`. The message gives the date (AD and BS), says it is locked, and says "Enter it on today's date or ask the admin to reopen the day." (or "the month" when its month is closed).
+- **Paid bills:** cancelling or correcting a paid bill dated in a locked day is refused with "For a credit invoice use Cancel invoice (a credit note dated today); otherwise ask the admin to reopen the day." A credit note is always dated today, so it is never blocked: that is the way to fix a locked day.
+- **Admin reopen of a locked day:**
+  - Post a day > the day > Reopen day. Admin only; a reason is required.
+  - It is logged in day_reopens (who, when, why).
+  - The day is open again until it re-locks by the same rule, counted from the reopen date (reopened on the 20th, it locks on the 24th).
+  - The accountant sees the locks but cannot reopen.
+  - Refused for a day that is not locked, a day that is not posted, or a day in a closed month.
+- **Month close (BS month):** Chart of Accounts > Month close. Allowed only when:
+  - the month has ended;
+  - every day in it, from the ledger start, is posted and locked;
+  - the month-end checks agree, or a note acknowledges them. The checks are receivables, payables, the four machines, and the cash count when the last day's drawer is closed.
+  - The close records who and when, the note, the trial balance totals and the checks.
+  - A closed month locks every day in it, and an admin reopen of one of its days is refused until the month is reopened.
+  - The accountant or the admin closes a month. Only the admin reopens it, with a reason (who, when and why are kept on the row). It can be closed again later, and the history keeps every close.
+- **Screens:**
+  - **Post a day list:** "locked", "locked · month closed" or "open for edits until <date>" on each posted day, and a panel on the day saying what that means.
+  - **Month close tab:**
+    - the months, each with its status and counts of days posted and locked;
+    - the month's blockers and its checks;
+    - its summary: income, expenses, profit and the number of entries;
+    - the trial balance at the month end;
+    - close or reopen, and the history;
+    - Excel: the trial balance, with the month's movement and the balance to date, plus a summary sheet.
+  - A refused write shows the server's message in the existing error toasts.
+
+### Routes guarded (the date checked)
+- Orders:
+  - POST /orders with backdatedAt (the backdated day);
+  - PATCH /orders/:id/cancel when the bill is paid (its paid day);
+  - POST /orders/:id/corrections (the bill's paid day).
+  - Paid-later bills post on the day they are paid, which is today, so settling a bill is not blocked.
+- Receivables:
+  - POST /receipts (receipt date);
+  - POST /receipts/:id/void (receipt date);
+  - POST /credit-notes/:id/void (note date).
+- Settlements: POST /settlements (settled on); POST /settlements/:id/void (settled on).
+- Purchases:
+  - POST /purchase-bills (bill date) and POST /purchase-bills/:id/void (bill date);
+  - POST /opening-bills (bill date);
+  - POST /supplier-payments (payment date) and POST /supplier-payments/:id/void (payment date);
+  - POST /debit-notes (note date) and POST /debit-notes/:id/void (note date).
+- Expenses and petty cash:
+  - POST /expenses (expense date);
+  - PATCH /expenses/:id (the old date, and the new date when it moves);
+  - POST /expenses/:id/void (expense date);
+  - POST /expenses/copy-recurring (every date the copy would write; all or nothing).
+- Cash drawer:
+  - POST /cash/open and POST /cash/reopen;
+  - through requireOpenDay: POST /cash/movements, POST /cash/movements/:id/void, POST /cash/payout (petty cash) and POST /cash/close.
+- Waste: POST /waste (dated now: refused only inside a closed month); DELETE /waste/:id (the entry's Nepal day).
+- Ledger: POST /gl/journals (the JV's date); POST /gl/journals/:id/reverse (the reversal's date).
+- Not guarded, because they are always dated today:
+  - new credit notes, Cancel invoice and Wrong customer / Move to another room (credit notes dated today, re-issued invoice on its visit day as before);
+  - paying a bill;
+  - room-stay charges: breakfasts and extras are invoices made now;
+  - receipt allocation (it does not change the ledger).
+
+### Files
+- New:
+  - api-server: src/lib/periodLock.ts, src/lib/monthClose.ts, src/__tests__/periodLock.test.ts, src/__tests__/monthClose.test.ts;
+  - lhc-cafe: src/components/MonthClose.tsx;
+  - db/migrations/015_period_lock.sql.
+- Changed:
+  - lib/db: src/schema/ledger.ts (posting_days.reopened_on, day_reopens, period_closes).
+  - api-server lib: src/lib/fiscal.ts (bsYearMonthOf, bsMonthRange); src/lib/glPosting.ts (lock status in listDays, balanceChecksAt for the month end).
+  - api-server routes: gl.ts (reopen, months, close, reopen month; guards on JV and reverse), orders.ts, receivables.ts, settlements.ts, purchases.ts, expenses.ts, cash.ts, waste.ts.
+  - lhc-cafe: src/components/PostDay.tsx (lock status, Reopen day), src/pages/chart-of-accounts.tsx (Month close tab).
+  - Docs: CLAUDE.md, docs/HANDOFF.md, docs/specs/step3-ledger.md (section 17).
+
+### Tables
+- posting_days: + reopened_on (date, null).
+- New: day_reopens (day, reason, reopened_by, reopened_at).
+- New: period_closes:
+  - bs_year, bs_month, from_day, to_day;
+  - status (closed or reopened), note, totals;
+  - closed_by/at, reopened_by/at, reopen_reason;
+  - at most one close in force per month (a unique partial index).
+
+### Migration
+- db/migrations/015_period_lock.sql. NOT run on the server yet. Idempotent (tested twice on PGlite). Run it after a backup and before deploy.sh.
+- Named 015, not 016 as asked: the last migration is 014, and 016 would leave a gap in the numbering.
+
+### Decisions
+- The lock is computed, not stored. lockOn = (reopened_on if later than the day, else the day) + lock_after_days + 1. Tightening lock_after_days to 2 takes effect at once.
+- A day that is not posted is never locked by the day rule; only a closed month locks it. In practice a month cannot close with unposted days.
+- The month-end checks reuse the posting checks with nothing pending. Stock stays information only.
+- Closing needs a balanced trial balance, which the database's balance triggers already ensure.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 41 files, 380 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- New, periodLock (60):
+  - the lock rule;
+  - the Post a day list: the 16th locked on the 20th, the 17th still open (D+3);
+  - the boundary: the 17th locked on D+4;
+  - each of 26 guarded routes refuses the locked day with the date and the message, and does not refuse the open day (the paid-bill routes name Cancel invoice);
+  - a new credit note on a locked day's invoice is not blocked;
+  - copy-recurring into locked dates is refused;
+  - day reopen: the accountant gets 403, a reason is required, an open day cannot be reopened; then reopen, edit, still open on the 23rd, locked again on the 24th, with the log row;
+  - migration 015 runs twice.
+- New, monthClose (9), on Poush 2083:
+  - refused before the month ends;
+  - refused with a day not posted;
+  - refused with a posted day not locked yet;
+  - refused with a failing receivables check and no note, then closed by the accountant with a note;
+  - the closed month's trial balance balances, with the summary (rent 5,000, profit -5,000);
+  - a late expense in the closed month is refused ("its month is closed"), and the admin's day reopen there is refused;
+  - month reopen: admin only, with a reason; afterwards a day reopen works;
+  - closed again after that day re-locks, with a history of 2.
+- Not run: the screens in a browser; anything against production.

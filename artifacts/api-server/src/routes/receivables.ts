@@ -9,6 +9,7 @@ import { validateAllocations, buildCreditNote, fullCreditNote, RECEIPT_MODES, RE
 import { nextVoucherNumber, nextInvoiceNumber } from "../lib/fiscal";
 import { moveStockForSold, recipesFor, restoreSaleStock, reverseNoteStock } from "../lib/stockMoves";
 import { round2 } from "../lib/payments";
+import { lockGuard, orderDay, PAID_ORDER_ALT } from "../lib/periodLock";
 
 const router = Router();
 const VIEW_ROLES = ["admin", "accountant", "supervisor", "head_barista"];
@@ -186,6 +187,7 @@ router.post("/receipts", authenticate, async (req: AuthRequest, res: Response): 
   if (!(amount > 0)) { res.status(400).json({ error: "Enter an amount above 0." }); return; }
   if (!(RECEIPT_MODES as readonly string[]).includes(mode)) { res.status(400).json({ error: "Choose how the money was received: cash, QR, card or bank." }); return; }
   if (date > today) { res.status(400).json({ error: "The receipt date cannot be in the future." }); return; }
+  if (!(await lockGuard(res, date, "This receipt"))) return;
   // Step 3b: a receipt by bank records which bank it reached (it posts to 1200 Nabil or 1210 HBL)
   const bankAccount = mode === "bank" ? String(b.bankAccount ?? "") : null;
   if (mode === "bank" && !["nabil", "hbl"].includes(bankAccount!)) { res.status(400).json({ error: "Choose the bank the money reached: Nabil or HBL." }); return; }
@@ -248,6 +250,7 @@ router.post("/receipts/:id/void", authenticate, async (req: AuthRequest, res: Re
   if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
   const [rc] = await db.select().from(customerReceiptsTable).where(eq(customerReceiptsTable.id, id));
   if (!rc || rc.status !== "active") { res.status(404).json({ error: "Receipt not found" }); return; }
+  if (!(await lockGuard(res, rc.receiptDate, `Receipt ${rc.voucherNo}`))) return;
   if (rc.mode === "cash" && await isDrawerClosed(rc.receiptDate)) { res.status(400).json({ error: "That day's cash drawer is closed. Ask the admin to reopen it first." }); return; }
   const user = req.user?.username ?? "user";
   await db.transaction(async (tx) => {
@@ -369,6 +372,8 @@ router.post("/credit-notes", authenticate, async (req: AuthRequest, res: Respons
 router.post("/credit-notes/:id/void", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, ADMIN_ROLES, "Only the admin or the accountant can void a credit note.")) return;
   const id = idOf(req.params.id);
+  const [cn] = await db.select({ d: creditNotesTable.noteDate, no: creditNotesTable.noteNo }).from(creditNotesTable).where(eq(creditNotesTable.id, id));
+  if (cn && !(await lockGuard(res, cn.d, `Credit note ${cn.no}`))) return;
   const reason = clean(req.body?.reason, 300);
   if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
   const user = req.user?.username ?? "user";

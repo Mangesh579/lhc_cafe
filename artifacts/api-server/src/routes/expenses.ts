@@ -8,6 +8,7 @@ import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
 import { authenticate, requireAdminOrAccountant, type AuthRequest } from "../middlewares/auth";
 import { isDrawerClosed } from "../lib/ledgerData";
 import { nextVoucherNumber } from "../lib/fiscal";
+import { lockGuard } from "../lib/periodLock";
 
 const router = Router();
 const PURCHASE_BILL_MSG = "This expense was booked by a purchase bill. Open the bill under Suppliers and void it there instead.";
@@ -133,6 +134,12 @@ router.post("/expenses/copy-recurring", authenticate, requireAdminOrAccountant, 
   const sig = (r: any) => [r.type, r.category, r.subcategory ?? "", r.vendor ?? "", parseFloat(String(r.amount)).toFixed(2)].join("|");
   const have = new Set(existing.map(sig));
 
+  // step 3d: every date the copy would write must be open (all or nothing)
+  for (const r of source) {
+    if (r.inventoryItemId != null || have.has(sig(r))) continue;
+    const d = `${toMonth}-${String(Math.min(parseInt(r.expenseDate.slice(8, 10), 10), dst.days)).padStart(2, "0")}`;
+    if (!(await lockGuard(res, d, `A copied recurring expense (${r.category})`))) return;
+  }
   let copied = 0;
   for (const r of source) {
     if (r.inventoryItemId != null || have.has(sig(r))) continue;
@@ -156,6 +163,7 @@ router.post("/expenses", authenticate, requireAdminOrAccountant, async (req: Aut
   if (!clean(b.category, 80)) { res.status(400).json({ error: "A category is required." }); return; }
   if (!(amount > 0)) { res.status(400).json({ error: "Enter an amount above 0." }); return; }
   if (!isDate(b.expenseDate)) { res.status(400).json({ error: "A valid date is required." }); return; }
+  if (!(await lockGuard(res, b.expenseDate, "This expense"))) return;
   if (b.paymentMethod === "cash" && b.paidFromDrawer && await isDrawerClosed(b.expenseDate)) { res.status(400).json({ error: "That day's cash drawer is already closed." }); return; }
   const bankAccount = bankFor(b.paymentMethod, b.bankAccount);
   if (bankAccount === false) { res.status(400).json({ error: "Choose the bank it was paid from: Nabil or HBL." }); return; }
@@ -187,6 +195,8 @@ router.patch("/expenses/:id", authenticate, requireAdminOrAccountant, async (req
   if (!ex) { res.status(404).json({ error: "Expense not found" }); return; }
   if ((ex as any).purchaseBillId) { res.status(400).json({ error: PURCHASE_BILL_MSG }); return; }
   if (ex.status === "void") { res.status(400).json({ error: "A voided expense can't be edited." }); return; }
+  if (!(await lockGuard(res, ex.expenseDate, "This expense"))) return;
+  if (isDate(req.body?.expenseDate) && req.body.expenseDate !== ex.expenseDate && !(await lockGuard(res, req.body.expenseDate, "The new date of this expense"))) return;
 
   const b = req.body ?? {};
   const user = req.user?.username ?? "user";
@@ -241,6 +251,7 @@ router.post("/expenses/:id/void", authenticate, requireAdminOrAccountant, async 
   const [ex] = await db.select().from(expensesTable).where(eq(expensesTable.id, id));
   if (!ex) { res.status(404).json({ error: "Expense not found" }); return; }
   if (ex.status === "void") { res.status(400).json({ error: "This expense is already voided." }); return; }
+  if (!(await lockGuard(res, ex.expenseDate, "This expense"))) return;
   if ((ex as any).purchaseBillId) { res.status(400).json({ error: PURCHASE_BILL_MSG }); return; }
   if ((ex as any).paidFromDrawer && await isDrawerClosed(ex.expenseDate)) { res.status(400).json({ error: "This was paid from the cash drawer and that day is closed. Ask the admin to reopen the day first." }); return; }
   const user = req.user?.username ?? "user";

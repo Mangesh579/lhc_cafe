@@ -2,6 +2,7 @@
 // supplier payments (CV/PV) with allocation and advances, opening bills and aging (part B).
 // Money (bill amounts, balances, prices) is served to the admin and the accountant only.
 import { Router } from "express";
+import { lockGuard } from "../lib/periodLock";
 import type { Response } from "express";
 import {
   db, suppliersTable, ingredientSuppliersTable, purchaseBillsTable, purchaseBillItemsTable, ingredientPriceHistoryTable,
@@ -187,6 +188,7 @@ router.get("/purchase-bills/:id", authenticate, async (req: AuthRequest, res: Re
 
 router.post("/purchase-bills", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, FIN)) return;
+  if (!(await lockGuard(res, req.body?.billDate, "This purchase bill"))) return;
   const now = new Date();
   const v = validateBill(req.body, { today: nepalDay(now), currentFiscalYear: safeFiscalLabel(now), fiscalYearOf: (d) => safeFiscalLabel(new Date(`${d}T06:00:00Z`)) });
   if ("error" in v) { res.status(400).json({ error: v.error }); return; }
@@ -199,6 +201,8 @@ router.post("/purchase-bills", authenticate, async (req: AuthRequest, res: Respo
 
 router.post("/purchase-bills/:id/void", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, FIN)) return;
+  const [pb] = await db.select({ d: purchaseBillsTable.billDate, no: purchaseBillsTable.pjNumber }).from(purchaseBillsTable).where(eq(purchaseBillsTable.id, idOf(req.params.id)));
+  if (pb && !(await lockGuard(res, pb.d, `Purchase bill ${pb.no}`))) return;
   const reason = String(req.body?.reason ?? "").trim().slice(0, 300);
   if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
   try {
@@ -246,6 +250,7 @@ router.patch("/payables/settings", authenticate, async (req: AuthRequest, res: R
 
 router.post("/opening-bills", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, FIN)) return;
+  if (!(await lockGuard(res, req.body?.billDate, "This opening bill"))) return;
   const v = validateOpeningBill(req.body, { today: nepalDay(new Date()), openingDate: await openingDate(db) });
   if ("error" in v) { res.status(400).json({ error: v.error }); return; }
   try {
@@ -276,6 +281,7 @@ router.get("/supplier-payments/:id", authenticate, async (req: AuthRequest, res:
 
 router.post("/supplier-payments", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, FIN)) return;
+  if (!(await lockGuard(res, req.body?.paymentDate ?? nepalDay(new Date()), "This supplier payment"))) return;
   const now = new Date();
   const v = validatePayment(req.body, { today: nepalDay(now), currentFiscalYear: safeFiscalLabel(now), fiscalYearOf: (d) => safeFiscalLabel(new Date(`${d}T06:00:00Z`)) });
   if ("error" in v) { res.status(400).json({ error: v.error }); return; }
@@ -298,6 +304,8 @@ router.post("/supplier-payments/:id/allocate", authenticate, async (req: AuthReq
 
 router.post("/supplier-payments/:id/void", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, FIN)) return;
+  const [sp] = await db.select({ d: supplierPaymentsTable.paymentDate, no: supplierPaymentsTable.voucherNo }).from(supplierPaymentsTable).where(eq(supplierPaymentsTable.id, idOf(req.params.id)));
+  if (sp && !(await lockGuard(res, sp.d, `Supplier payment ${sp.no}`))) return;
   const reason = String(req.body?.reason ?? "").trim().slice(0, 300);
   if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
   try {
@@ -334,6 +342,7 @@ router.get("/debit-notes/:id", authenticate, async (req: AuthRequest, res: Respo
 
 router.post("/debit-notes", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, FIN)) return;
+  if (!(await lockGuard(res, req.body?.noteDate ?? nepalDay(new Date()), "This debit note"))) return;
   const now = new Date();
   try {
     const id = await createDebitNote(db, req.body, { today: nepalDay(now), currentFiscalYear: safeFiscalLabel(now), fiscalYearOf: (d) => safeFiscalLabel(new Date(`${d}T06:00:00Z`)) }, {
@@ -357,6 +366,8 @@ router.post("/debit-notes/:id/allocate", authenticate, async (req: AuthRequest, 
 
 router.post("/debit-notes/:id/void", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, FIN)) return;
+  const [dn] = await db.select({ d: debitNotesTable.noteDate, no: debitNotesTable.noteNo }).from(debitNotesTable).where(eq(debitNotesTable.id, idOf(req.params.id)));
+  if (dn && !(await lockGuard(res, dn.d, `Debit note ${dn.no}`))) return;
   const reason = String(req.body?.reason ?? "").trim().slice(0, 300);
   if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
   try {

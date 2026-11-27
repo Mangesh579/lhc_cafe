@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { lockGuard } from "../lib/periodLock";
+import { nepalDay } from "../lib/ledgerData";
 import { db, wasteLogsTable, inventoryItemsTable, menuItemsTable, inventoryLogsTable, equipmentItemsTable, equipmentLogsTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import { authenticate, requireAdmin, canWriteDepartment, type AuthRequest } from "../middlewares/auth";
@@ -20,6 +22,7 @@ router.post("/waste", authenticate, async (req: AuthRequest, res: Response): Pro
     res.status(400).json({ error: "itemName, quantity, unit, reason, and department are required" });
     return;
   }
+  if (!(await lockGuard(res, nepalDay(new Date()), "This waste entry"))) return; // dated now; only a closed month can lock today
   if (!canWriteDepartment(req.user?.role, department)) {
     res.status(403).json({ error: `Only ${department === "kitchen" ? "the head chef" : "the head barista"} or an admin can log ${department} waste.` });
     return;
@@ -91,6 +94,7 @@ router.delete("/waste/:id", authenticate, requireAdmin, async (req: AuthRequest,
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
   const [existing] = await db.select().from(wasteLogsTable).where(eq(wasteLogsTable.id, id));
   if (!existing) { res.status(404).json({ error: "Waste log not found" }); return; }
+  if (!(await lockGuard(res, nepalDay(new Date(existing.createdAt)), "This waste entry"))) return;
   if (!canWriteDepartment(req.user?.role, existing.department)) {
     res.status(403).json({ error: `Only ${existing.department === "kitchen" ? "the head chef" : "the head barista"} or an admin can delete this entry.` });
     return;

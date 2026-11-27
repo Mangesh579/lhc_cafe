@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiJson } from "@/lib/expenseApi";
 import { rs } from "@/lib/payments";
+import { useAuth } from "@/contexts/auth";
 
 const amt = (n: number) => (n ? rs(n) : "");
 const ACTION: Record<string, string> = { reverse: "Reverse", repost: "Reverse and re-post (next revision)", add: "Post late" };
@@ -20,6 +21,17 @@ export function PostDayTab() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
+  const { user } = useAuth();
+  const isAdmin = (user?.role as string | undefined) === "admin";
+  const [reopenReason, setReopenReason] = useState("");
+  // Step 3d: only the admin reopens a locked day (reason required, logged); it locks again 3 days after the reopen
+  const reopen = async () => {
+    if (!day) return;
+    setBusy(true);
+    try { const s = await apiJson(`/gl/days/${day}/reopen`, "POST", { reason: reopenReason }); toast({ title: `${day} reopened`, description: `Open for edits until ${s.lockOn}.` }); setReopenReason(""); await loadDays(); }
+    catch (e: any) { toast({ title: "Not reopened", description: e?.error, variant: "destructive" }); }
+    finally { setBusy(false); }
+  };
   // Read-only rehearsal on real data: any past day, even before the start date (2026-11-27). Never posts.
   const [previewDay, setPreviewDay] = useState("");
   const preview = async () => {
@@ -60,6 +72,7 @@ export function PostDayTab() {
           <button key={d.day} type="button" onClick={() => setDay(d.day)} className={`w-full text-left px-3 py-1.5 text-sm border-b hover:bg-muted ${day === d.day ? "bg-muted font-medium" : ""}`}>
             {d.day} <span className="text-xs text-muted-foreground">{d.dayBs}</span>
             <span className="block text-xs">{d.status === "not posted" ? (d.next ? <span className="text-primary">next to post</span> : <span className="text-muted-foreground">not posted</span>) : <span className="text-green-700">{d.status} · {d.entries} entries</span>}</span>
+            {d.status !== "not posted" && <span className="block text-[11px]">{d.monthClosed ? <span className="text-slate-700">locked · month closed</span> : d.locked ? <span className="text-slate-700">locked</span> : <span className="text-amber-700">open for edits until {d.lockOn}{d.reopenedOn ? ` (reopened ${d.reopenedOn})` : ""}</span>}</span>}
           </button>
         ))}
       </CardContent></Card>
@@ -72,6 +85,17 @@ export function PostDayTab() {
             {r.preview ? <Badge variant="secondary">Preview</Badge> : r.status === "posted" ? <Badge className="bg-green-700">Posted by {r.postedBy}</Badge> : r.canPost ? <Badge>Ready to post</Badge> : <Badge variant="secondary">Cannot post yet</Badge>}
           </div>
           {r.blockers?.map((b: string) => <p key={b} className="text-sm bg-muted rounded-md px-3 py-2">{b}</p>)}
+          {(() => {
+            const ld = !r.preview && days.days.find((x: any) => x.day === r.day);
+            if (!ld || ld.status === "not posted") return null;
+            if (!ld.locked) return <p className="text-sm bg-amber-50 text-amber-900 border border-amber-200 rounded-md px-3 py-2">Posted, still open for edits until {ld.lockOn}. A change now is reversed and re-posted on the next day you post.</p>;
+            return (
+              <div className="text-sm bg-slate-50 border border-slate-200 rounded-md px-3 py-2 space-y-2">
+                <p><strong>Locked{ld.monthClosed ? " (its month is closed)" : ""}.</strong> Nothing dated this day can be entered, edited or voided. Enter a correction on today's date{ld.monthClosed ? "; the admin reopens the month first to reopen a day in it." : ", or the admin reopens the day."}</p>
+                {isAdmin && !ld.monthClosed && <div className="flex gap-2 flex-wrap"><Input className="h-8 text-xs flex-1 min-w-[200px]" placeholder="Why reopen this day? (required, logged)" value={reopenReason} onChange={e => setReopenReason(e.target.value)} /><Button size="sm" variant="outline" className="h-8 text-xs" disabled={busy || !reopenReason.trim()} onClick={reopen}>Reopen day</Button></div>}
+              </div>
+            );
+          })()}
           {r.status === "posted" && r.note && <p className="text-xs text-muted-foreground">Note when posting: {r.note}</p>}
 
           {(fixes.length > 0 || acks.length > 0) && (
