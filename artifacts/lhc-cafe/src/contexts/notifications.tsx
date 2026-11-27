@@ -78,7 +78,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    if (!token || !user) return;
+    if (!token || !user || (user.role as string) === "reception") return; // reception has no orders or table requests
     pollOrders(); pollRequests();
     const orderInterval = setInterval(pollOrders, ORDER_POLL_INTERVAL);
     const requestInterval = setInterval(pollRequests, REQUEST_POLL_INTERVAL);

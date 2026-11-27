@@ -69,12 +69,12 @@ export function ordersOnDay(orders: LedgerOrder[], day: string): LedgerOrder[] {
 export type CollectionRow = {
   day: string; orders: number;
   cash: number; qr: number; card: number; cardNabil: number; cardHbl: number; cardSulimhaNabil: number; cardSulimhaHbl: number; cardUnknown: number; credit: number; other: number;
-  sales: number; receiptsCash: number; receiptsQr: number; receiptsBank: number; receipts: number; received: number; vat: number;
+  sales: number; receiptsCash: number; receiptsQr: number; receiptsCard: number; receiptsBank: number; receipts: number; received: number; vat: number;
 };
 
 const emptyRow = (day: string): CollectionRow => ({
   day, orders: 0, cash: 0, qr: 0, card: 0, cardNabil: 0, cardHbl: 0, cardSulimhaNabil: 0, cardSulimhaHbl: 0, cardUnknown: 0, credit: 0, other: 0,
-  sales: 0, receiptsCash: 0, receiptsQr: 0, receiptsBank: 0, receipts: 0, received: 0, vat: 0,
+  sales: 0, receiptsCash: 0, receiptsQr: 0, receiptsCard: 0, receiptsBank: 0, receipts: 0, received: 0, vat: 0,
 });
 
 // Per Nepal day: bills by payment mode, customer receipts by mode, and the money actually received.
@@ -98,6 +98,7 @@ export function collectionsByDay(orders: LedgerOrder[], receipts: LedgerReceipt[
     const r = row(rc.receiptDate);
     if (rc.mode === "cash") r.receiptsCash += rc.amount;
     else if (rc.mode === "nabil_qr") r.receiptsQr += rc.amount;
+    else if (modeOf(rc.mode) === "card") r.receiptsCard += rc.amount;
     else r.receiptsBank += rc.amount;
     r.receipts += rc.amount;
   }

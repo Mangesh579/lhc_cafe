@@ -67,6 +67,17 @@ describe("unsettled sales per machine and day (from order_payments)", () => {
     ]);
     expect(cells).toEqual([{ day: "2026-11-21", machine: "qr", bills: 1, gross: 400 }]);
   });
+
+  it("adds card receipts (a hotel guest paying at check-out, 2026-11-26) to that card machine", () => {
+    const cells = salesByMachineDay([], [
+      { receiptDate: "2026-11-26", mode: "card_hbl", amount: 300 },
+      { receiptDate: "2026-11-26", mode: "card_sulimha_nabil", amount: 1000 },
+    ]);
+    expect(cells).toEqual([
+      { day: "2026-11-26", machine: "hbl_pos", bills: 1, gross: 300 },
+      { day: "2026-11-26", machine: "sulimha_nabil_pos", bills: 1, gross: 1000 },
+    ]);
+  });
 });
 
 describe("bank charge and fee warnings", () => {

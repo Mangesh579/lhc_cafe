@@ -30,6 +30,13 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     return;
   }
 
+  // Sulimha Durbar's reception (owner, 2026-11-26) works only with room stays: every other API answer is refused,
+  // so a receptionist never sees prices, costs, orders or reports. Login, logout and password change stay open.
+  if (dbUser.role === "reception" && !/^\/api\/(stays(\/|\?|$)|auth\/(me|change-password))/.test(req.originalUrl)) {
+    res.status(403).json({ error: "Reception can use the Stays page only." });
+    return;
+  }
+
   req.user = { id: payload.id, username: payload.username, role: payload.role };
   next();
 }

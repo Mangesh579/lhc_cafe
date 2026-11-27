@@ -47,7 +47,7 @@ export default function Ledgers() {
   const collRow = (r: any, label: string) => ({
     Date: label, Bills: r.orders, Cash: r.cash, "QR Payment": r.qr, "Card - LHC Nabil POS": r.cardNabil, "Card - LHC HBL POS": r.cardHbl, "Card - Sulimha Nabil POS": r.cardSulimhaNabil ?? 0, "Card - Sulimha HBL POS": r.cardSulimhaHbl ?? 0, "Card (machine not recorded)": r.cardUnknown,
     Other: r.other, "Credit (billed, not received)": r.credit, "Total sales": r.sales,
-    "Receipts - Cash": r.receiptsCash, "Receipts - QR": r.receiptsQr, "Receipts - Bank": r.receiptsBank, "Money received": r.received, "VAT included": r.vat,
+    "Receipts - Cash": r.receiptsCash, "Receipts - QR": r.receiptsQr, "Receipts - Card": r.receiptsCard ?? 0, "Receipts - Bank": r.receiptsBank, "Money received": r.received, "VAT included": r.vat,
   });
   const exportCollections = () => {
     if (!coll) return;

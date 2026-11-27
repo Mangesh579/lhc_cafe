@@ -41,7 +41,7 @@ async function loadConfig() {
 // Current sales per machine and Nepal day between two days (inclusive)
 async function salesBetween(from: string, to: string) {
   const orders = await paidOrdersBetween(dayRangeUtc(from).from, dayRangeUtc(to).to);
-  const receipts = await receiptsBetween(from, to, "nabil_qr");
+  const receipts = await receiptsBetween(from, to); // QR and card receipts count; cash and bank are skipped by machineOfMode
   return salesByMachineDay(orders, receipts);
 }
 

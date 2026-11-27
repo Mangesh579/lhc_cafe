@@ -42,6 +42,16 @@
 
 23. Reward item (loyalty reward), 2026-11-26. The payment dialog (Orders) has "Reward item (loyalty)": pick an item on the bill; one unit's price comes off first, then any staff %; never below Rs 0 (then the bill settles as Rs 0). Shown on screen, on the printed bill and the receipt preview as "Loyalty reward"; the order notes say "Loyalty reward: 1 x <item> (Rs. <price>)" with the reason. The discount route now adds to any discount already on the bill instead of replacing it. No migration.
 
+24. Hotel room stays, 2026-11-26 (docs/specs/room-stays.md).
+  - **Room Stays page:** check-in, change, check-out and cancel by reception, a supervisor or the admin; a folio with the check-out payment for LHC's money roles; history with Excel; settings for the breakfast price and the Sulimha Durbar customer (admin).
+  - **Payment screen (Orders):** a "Hotel room" box. Charge to room makes a credit invoice on the guest. Included breakfast makes a credit invoice to Sulimha at Rs 800 x breakfasts, breakfast items only, with a warning listing items with no recipe cost.
+  - **Reception role:** only /api/stays and auth/me and change-password; the app shows only Room Stays.
+  - **Receipts** take the four card modes. Card receipts count in machine settlements, the card ledger, and the Receipts - Card column in the collections Excel.
+  - **Menu items** have a Breakfast tick box.
+  - **No points** on stay bills.
+  - **Closing with unpaid extras** is admin only with a reason; the extras are re-issued to Sulimha (the Wrong customer logic, now the shared reissueInvoice).
+  - Needs migration 012 (below).
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -56,7 +66,7 @@
 - 011_petty_cash_cv.sql (2026-11-26, by the owner): expenses.voucher_no with a unique index.
 
 # Not yet applied on the server
-- None.
+- 012_room_stays.sql (written 2026-11-26): cafe_tables.is_room (tables named 103 ... 402), room_stays, hotel_settings (Rs 800), orders.room_stay_id, stay_charge and breakfast_count, menu_items.is_breakfast, loyalty_customers.email optional, card modes on customer_receipts. Run before deploying item 24.
 
 # Known limits
 - Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
@@ -77,7 +87,12 @@
 Roadmap step 2 in CLAUDE.md: suppliers, purchases, payables, supplier ledger, payments (PV), returns with debit notes, supplier on each ingredient, price history. Then steps 3 to 9. Each task must end with a docs/CHANGELOG.md entry.
 - Debit notes (item 19): cost per unit is not changed by a return (the stock value may stay slightly high until consumption; step 3 posting will credit 1400/1410 at the returned value). A return of stock already used is allowed as long as the quantity is within the bill line; stock can then go negative, as with any stock movement. A debit note's credit is applied to its own bill first; allocation to other bills is manual. Debit notes in an earlier fiscal year are refused.
 - Sulimha card machines: until a Sulimha settlement is recorded, the money shows as unsettled on Settlements (it is owed by Sulimha Durbar). The chart of accounts has no "Receivable - Sulimha Durbar" account yet; step 3 posting needs one (ask the accountant). Older bills keep the LHC machines; nothing is moved between machines.
-- Still to do from the owner's testing of 2026-11-25: hotel room stays (breakfast at cost billed to Sulimha Durbar, extras paid at checkout), plan first.
+- Done from the owner's testing of 2026-11-25: hotel room stays (built 2026-11-26) (breakfast at cost billed to Sulimha Durbar, extras paid at checkout), plan first.
 - Cancel invoice with "Not served" puts back stock by today's recipe, not the recipe on the day of the sale (same as cancelling an order). Wrong customer: until credit notes reduce sales reports, the original and the re-issued invoice both count in sales totals (the existing credit-note limit).
 - Petty cash CV: a voided payout keeps its CV number (shown as void on the Expenses page); numbers are never reused. Payouts recorded before migration 011 have no CV number.
 - Complimentary at the payment step takes cost from each item's cost snapshot; items with no recipe cost count as 0 (shown as incomplete NC cost, as for POS NC orders). A reward item is one unit at its sold price; two free items need two bills or a staff % for the second. The reward is not linked to the customer's redemption record (that is still made by the customer on the QR page).
+- Room stays:
+  - A breakfast invoice lists items at menu prices but totals Rs 800 x breakfasts, so item-level sales reports show breakfast items at menu prices.
+  - VAT on the breakfast price is not added yet (the VAT switch, roadmap step 5).
+  - The bill printed from the payment screen before a room charge shows menu prices; reprint from Order Log after saving.
+  - Sulimha Durbar must be added on the Loyalty page and chosen in Room Stays > Settings before the first breakfast.

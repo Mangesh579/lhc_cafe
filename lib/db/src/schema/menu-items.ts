@@ -14,6 +14,7 @@ export const menuItemsTable = pgTable("menu_items", {
   calories: integer("calories"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   operatingProfileId: integer("operating_profile_id"),
+  isBreakfast: boolean("is_breakfast").notNull().default(false), // can be served as a hotel guest's included breakfast
 });
 
 export const insertMenuItemSchema = createInsertSchema(menuItemsTable).omit({ id: true, createdAt: true });

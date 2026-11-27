@@ -30,6 +30,11 @@ export const ordersTable = pgTable("orders", {
   // On a credit invoice made by converting a monthly-account bill: that bill's id
   convertedFromOrderId: integer("converted_from_order_id"),
   accountBill: boolean("account_bill").notNull().default(false),
+  // Hotel room stays (2026-11-26): the stay this bill was charged to; 'breakfast' = included breakfast billed to Sulimha Durbar
+  // at the fixed price x breakfast_count, 'extra' = the guest's own extras, paid at check-out
+  roomStayId: integer("room_stay_id"),
+  stayCharge: text("stay_charge"),
+  breakfastCount: integer("breakfast_count"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
   // kotNumber: integer("kot_number").notNull().default(1),

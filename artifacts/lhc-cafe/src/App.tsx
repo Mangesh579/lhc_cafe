@@ -21,6 +21,7 @@ import CashDrawer from "@/pages/cash-drawer";
 import Ledgers from "@/pages/ledgers";
 import Receivables from "@/pages/receivables";
 import Settlements from "@/pages/settlements";
+import Stays from "@/pages/stays";
 import Suppliers from "@/pages/suppliers";
 import PurchaseBill from "@/pages/purchase-bill";
 import AccountConversion from "@/pages/account-conversion";
@@ -59,7 +60,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 const queryClient = new QueryClient();
 
 function Router() {
-  const { token, isLoading } = useAuth();
+  const { token, isLoading, user } = useAuth();
   const [location] = useLocation();
 
   if (isLoading) {
@@ -85,6 +86,11 @@ function Router() {
     );
   }
 
+  // Sulimha Durbar's reception (2026-11-26) uses the Stays page only, whatever address is opened
+  if ((user?.role as string | undefined) === "reception") {
+    return <AppLayout><Stays /></AppLayout>;
+  }
+
   // Protected routes
   return (
     <AppLayout>
@@ -103,6 +109,7 @@ function Router() {
         <Route path="/ledgers" component={Ledgers} />
         <Route path="/receivables" component={Receivables} />
         <Route path="/settlements" component={Settlements} />
+        <Route path="/stays" component={Stays} />
         <Route path="/suppliers" component={Suppliers} />
         <Route path="/purchases/new" component={PurchaseBill} />
         <Route path="/tables" component={Tables} />

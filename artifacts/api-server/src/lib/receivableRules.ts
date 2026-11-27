@@ -94,8 +94,12 @@ export function fullCreditNote(invoice: { items: InvoiceItem[]; netPreVat: numbe
   return { lines, subtotal, vatAmount, total };
 }
 
-export const RECEIPT_MODES = ["cash", "nabil_qr", "bank"] as const;
-export const RECEIPT_MODE_LABEL: Record<string, string> = { cash: "Cash", nabil_qr: "QR Payment", bank: "Bank" };
+// Card modes since 2026-11-26: a hotel guest pays the extras by card at check-out. A card receipt counts in that machine's settlement.
+export const RECEIPT_MODES = ["cash", "nabil_qr", "bank", "card_nabil", "card_hbl", "card_sulimha_nabil", "card_sulimha_hbl"] as const;
+export const RECEIPT_MODE_LABEL: Record<string, string> = {
+  cash: "Cash", nabil_qr: "QR Payment", bank: "Bank",
+  card_nabil: "Card - LHC Nabil POS", card_hbl: "Card - LHC HBL POS", card_sulimha_nabil: "Card - Sulimha Nabil POS", card_sulimha_hbl: "Card - Sulimha HBL POS",
+};
 
 export function addDaysTo(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00.000Z`);
