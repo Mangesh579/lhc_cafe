@@ -9,7 +9,8 @@ import { db } from "@workspace/db";
 import { resolvePeriod, asAt, postedInfo, reportMeta } from "../lib/reports/periods";
 import { dayBook, generalLedger, book, trialBalancePeriod, journalParties, BOOKS, VOUCHER_TYPES, KINDS } from "../lib/reports/books";
 import { entryDetail, sourceDocument, consumptionView, SOURCE_LINKS } from "../lib/reports/drilldown";
-import { bsLabel } from "../lib/fiscal";
+import { bsLabel, bsMonthRange } from "../lib/fiscal";
+import { profitLoss, balanceSheet, compareView, customerStatement, supplierStatement, partySummary, reportSettings, fyRange } from "../lib/reports/statements";
 
 const router = Router();
 const REPORT_ROLES = ["admin", "accountant"];
@@ -26,7 +27,7 @@ async function period(req: AuthRequest, res: Response) {
 }
 
 router.get("/reports/meta", authenticate, only, async (_req: AuthRequest, res: Response): Promise<void> => {
-  res.json({ ...(await reportMeta()), voucherTypes: VOUCHER_TYPES, kinds: KINDS, books: BOOKS });
+  res.json({ ...(await reportMeta()), voucherTypes: VOUCHER_TYPES, kinds: KINDS, books: BOOKS, highlight: await reportSettings() });
 });
 
 router.get("/reports/day-book", authenticate, only, async (req: AuthRequest, res: Response): Promise<void> => {
@@ -65,6 +66,51 @@ router.get("/reports/trial-balance", authenticate, only, async (req: AuthRequest
   const p = await period(req, res); if (!p) return;
   res.json({ mode: "period", ...p, ...(await trialBalancePeriod(p.period.from, p.period.to, { hideZero })) });
 });
+
+// ── Step 4b: the statements ──
+const compareOf = (v: unknown) => v !== "none";
+router.get("/reports/profit-loss", authenticate, only, async (req: AuthRequest, res: Response): Promise<void> => {
+  const p = await period(req, res); if (!p) return;
+  res.json({ ...p, ...(await profitLoss(p.period, compareOf(req.query.compare))) });
+});
+router.get("/reports/balance-sheet", authenticate, only, async (req: AuthRequest, res: Response): Promise<void> => {
+  const at = req.query.at === undefined ? asAt({}) : isDay(req.query.at) ? String(req.query.at) : { error: "A valid date is required." };
+  if (typeof at !== "string") { res.status(400).json(at); return; }
+  res.json({ posted: await postedInfo(at, at), ...(await balanceSheet(at, compareOf(req.query.compare))) });
+});
+// period=month&at=2083/09 (or 2083-09), or period=fy&at=2083/84
+router.get("/reports/compare", authenticate, only, async (req: AuthRequest, res: Response): Promise<void> => {
+  const kind = String(req.query.period ?? "month"), at = String(req.query.at ?? "");
+  let q: Record<string, string> | null = null;
+  const m = at.match(/^(\d{4})[/-](\d{1,2})$/);
+  if (kind === "month" && m && +m[2] >= 1 && +m[2] <= 12) q = { month: `${m[1]}-${m[2]}` };
+  if (kind === "fy" && /^\d{4}(\/\d{2})?$/.test(at)) q = { fy: at };
+  if (!q) { res.status(400).json({ error: "Use period=month&at=2083/09 or period=fy&at=2083/84." }); return; }
+  const p = await resolvePeriod(q);
+  if ("error" in p) { res.status(400).json(p); return; }
+  res.json({ period: p, posted: await postedInfo(p.from, p.to), ...(await compareView(p)) });
+});
+router.get("/reports/customers", authenticate, only, async (req: AuthRequest, res: Response): Promise<void> => {
+  const p = await period(req, res); if (!p) return;
+  res.json({ ...p, ...(await partySummary("1300", p.period.from, p.period.to)) });
+});
+router.get("/reports/suppliers", authenticate, only, async (req: AuthRequest, res: Response): Promise<void> => {
+  const p = await period(req, res); if (!p) return;
+  res.json({ ...p, ...(await partySummary("2100", p.period.from, p.period.to)) });
+});
+router.get("/reports/customers/:id/statement", authenticate, only, async (req: AuthRequest, res: Response): Promise<void> => {
+  const p = await period(req, res); if (!p) return;
+  const st = await customerStatement(int(req.params.id) ?? 0, p.period.from, p.period.to, int(req.query.page) ?? 1);
+  if (!st) { res.status(404).json({ error: "No such customer." }); return; }
+  res.json({ ...p, ...st });
+});
+router.get("/reports/suppliers/:id/statement", authenticate, only, async (req: AuthRequest, res: Response): Promise<void> => {
+  const p = await period(req, res); if (!p) return;
+  const st = await supplierStatement(int(req.params.id) ?? 0, p.period.from, p.period.to, int(req.query.page) ?? 1);
+  if (!st) { res.status(404).json({ error: "No such supplier." }); return; }
+  res.json({ ...p, ...st });
+});
+void bsMonthRange; void fyRange;
 
 // The customers and suppliers that appear in the journal (for the party pickers)
 router.get("/reports/parties", authenticate, only, async (_req: AuthRequest, res: Response): Promise<void> => {

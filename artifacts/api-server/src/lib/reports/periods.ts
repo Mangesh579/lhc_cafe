@@ -6,8 +6,9 @@ import { ledgerSettings } from "../ledger";
 import { nepalDay, addDays, isDay } from "../ledgerData";
 import { bsLabel, adOfBs, bsYearMonthOf, bsMonthRange } from "../fiscal";
 
-export type Period = { from: string; to: string; label: string; fromBs: string; toBs: string };
-const make = (from: string, to: string, label: string): Period => ({ from, to, label, fromBs: bsLabel(from), toBs: bsLabel(to) });
+export type PeriodKind = "day" | "month" | "fy" | "custom";
+export type Period = { from: string; to: string; label: string; fromBs: string; toBs: string; kind: PeriodKind; y?: number; m?: number };
+const make = (from: string, to: string, label: string, kind: PeriodKind = "custom", y?: number, m?: number): Period => ({ from, to, label, fromBs: bsLabel(from), toBs: bsLabel(to), kind, y, m });
 const fyName = (y: number) => `${y}/${String((y + 1) % 100).padStart(2, "0")}`;
 
 // The fiscal year that starts on Shrawan 1 of BS year y
@@ -21,13 +22,13 @@ export async function resolvePeriod(q: Record<string, unknown>): Promise<Period 
   const settings = await ledgerSettings(db);
   if (q.day !== undefined) {
     if (!isDay(q.day)) return { error: "A valid day is required." };
-    return make(q.day, q.day, bsLabel(q.day));
+    return make(q.day, q.day, bsLabel(q.day), "day");
   }
   if (q.month !== undefined) {
     const m = String(q.month).match(/^(\d{4})-(\d{1,2})$/);
     if (!m || +m[2] < 1 || +m[2] > 12) return { error: "A BS month is written like 2083-09." };
     const r = bsMonthRange(+m[1], +m[2]);
-    return make(r.fromDay, r.toDay, r.label);
+    return make(r.fromDay, r.toDay, r.label, "month", +m[1], +m[2]);
   }
   if (q.fy !== undefined) {
     const m = String(q.fy).match(/^(\d{4})(\/\d{2})?$/);
@@ -35,7 +36,7 @@ export async function resolvePeriod(q: Record<string, unknown>): Promise<Period 
     const r = fyRange(+m[1]);
     // the first fiscal year starts at the ledger start (a part year)
     const from = r.from < settings.startDate && r.to >= settings.startDate ? settings.startDate : r.from;
-    return make(from, r.to, r.label);
+    return make(from, r.to, r.label, "fy", +m[1]);
   }
   if (q.from !== undefined || q.to !== undefined) {
     if (!isDay(q.from) || !isDay(q.to)) return { error: "Both from and to dates are required." };
@@ -44,7 +45,36 @@ export async function resolvePeriod(q: Record<string, unknown>): Promise<Period 
   }
   const { year, month } = bsYearMonthOf(nepalDay(new Date()));
   const r = bsMonthRange(year, month);
-  return make(r.fromDay, r.toDay, r.label);
+  return make(r.fromDay, r.toDay, r.label, "month", year, month);
+}
+
+// ── Step 4b: the comparison periods ──
+const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
+// a day one BS year earlier (the same BS day, or the month's last day when that month is shorter)
+export function bsYearEarlier(day: string) {
+  const { year, month } = bsYearMonthOf(day);
+  const d = daysBetween(bsMonthRange(year, month).fromDay, day) + 1;
+  const prev = bsMonthRange(year - 1, month);
+  return addDays(prev.fromDay, Math.min(d, daysBetween(prev.fromDay, prev.toDay) + 1) - 1);
+}
+export function previousPeriod(p: Period): Period {
+  if (p.kind === "day") { const d = addDays(p.from, -1); return make(d, d, bsLabel(d), "day"); }
+  if (p.kind === "month" && p.y && p.m) { const y = p.m === 1 ? p.y - 1 : p.y, m = p.m === 1 ? 12 : p.m - 1; const r = bsMonthRange(y, m); return make(r.fromDay, r.toDay, r.label, "month", y, m); }
+  if (p.kind === "fy" && p.y) { const r = fyRange(p.y - 1); return make(r.from, r.to, r.label, "fy", p.y - 1); }
+  const n = daysBetween(p.from, p.to) + 1, to = addDays(p.from, -1), from = addDays(p.from, -n);
+  return make(from, to, `${bsLabel(from)} to ${bsLabel(to)}`);
+}
+export function lastYearPeriod(p: Period): Period {
+  if (p.kind === "month" && p.y && p.m) { const r = bsMonthRange(p.y - 1, p.m); return make(r.fromDay, r.toDay, r.label, "month", p.y - 1, p.m); }
+  if (p.kind === "fy" && p.y) { const r = fyRange(p.y - 1); return make(r.from, r.to, r.label, "fy", p.y - 1); }
+  const from = bsYearEarlier(p.from), to = bsYearEarlier(p.to);
+  return make(from, to, p.kind === "day" ? bsLabel(from) : `${bsLabel(from)} to ${bsLabel(to)}`, p.kind);
+}
+// The fiscal year to date of a day: Shrawan 1 (or the ledger start, in the first year) to the day
+export const fyStartOf = (day: string, startDate: string) => { const f = fyRange(fyOf(day)).from; return f < startDate && day >= startDate ? startDate : f; };
+export function ytdPeriod(to: string, startDate: string): Period {
+  const from = fyStartOf(to, startDate);
+  return make(from, to, `${fyRange(fyOf(to)).label} to ${bsLabel(to)}`);
 }
 
 export function asAt(q: Record<string, unknown>): string | { error: string } {

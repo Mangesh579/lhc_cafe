@@ -276,7 +276,7 @@ const pendingNet = (drafts: Line[][], accounts: string[], byCustomer = false, by
 
 // What is owed to each supplier at the end of a day, from Suppliers' own figures: credit bills (and opening bills) less
 // payments (advances included) and debit notes
-async function payablesAsOf(day: string) {
+export async function payablesAsOf(day: string) {
   const m = new Map<number, number>();
   const plus = (s: number, v: number) => m.set(s, round2((m.get(s) ?? 0) + v));
   for (const b of await db.select().from(purchaseBillsTable).where(and(eq(purchaseBillsTable.status, "active"), eq(purchaseBillsTable.terms, "credit"), lte(purchaseBillsTable.billDate, day)))) plus(b.supplierId, num(b.total));
@@ -287,7 +287,7 @@ async function payablesAsOf(day: string) {
 const add = (a: Map<string, number>, b: Map<string, number>) => { const m = new Map(a); for (const [k, v] of b) m.set(k, round2((m.get(k) ?? 0) + v)); return m; };
 
 // What customers owe as at the end of a day, from Receivables' own figures (a re-issued invoice counts from its move)
-async function receivablesAsOf(day: string) {
+export async function receivablesAsOf(day: string) {
   const reissueDay = new Map((await db.select({ id: creditNotesTable.reissuedOrderId, d: creditNotesTable.noteDate }).from(creditNotesTable).where(and(eq(creditNotesTable.status, "active"), eq(creditNotesTable.kind, "reissue")))).map(r => [r.id!, r.d]));
   const m = new Map<number, number>();
   const plus = (c: number | null, v: number) => { if (c == null) return; m.set(c, round2((m.get(c) ?? 0) + v)); };

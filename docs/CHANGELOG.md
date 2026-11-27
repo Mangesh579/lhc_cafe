@@ -1570,3 +1570,93 @@ None.
 
 ## 2026-11-28 (b): Migration 017 recorded as run
 - The owner ran db/migrations/017_report_indexes.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 4a entry above. Docs only; no code, no SQL, nothing to deploy.
+
+## 2026-11-28 (c): Reports part 4b, the statements
+
+### Summary
+Four new tabs on the Reports page (admin and accountant). Each reads the journal only, is a GET, and shows "Posted up to" with the unposted-days warning.
+- **Profit and Loss** (GET /reports/profit-loss?(day|month|fy|from&to)&compare=prev|none). The layout is the one in CLAUDE.md "Step 4 decisions":
+  - Revenue (4000, 4010, 4020, 4100), Gross sales, Less: Discounts 4950, Less: Sales returns 4900, Net sales.
+  - Cost of sales (5000, 5010, 5200, 5100, 5150, and 5300 as "Other direct costs"), Gross profit with GP %.
+  - Operating expenses (6000 to 6800, 7000, 7050 net as "Cash short/(over)", 7100, and 7110 only while active), Operating profit.
+  - Other income 4200, Net profit.
+  - **Columns** (config in lib/reportLayout.ts): this period, % of net sales, previous period, %, change Rs, change %, fiscal year to date, %.
+  - **Last year:** "same period last year" and "last year to date" appear only when that period has ledger data (from Poush 2084); until then the reason is shown.
+  - **Key ratios:** gross profit %, food cost % (5000/4000), beverage cost % (5010/4010), salaries % (6000), prime cost % ((cost of sales + 6000) / net sales).
+  - **Check:** the net profit is checked against the Trial Balance's income less expenses (a red line if they differ).
+- **The highlight rule:** a change is coloured only when above 20% AND above Rs 1,000. Green when it helps profit (income up, costs down), red when it hurts.
+  - Both numbers are settings in report_settings (migration 018). The admin changes them on the Compare tab (PATCH /gl/report-settings, admin only), so every /reports route stays a GET.
+- **Balance Sheet** (GET /reports/balance-sheet?at&compare=prev|none). The layout is 4.6:
+  - customers who owe under assets, suppliers with a debit balance on 2100 as "Advances to suppliers" under assets;
+  - suppliers we owe under liabilities; 2360 plus customers with a credit balance on 1300 as "Customer advances" under liabilities;
+  - 1600 at cost with "No depreciation charged";
+  - equity: 3000, Less: Drawings 3100, 3050 on its own line, Retained earnings (3200 plus the profit of every earlier fiscal year), Profit for the current fiscal year to date. The profit is split at Shrawan 1.
+  - **Columns:** at the date, at last month end, change, and the fiscal year start (the opening entry alone in the ledger's first year).
+  - A red line appears if total assets differ from total liabilities and equity.
+- **Unplaced accounts:** an active account the layout does not place shows under "Other (not yet placed)" in the P&L, or in its Balance Sheet section, so the totals still agree.
+- **Compare** (GET /reports/compare?period=month&at=2083/09, or period=fy&at=2083/84): the P&L with the previous period beside the Balance Sheet at the period's end.
+- **Statements:**
+  - **Customer** (GET /reports/customers/:id/statement): 1300 for one customer. Opening, then each invoice, credit note, cancelled invoice, re-issue, receipt and correction with a running balance, the closing ("owes us" or "paid in advance"), and the phone and credit days.
+  - **Supplier** (GET /reports/suppliers/:id/statement): 2100 for one supplier. Bills, opening bills, payments (advances included) and debit notes; the closing is "we owe" or "advance paid"; with the PAN.
+  - **Agreement:** each says whether its closing agrees with the Receivables or Suppliers screen balance at the last posted day.
+  - **Summaries:** GET /reports/customers and /reports/suppliers show each party's opening, debits, credits and closing, with a total that is checked against 1300 or 2100.
+
+### Files
+- New:
+  - api-server: src/lib/reportLayout.ts, src/lib/reports/statements.ts; src/__tests__/reports4b.test.ts, src/__tests__/statements4b.test.ts;
+  - lhc-cafe: src/components/reports/statements.tsx;
+  - db/migrations/018_report_settings.sql.
+- Changed:
+  - lib/db: src/schema/ledger.ts (reportSettingsTable);
+  - api-server: src/lib/reports/periods.ts (period kinds; previous, last-year and year-to-date periods; fyStartOf), src/lib/glPosting.ts (receivablesAsOf and payablesAsOf exported), src/routes/reports.ts, src/routes/gl.ts (PATCH /gl/report-settings);
+  - lhc-cafe: src/pages/reports.tsx;
+  - Docs: CLAUDE.md, docs/HANDOFF.md, docs/specs/step4-reports.md (section 13).
+
+### Tables and migration
+- New: report_settings (one row: highlight_pct 20, highlight_min 1000, updated_by, updated_at).
+- db/migrations/018_report_settings.sql. NOT run on the server yet. Idempotent (tested twice). Without it the reports use 20% and Rs 1,000, but saving the setting fails, so run it before deploy.sh as usual.
+
+### Decisions
+- **Previous period:** the month before, the fiscal year before, the day before, or the same number of days just before a custom range.
+- **Same period last year:** the same BS month or fiscal year, or the same BS days one year earlier. It is shown only when it starts on or after the ledger start.
+- **Fiscal year to date:** from Shrawan 1, or from the ledger start in 2083/84.
+- **The Balance Sheet on the screen** is drawn at the end of the period chosen on the page (never after today). Its date can be changed.
+- **Colours:** the P&L's changes are coloured good or bad; the Balance Sheet's change column is shown without colour.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 47 files, 464 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- New, reports4b (24): a worked ledger from journal entries with known numbers.
+  - **Poush 2083 P&L line by line:**
+    - gross sales 83,000, net sales 80,000;
+    - cost of sales 23,200, gross profit 56,800 (71%);
+    - operating expenses 22,250, operating profit 34,550, other income 700, net profit 35,250;
+    - 4000 at 56.25% of net sales;
+    - food cost 33.33%, beverage 30%, salaries 15%, prime cost 44%;
+    - 7110 hidden while inactive;
+    - the last-year column empty with its reason.
+  - **Net profit against the Trial Balance:** equal for a day, a month, FY 2083/84 and a custom range. FY 2083/84 is 39,350.
+  - **Comparison, Magh against Poush:**
+    - food -15,000 (-33.33%), electricity +1,500 (+100%) and course fees -10,000 are highlighted as bad;
+    - cash short +200 (+200%) is not highlighted, being under Rs 1,000;
+    - salaries +4.17% is not highlighted;
+    - year to date 38,450;
+    - the last-year columns appear for Poush 2084 with Poush 2083's 35,250;
+    - compare=none drops the columns;
+    - the accountant cannot change the rule; the admin's change takes effect.
+  - **Balance Sheet:**
+    - balances at the ledger start (150,000), mid-month line by line (cash 43,500, receivables 4,000, supplier advance 2,500, payables 40,000, customer advance 1,500, drawings 3,000 deducted, opening balance equity 1,000, profit 35,250, total 2,24,750), at the month end, and after the Falgun reversal and repost;
+    - profit split at Shrawan 1 (retained 39,350 and current 9,000 in Shrawan 2084);
+    - the compare columns, including the opening as the fiscal-year start;
+    - unplaced 1700 and 6900 under "Other (not yet placed)", still balancing.
+  - **Other:** the side-by-side view; migration 018 runs twice and keeps one row.
+- New, statements4b (9): the step 3c worked days plus two customers, posted through the real routes.
+  - Asha's statement: invoice 500, receipt 300, closing 200, agrees with Receivables; credit days 15.
+  - Bikash's statement: -400 paid in advance, agrees.
+  - The customer summary equals 1300 (-200).
+  - Valley Traders: bill, payment and debit note, -600 advance paid, agrees with the supplier ledger. The supplier summary equals 2100.
+  - The Balance Sheet on posted data: supplier advance 600, customer advance 400, drawings 100, balanced.
+  - Staff and supervisor get 403 on every new route; no route writes (all row counts unchanged).
+- Not run: the screens in a browser; anything against production.
