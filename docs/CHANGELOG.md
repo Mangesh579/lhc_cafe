@@ -1614,7 +1614,7 @@ Four new tabs on the Reports page (admin and accountant). Each reads the journal
 
 ### Tables and migration
 - New: report_settings (one row: highlight_pct 20, highlight_min 1000, updated_by, updated_at).
-- db/migrations/018_report_settings.sql. NOT run on the server yet. Idempotent (tested twice). Without it the reports use 20% and Rs 1,000, but saving the setting fails, so run it before deploy.sh as usual.
+- db/migrations/018_report_settings.sql. Run on the server by the owner (recorded 2026-11-28). Idempotent (tested twice). Without it the reports use 20% and Rs 1,000, but saving the setting fails, so run it before deploy.sh as usual.
 
 ### Decisions
 - **Previous period:** the month before, the fiscal year before, the day before, or the same number of days just before a custom range.
@@ -1660,3 +1660,6 @@ Four new tabs on the Reports page (admin and accountant). Each reads the journal
   - The Balance Sheet on posted data: supplier advance 600, customer advance 400, drawings 100, balanced.
   - Staff and supervisor get 403 on every new route; no route writes (all row counts unchanged).
 - Not run: the screens in a browser; anything against production.
+
+## 2026-11-28 (d): Migration 018 recorded as run
+- The owner ran db/migrations/018_report_settings.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 4b entry above. Docs only; no code, no SQL, nothing to deploy.
