@@ -203,7 +203,8 @@ export function expenseEntry(e: ExpenseSource): Built {
   const problems: Problem[] = [];
   if (!e.accountCode) problems.push({ level: "fix", code: "expense_map", message: `${ref}: expense category "${e.category}" has no account (Chart of Accounts > Expense categories).`, ref });
   let credit: string | null = null;
-  if (e.paidFromDrawer || e.paymentMethod === "cash") credit = CASH;
+  if (e.paidFromDrawer) credit = CASH;
+  else if (e.paymentMethod === "cash") problems.push({ level: "fix", code: "expense_cash", message: `${ref}: paid in cash but not from the drawer: say which account it came from.`, ref });
   else if (e.paymentMethod === "bank_transfer" || e.paymentMethod === "cheque") {
     credit = BANK_ACCOUNT[e.bankAccount ?? ""] ?? null;
     if (!credit) problems.push({ level: "fix", code: "expense_bank", message: `${ref}: paid by ${e.paymentMethod.replace("_", " ")} with no bank recorded.`, ref });

@@ -66,7 +66,7 @@ describe("petty cash payout", () => {
     const drawer = await api("acct", "POST", "/expenses", { expenseDate: DAY, type: "indirect", category: "Stationery", amount: 50, paymentMethod: "cash", paidFromDrawer: true, billNumber: " 12 " });
     expect(drawer.status).toBe(201);
     expect(drawer.body).toMatchObject({ voucherNo: "CV-2083/84-00004", billNumber: "12" });
-    const bank = await api("acct", "POST", "/expenses", { expenseDate: DAY, type: "indirect", category: "Rent", amount: 5000, paymentMethod: "bank" });
+    const bank = await api("acct", "POST", "/expenses", { expenseDate: DAY, type: "indirect", category: "Rent", amount: 5000, paymentMethod: "bank_transfer", bankAccount: "nabil" });
     expect(bank.body.voucherNo).toBeNull();
   });
 });

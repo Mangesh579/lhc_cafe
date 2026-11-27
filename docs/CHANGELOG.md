@@ -1206,3 +1206,61 @@ None.
 - **Cash expenses:** an expense paid in cash but not from the drawer also credits 1100 Cash on Hand.
 - **Waste:** Waste Log entries for equipment are not posted (equipment is not stock).
 - **Journal series:** purchases (PB), supplier payments (SP), debit notes (DJ), expenses (EX), cash movements (CM), drawer close (CC) and consumption (CO). The PJ, CV, PV and DN document numbers are untouched.
+
+
+## 2026-11-27: Fixing room-charged bills; ledger 3c fixes (expenses cash, drawer re-close, waste department)
+
+### Summary
+- Skills used: ponytail, tdd, backend-patterns, react-patterns.
+- **Room-charged bills (and any credit invoice) can be fixed where staff work:** Order Log (opened order), the Orders page (paid credit bill) and the Stays folio (extras and breakfasts).
+  - **Admin and accountant:**
+    - **Cancel invoice:** the existing cancel route, with a reason and "Food was not served, put the stock back".
+    - **Credit note:** the existing item-wise dialog, moved into components/CreditNoteDialog.tsx and shared with Receivables.
+    - **Move to another room:** an open stay.
+  - **Others:** "To fix a mistake on this bill ask the admin or accountant (Cancel invoice)".
+  - No new money logic.
+- **Receipts in the way:** when a cancel or move is refused because receipts are allocated, the message is "The guest has already paid for this bill (Rs. X). Void receipt RV-... first."
+- **Move to another room:**
+  - POST /receivables/invoices/:id/move accepts stayId (an open stay, not the bill's own).
+  - reissueInvoice takes an optional target stay: the new invoice gets that room_stay_id and keeps stay_charge.
+  - Extras go to that stay's guest; an included breakfast stays billed to Sulimha Durbar and needs breakfast included.
+  - Moving to Sulimha Durbar when a guest leaves keeps the stay as before.
+  - A bill with an active reissue note no longer shows on its old folio.
+- **a) Expenses:**
+  - **Posting rule:** an expense paid in cash but not from the drawer is a must-fix ("paid in cash but not from the drawer: say which account it came from") and does not post.
+  - **POST /expenses:** refuses cash without "paid from the drawer", and card or QR.
+  - **PATCH:** refuses a change to such a method; an existing row keeps the method it has.
+  - **Form:** "Paid from the cash drawer" is ticked by default, and new expenses offer no card or QR.
+- **b) Drawer close:** the unposted scan counts a close as unposted when it has no entry in force (a reversed one does not count), so a drawer reopened and closed again posts its new difference.
+- **c) Waste:** stock is credited by the ingredient's own department, or the waste record's when no ingredient is linked.
+
+### Files
+- New: lhc-cafe src/components/CreditNoteDialog.tsx, src/components/InvoiceFix.tsx; api-server src/__tests__/roomBillFixes.test.ts.
+- Changed:
+  - api-server: src/routes/receivables.ts (receipt names, move with stayId, reissueInvoice target stay), src/routes/stays.ts (moved bills off the folio), src/routes/expenses.ts (method rule), src/lib/postingRules.ts (cash not from the drawer), src/lib/glPosting.ts (drawer close in force, waste department), src/lib/stayRules.ts and src/lib/stayInfo.ts (stayId).
+  - api-server tests: postingRules3c, glPosting3c, cancelInvoice (message), pettyCashVoucher (a bank-transfer expense names its bank).
+  - lhc-cafe: pages/receivables.tsx (uses the shared dialog), pages/order-log.tsx, pages/orders.tsx, pages/stays.tsx, pages/expenses.tsx, components/InvoiceActions.tsx (wording).
+  - Docs: docs/HANDOFF.md.
+
+### Tables
+- None changed.
+
+### Migration
+None.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 39 files, 311 tests pass; typecheck api-server, lhc-cafe and libs clean; both artifacts build.
+- New:
+  - roomBillFixes (5):
+    - a room extra cancelled as served keeps the stock, and with the tick puts it back, the folio then owing 0;
+    - an included breakfast cancelled (Rs 1,600 off Sulimha);
+    - an allocated receipt refused with "The guest has already paid for this bill (Rs. 500.00). Void receipt RV-... first.";
+    - an extra moved to room 104: on Sita's folio with room_stay_id and stay_charge, gone from room 103's folio;
+    - a breakfast moved stays on Sulimha;
+    - every credit note dated today; staff refused.
+  - postingRules3c: cash not from the drawer is a must-fix.
+  - glPosting3c:
+    - the waste record says "drink" but rice is kitchen, and stock is credited 1400;
+    - a drawer reopened after posting reverses its short, and closed again with another count, the new Rs 50 short posts late;
+    - expenses: cash not from the drawer, and card, refused; the drawer and a cheque with its bank allowed; a changed method refused; an existing cash row edited with its own method allowed.
+- Not run: the screens in a browser; anything against production.

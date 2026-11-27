@@ -68,7 +68,7 @@ export function InvoiceActionDialog({ action, invoice, onClose, onDone }: {
             <div className="space-y-1"><Label>Reason *</Label><Input value={reason} onChange={e => setReason(e.target.value)} placeholder={action === "cancel" ? "e.g. entered twice" : "e.g. wrong person chosen at the till"} /></div>
             {action === "cancel" && (
               <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={restore} onChange={e => setRestore(e.target.checked)} />
-                <span>Not served: put the stock back<span className="block text-xs text-muted-foreground">Tick only if the order was never made. Leave it for food that was eaten.</span></span></label>
+                <span>Food was not served, put the stock back<span className="block text-xs text-muted-foreground">Tick only if the order was never made. Leave it for food that was eaten.</span></span></label>
             )}
           </div>
         )}

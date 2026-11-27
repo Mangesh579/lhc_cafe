@@ -3,7 +3,7 @@
 // Bills are charged to a stay at the payment step (routes/orders.ts): included breakfasts to Sulimha Durbar, extras to the guest.
 import { Router } from "express";
 import type { Response } from "express";
-import { db, roomStaysTable, hotelSettingsTable, cafeTablesTable, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable } from "@workspace/db";
+import { db, roomStaysTable, hotelSettingsTable, cafeTablesTable, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable, creditNotesTable } from "@workspace/db";
 import { and, eq, desc, inArray, sql } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { nepalDay, isDay } from "../lib/ledgerData";
@@ -78,7 +78,9 @@ router.get("/stays/:id", authenticate, async (req: AuthRequest, res: Response): 
   const [stay] = await staysWithTotals(eq(roomStaysTable.id, idOf(req.params.id)));
   if (!stay) { res.status(404).json({ error: "Stay not found" }); return; }
   if (!MONEY_ROLES.includes(roleOf(req)) && !COST_ROLES.includes(roleOf(req))) { res.json({ ...stay, bills: null }); return; }
-  const orders = await db.select().from(ordersTable).where(and(eq(ordersTable.roomStayId, stay.id), eq(ordersTable.paymentStatus, "paid"))).orderBy(ordersTable.id);
+  const movedAway = new Set((await db.select({ id: creditNotesTable.orderId }).from(creditNotesTable).where(and(eq(creditNotesTable.status, "active"), eq(creditNotesTable.kind, "reissue")))).map(r => r.id));
+  const orders = (await db.select().from(ordersTable).where(and(eq(ordersTable.roomStayId, stay.id), eq(ordersTable.paymentStatus, "paid"))).orderBy(ordersTable.id))
+    .filter(o => !movedAway.has(o.id)); // moved to another room or customer: it is on the other folio now
   const inv = new Map((await creditInvoices({ orderIds: orders.map(o => o.id) })).map(i => [i.orderId, i]));
   const items = orders.length ? await db.select({ orderId: orderItemsTable.orderId, name: menuItemsTable.name, quantity: orderItemsTable.quantity, unitPrice: orderItemsTable.unitPrice, subtotal: orderItemsTable.subtotal, unitCost: orderItemsTable.unitCost, menuPrice: menuItemsTable.price })
     .from(orderItemsTable).leftJoin(menuItemsTable, eq(menuItemsTable.id, orderItemsTable.menuItemId)).where(inArray(orderItemsTable.orderId, orders.map(o => o.id))) : [];

@@ -21,7 +21,7 @@ import ProfitLoss from "@/components/ProfitLoss";
 const money = (n: number) => `Rs. ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const methodLabel = (v: string) => v === "credit" ? "Credit (supplier bill)" : PAYMENT_METHODS.find(m => m.value === v)?.label ?? v;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const EMPTY = { type: "indirect", category: INDIRECT_CATEGORIES[0], subcategory: "", expenseDate: "", amount: "", paymentMethod: "cash", vendor: "", description: "", isRecurring: false, frequency: "monthly", paidFromDrawer: false, billNumber: "", bankAccount: "" };
+const EMPTY = { type: "indirect", category: INDIRECT_CATEGORIES[0], subcategory: "", expenseDate: "", amount: "", paymentMethod: "cash", vendor: "", description: "", isRecurring: false, frequency: "monthly", paidFromDrawer: true, billNumber: "", bankAccount: "" };
 
 export default function Expenses() {
   const { user } = useAuth();
@@ -373,7 +373,7 @@ export default function Expenses() {
                 <Label>Payment method</Label>
                 <Select value={form.paymentMethod} onValueChange={v => setForm({ ...form, paymentMethod: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{PAYMENT_METHODS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                  <SelectContent>{PAYMENT_METHODS.filter(m => editing || !["card", "qr"].includes(m.value)).map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1"><Label>Paid to / vendor</Label><Input value={form.vendor} onChange={e => setForm({ ...form, vendor: e.target.value })} /></div>
@@ -383,7 +383,7 @@ export default function Expenses() {
               {form.paymentMethod === "cash" && !editing && (
                 <label className="col-span-2 flex items-center gap-2 text-sm cursor-pointer">
                   <input type="checkbox" checked={!!form.paidFromDrawer} onChange={e => setForm({ ...form, paidFromDrawer: e.target.checked })} />
-                  Paid from the cash drawer (reduces that day's drawer cash; gets a CV number)
+                  Paid from the cash drawer (reduces that day's drawer cash; gets a CV number). Cash must come from the drawer; otherwise choose bank transfer or cheque.
                 </label>
               )}
             </div>

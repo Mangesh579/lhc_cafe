@@ -45,6 +45,11 @@ describe("expenses through the expense map", () => {
     expect(ex({ paymentMethod: "bank_transfer", paidFromDrawer: false }).problems[0]).toMatchObject({ level: "fix", code: "expense_bank" });
     expect(ex({ accountCode: null }).problems[0]).toMatchObject({ level: "fix", code: "expense_map" });
   });
+  it("cash that is not from the drawer is a must-fix and does not post (2026-11-27)", () => {
+    const r = ex({ paidFromDrawer: false });
+    expect(r.entry).toBeNull();
+    expect(r.problems[0]).toMatchObject({ level: "fix", code: "expense_cash", message: expect.stringMatching(/paid in cash but not from the drawer: say which account it came from/) });
+  });
 });
 
 describe("the drawer", () => {

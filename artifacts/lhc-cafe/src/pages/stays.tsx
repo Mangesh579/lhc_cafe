@@ -14,6 +14,7 @@ import { apiJson } from "@/lib/expenseApi";
 import { RECEIPT_MODES, rs, round2 } from "@/lib/payments";
 import { printReceiptHtml } from "@/lib/kot";
 import * as XLSX from "xlsx";
+import { InvoiceFixButtons } from "@/components/InvoiceFix";
 
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
 const nepalToday = () => new Date(Date.now() + 345 * 60000).toISOString().slice(0, 10);
@@ -240,6 +241,7 @@ function FolioDialog({ folio, onClose, onPaid }: { folio: any; onClose: () => vo
               <div key={b.orderId} className="border-b py-1.5">
                 <div className="flex justify-between font-medium"><span>{b.day} · {b.invoiceNumber}</span><span>{rs(b.total)}{b.outstanding > 0 ? <span className="text-red-600 text-xs"> · {rs(b.outstanding)} due</span> : <span className="text-green-700 text-xs"> · paid</span>}</span></div>
                 <p className="text-xs text-muted-foreground">{b.items.map((i: any) => `${i.quantity} x ${i.name}`).join(", ")}</p>
+                {b.receivable > 0 && <div className="mt-1"><InvoiceFixButtons compact invoice={{ orderId: b.orderId, invoiceNumber: b.invoiceNumber, day: b.day, outstanding: b.outstanding, roomStayId: folio.id }} onDone={onPaid} /></div>}
               </div>
             ))}
           </div>
@@ -249,6 +251,7 @@ function FolioDialog({ folio, onClose, onPaid }: { folio: any; onClose: () => vo
               {breakfasts.map(b => (
                 <div key={b.orderId} className="border-b py-1.5">
                   <div className="flex justify-between"><span>{b.day} · {b.breakfastCount} breakfast{b.breakfastCount === 1 ? "" : "s"} · {b.invoiceNumber}</span><span>{rs(b.total)}</span></div>
+                  {b.receivable > 0 && <div className="mt-1"><InvoiceFixButtons compact invoice={{ orderId: b.orderId, invoiceNumber: b.invoiceNumber, day: b.day, outstanding: b.outstanding, roomStayId: folio.id }} onDone={onPaid} /></div>}
                   {b.lhcCost && <p className="text-xs text-muted-foreground">LHC cost {rs(b.lhcCost.cost)} (margin {rs(b.total - b.lhcCost.cost)}){b.lhcCost.noRecipeCost.length ? ` · menu price used for: ${b.lhcCost.noRecipeCost.join(", ")} (no recipe cost yet)` : ""}</p>}
                 </div>
               ))}

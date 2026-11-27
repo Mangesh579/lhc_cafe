@@ -70,7 +70,7 @@ export function breakfastWarning(usedToday: number, count: number, adults: numbe
 
 // What an invoice charged to a stay says about it (invoice, printed bill, statement). Derived from room_stay_id at read
 // time, so older invoices are not changed.
-export type StayInfo = { room: string; guestName: string; stayCharge: string | null; breakfastCount: number | null };
+export type StayInfo = { room: string; guestName: string; stayCharge: string | null; breakfastCount: number | null; stayId?: number };
 export function stayText(s: StayInfo | null): string {
   if (!s) return "";
   return s.stayCharge === "breakfast" ? `Hotel breakfast x ${s.breakfastCount ?? 0} · Room ${s.room} · ${s.guestName}` : `Room ${s.room} · ${s.guestName} (charged to room)`;
