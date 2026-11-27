@@ -22,6 +22,7 @@ export * from "./settlements";
 export * from "./accountConversions";
 export * from "./purchases";
 export * from "./stays";
+export * from "./ledger";
 export { tableSessionsTable } from "./tables";
 export { bestsellerCacheTable } from "./bestseller-cache";
 export { staffShiftsTable, attendancePunchesTable, attendanceCommentsTable } from "./staff";

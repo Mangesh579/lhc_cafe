@@ -917,3 +917,57 @@ None (013 to 016 are drafts in the plan).
 
 ### Tests
 - None (plan only).
+
+
+## 2026-11-27: Ledger part 3a, accounts and the journal engine (migration 013)
+
+### Summary
+- Skills used: ponytail, tdd, backend-patterns, database-migrations, react-patterns.
+- **Plan updated** (docs/specs/step3-ledger.md): the owner's and accountant's answers (section 13, CLAUDE.md "Step 3 answers"), the new accounts, the start date, lock 3 days, breakfast to 4020, other cash in/out accounts, stock differences to 5150, VAT bills stopped and the bank fields in 3b, the opening balances as a draft with an audit trail, and "3a as built" (section 14).
+- **Migration 013:**
+  - **accounts:** the approved chart with the headers 1000 and 2000, plus 1280 Receivable - Sulimha Durbar (card collections), 3050 Opening balance equity, 4020 Hotel breakfast income, 5150 Stock adjustment, and 7110 Petty cash, no bill (inactive).
+  - **expense_account_map:** the 21 Expenses-page categories with the accountant's defaults, unconfirmed.
+  - **journal_entries / journal_lines:** triggers refuse UPDATE and DELETE; a deferred trigger refuses an unbalanced entry at commit; lines only on postable, active accounts; one post per source; an entry is reversed once.
+  - **ledger_settings:** start date 2026-12-16 (Poush 1, 2083 BS, worked out with the nepali-date-converter library), lock 3 days, opening balances "draft".
+  - **opening_balance_lines and opening_balance_log.**
+- **Engine:**
+  - lib/glRules.ts (pure): check an entry's lines (balance, sides, accounts, the customer on 1300 and the supplier on 2100 only), the balance by normal side, the mirror for a reversal, the 3050 balancer.
+  - lib/ledger.ts: postEntry (numbered JV-2083/84-00001, refused before the start date), reverseEntry, trialBalance, accountLedger.
+  - lib/openingBalances.ts: fill from the app, add/change/remove with the log, confirm (admin) into one OP entry on the start date.
+  - lib/fiscal.ts: bsLabel and adOfBs.
+- **API (routes/gl.ts, admin and accountant):** /gl/settings, /gl/accounts (+ /:code/ledger), /gl/expense-map, /gl/journals (+ /:id, /:id/reverse), /gl/trial-balance, /gl/opening (fill, lines, confirm).
+- **Screen:** a "Chart of Accounts" page (sidebar, admin and accountant):
+  - the start date card (BS and AD, lock);
+  - "To do before posting" (unmapped and unconfirmed categories, the opening draft);
+  - tabs for Accounts, Expense categories, Journals, Trial balance and Opening balances.
+
+### Files
+- New: db/migrations/013_ledger_accounts_journal.sql; lib/db/src/schema/ledger.ts; api-server src/lib/glRules.ts, lib/ledger.ts, lib/openingBalances.ts, routes/gl.ts, tests glRules, gl (.test.ts); lhc-cafe src/pages/chart-of-accounts.tsx.
+- Changed: lib/db/src/schema/index.ts; api-server src/lib/fiscal.ts, src/routes/index.ts; lhc-cafe App.tsx, components/layout/Sidebar.tsx; CLAUDE.md (roadmap line); docs/HANDOFF.md; docs/specs/step3-ledger.md.
+
+### Tables
+- New: accounts, expense_account_map, journal_entries, journal_lines, ledger_settings, opening_balance_lines, opening_balance_log. Nothing existing is changed; nothing is posted.
+
+### Migration
+db/migrations/013_ledger_accounts_journal.sql: NOT YET RUN on the server.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 34 files, 259 tests pass; typecheck api-server, lhc-cafe and libs clean; both artifacts build.
+- New:
+  - glRules (7): balance to the paisa; refused unbalanced, single, two-sided, header, inactive and unknown accounts; the customer on 1300 and the supplier on 2100 only; the balance by normal side; the mirror; the 3050 balancer.
+  - gl (8, real routes on PGlite with migration 013):
+    - settings: 1 Poush 2083 / 2026-12-16, lock 3, 4 refused, 2 allowed, the start date by the admin only;
+    - the JV engine: refusals, numbering, lines with the customer;
+    - reversal: once, not of a reversal, the trial balance balanced;
+    - the database refuses update, delete, unbalanced and header lines;
+    - accounts: add, duplicate refused, inactive rules, 52 accounts;
+    - the expense map: 21 defaults (milk to 1400, coffee to 1410), an in-use category without an account listed, confirm;
+    - opening balances: fill (customer 700, stock 200/500), typed bank, change, the log, the accountant refused, the admin confirms into OP-2083/84-00001 balanced by 3050 (49,400), read-only after, the start date then fixed;
+    - migration 013 runs twice (51 accounts, 2 headers, 1 inactive, 21 categories, the settings).
+  - The trigger bug found by these tests is fixed: PL/pgSQL checks both branches of a CASE against the triggering row.
+- Not run: the page in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- The opening entry uses its own number series (OP-...), because OB is already used for opening supplier bills.
+- The lock setting allows 2 or 3 days only (the accountant's range).
+- Opening balances filled "from the app" are today's figures and should be filled again on the start date.

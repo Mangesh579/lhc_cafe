@@ -97,11 +97,25 @@ Step 3 decisions (accountant and owner, 2026-11-27)
 - Petty cash without a bill is allowed (local vendors); it posts to its category's expense account and is flagged "no bill" for review.
 - Opening balances: editable with an audit trail until the owner confirms them; marked as dummy until then. Receivables, payables, inventory and cash are filled from the system's own figures where they exist; banks, equipment and equity are typed in; equity balances the entry.
 
+Step 3 answers (owner and accountant, 2026-11-27, confirmed for the ledger plan in docs/specs/step3-ledger.md)
+- Opening balance difference goes to 3050 Opening balance equity (to be cleared into 3200 by the accountant later).
+- Ledger start date: Poush 1, 2083 BS (confirmed with the accountant). Nothing before it posts.
+- Each menu category is marked Food or Beverage; sales post to 4000 or 4010 by the item's category, consumption to 5000 or 5010 the same way, and inventory is credited 1400 or 1410 by the ingredient's department.
+- Receipts "by bank", drawer deposits and expenses paid by bank transfer or cheque record the bank (Nabil or HBL).
+- Supplier advances stay on 2100 as a negative supplier balance; the balance sheet (step 4) may show them as an asset.
+- VAT bills are stopped while the cafe is not VAT registered.
+- Period lock: 3 days after posting (a setting; the accountant may tighten it to 2). The accountant closes each Nepali month; only the admin reopens a day or a month, with a reason.
+- One journal entry per invoice (not a daily summary).
+- "Other cash in/out" accounts: 4200, 7100, 3000, 3100.
+- Stock count differences post to a new account 5150 Stock adjustment (not 5100 Waste and spoilage).
+- Changes to a document after its day is posted: reverse the original and post the corrected entry on the day of the change.
+- Expense category to account defaults (accountant reviews on the Chart of Accounts screen): ingredient categories to 1400/1410 (milk and dairy to 1400), packaging, other consumables, cooking gas, cooking oil and cleaning supplies to 5300, electricity and water to 6200, salaries to 6000, rent to 6100, internet and telephone to 6300, equipment repairs to 6700, laundry, pest control and other administrative to 7100, bank and card charges to 7000. An unmapped category blocks posting.
+
 ## Roadmap, in order
 Done so far: cash drawer and payment-mode ledgers; payment modes, split payment, credit sales, receipt vouchers, credit rules and credit notes (migrations 001, 002); card and QR settlements (003); monthly-account conversion (004). See docs/CHANGELOG.md.
 1. Monthly accounts retired (2026-11-24): all open monthly bills converted into credit invoices; "Make monthly account", the Add-customer merge into an account bill and the QR "charge to my account" option removed (the API answers with a clear error); the Monthly Accounts page replaced by Receivables (conversion history under Receivables > Converted monthly bills). No migration. Old data stays readable.
 2. Suppliers, purchases, payables, supplier ledger, payments (PV), returns with debit notes, supplier on each ingredient, price history. Plan: docs/specs/step2-suppliers.md. Part A (suppliers, ingredient links, purchase bills, supplier ledger, price history) built 2026-11-24, migration 005 run on the server 2026-11-24. Bank account on cheque/online bills built 2026-11-24 (migration 006 run on the server 2026-11-24). Part B (supplier payments CV/PV with allocation and advances, opening supplier balances, aging) built 2026-11-24, migration 007 run on the server 2026-11-24. Part C (purchase returns with item-wise debit notes, DN) built 2026-11-24, migration 008 run on the server 2026-11-25. Step 2 is complete.
-3. Chart of accounts, vouchers RV/CV/JV/PV, double-entry posting, next-day posting, period lock.
+3. Chart of accounts, vouchers RV/CV/JV/PV, double-entry posting, next-day posting, period lock. Plan: docs/specs/step3-ledger.md (approved 2026-11-27 with the Step 3 answers). Part 3a (accounts, expense map, journal engine, accountant JV, trial balance, opening balances draft) built 2026-11-27, migration 013 not yet run. Parts 3b to 3d to follow.
 4. Day Book, Trial Balance, Balance Sheet, ledger P&L, aging.
 5. VAT (off until registration) and TDS.
 6. Course fees.

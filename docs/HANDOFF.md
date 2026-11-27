@@ -66,6 +66,17 @@
   - **Warning:** it warns (never blocks), on screen and after saving, when that stay's breakfasts today would be more than its guests.
   - No migration.
 
+27. Ledger part 3a, 2026-11-27 (docs/specs/step3-ledger.md).
+  - **Chart of Accounts page** (admin and accountant):
+    - the start date shown in BS and AD (Poush 1, 2083 = 2026-12-16; only the admin changes it, and only before any entry); lock 3 or 2 days;
+    - the accounts (seeded chart plus 1280, 3050, 4020, 5150, and 7110 inactive): add, make inactive, an account's ledger;
+    - the expense categories mapped to accounts, with the defaults to confirm; an unmapped category is listed as a problem;
+    - journals: the list, an accountant JV with a narration, and reverse;
+    - the trial balance (Excel);
+    - opening balances: a draft (dummy) filled from the app (cash, customers, suppliers, stock) plus typed lines, with an audit trail, confirmed by the admin into one OP entry balanced by 3050.
+  - **Database rules (013 triggers):** entries cannot be edited or deleted, must balance, and lines only go on postable, active accounts.
+  - **Not yet:** no source document posts yet (3b, 3c); no posting days or locks yet (3b, 3d). Needs migration 013.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -81,7 +92,7 @@
 - 012_room_stays.sql (recorded 2026-11-27, by the owner): cafe_tables.is_room, room_stays, hotel_settings, orders.room_stay_id, stay_charge and breakfast_count, menu_items.is_breakfast, loyalty_customers.email optional, card modes on customer_receipts.
 
 # Not yet applied on the server
-- None.
+- 013_ledger_accounts_journal.sql (written 2026-11-27): accounts, expense_account_map, journal_entries and journal_lines (with triggers), ledger_settings (start 2026-12-16, lock 3), opening_balance_lines, opening_balance_log. Run before deploying item 27.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
@@ -114,9 +125,20 @@
 - **API docs:** the OpenAPI spec and generated client still list only cash and nabil_qr as payment methods.
 
 # Next work
-Roadmap step 3 in CLAUDE.md: chart of accounts, vouchers (RV, CV, JV, PV), double-entry posting, next-day posting and the period lock. Plan written 2026-11-27 in docs/specs/step3-ledger.md (parts 3a to 3d), waiting for the owner's and accountant's review and the answers to its section 12; no code until approved. Before writing it:
+Roadmap step 3: plan approved (docs/specs/step3-ledger.md, answers in its section 13). Part 3a is built (item 27). Next is part 3b:
+- VAT bills stopped until VAT is on;
+- a bank field on receipts, deposits and bank or cheque expenses;
+- an account on other cash in/out;
+- Food or Beverage on each menu category;
+- the posting of sales, credit notes, receipts and settlements, with the review screen.
+
+Then 3c and 3d. For the posting:
 - ask the accountant for the Sulimha Durbar receivable account;
 - follow the posting rules in docs/specs/step2-suppliers.md section 13 and docs/specs/room-stays.md section 5;
 - credit notes post to 4900 Sales returns.
 
 Then steps 4 to 9. Each task ends with a docs/CHANGELOG.md entry.
+- Ledger (3a):
+  - The opening balances filled "from the app" are today's figures; fill again on the start date before the owner confirms.
+  - The start date cannot change once any journal entry exists.
+  - Accountant JVs cannot be dated before the start date (16 Dec 2026), so none can be posted until then (except after the admin moves the start date).
