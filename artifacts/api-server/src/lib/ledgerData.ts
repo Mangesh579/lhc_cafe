@@ -1,4 +1,4 @@
-import { db, ordersTable, cashDaysTable, orderPaymentsTable, customerReceiptsTable, loyaltyCustomersTable } from "@workspace/db";
+import { db, ordersTable, cashDaysTable, orderPaymentsTable, customerReceiptsTable, loyaltyCustomersTable, creditNotesTable, creditNoteItemsTable, orderItemsTable, settlementsTable, settlementMachinesTable } from "@workspace/db";
 import { and, eq, gte, lte, inArray, sql } from "drizzle-orm";
 import { modeOf, cardMachineOf, partsFor, round2, type Mode, type PaymentPart } from "./payments";
 
@@ -43,6 +43,22 @@ export type LedgerOrder = {
 
 export type LedgerReceipt = { id: number; voucherNo: string; customerId: number; customerName?: string | null; receiptDate: string; mode: string; amount: number; reference?: string | null; createdAt: Date };
 
+// An active customer credit note, counted on its own Nepal day (note_date). kind: note (item-wise) | cancel | reissue.
+// restoredCost: the ingredient cost of the credited items when a cancel put the stock back (the cost is reversed too).
+export type LedgerNote = { id: number; noteNo: string; noteDate: string; orderId: number; kind: string; subtotal: number; vatAmount: number; total: number; stockRestored: boolean; restoredCost: number; customerName?: string | null };
+
+// What reduces sales. A "reissue" note (Wrong customer) does not: the same sale was re-issued to another customer, and the
+// re-issued invoice is not counted either (see reissuedOrderIds), so the sale counts once, on the original invoice and day.
+export const reducesSales = (n: Pick<LedgerNote, "kind">) => n.kind !== "reissue";
+
+// The credit notes that reduce sales, added up: pre-VAT amount (comes off sales/revenue), VAT, total, and the ingredient
+// cost put back into stock by "not served" cancels (comes off the cost of what was sold).
+export function creditNoteEffect(notes: LedgerNote[]) {
+  const counted = notes.filter(reducesSales);
+  const sum = (k: "subtotal" | "vatAmount" | "total" | "restoredCost") => round2(counted.reduce((s, n) => s + n[k], 0));
+  return { count: counted.length, subtotal: sum("subtotal"), vat: sum("vatAmount"), total: sum("total"), restoredCost: sum("restoredCost") };
+}
+
 // A bill counts in the drawer and ledgers only when it is paid and chargeable.
 // NC bills never count; credit parts are receivables, not money received.
 const counts = (o: LedgerOrder) => o.paymentStatus === "paid" && !o.isNc;
@@ -69,43 +85,64 @@ export function ordersOnDay(orders: LedgerOrder[], day: string): LedgerOrder[] {
 export type CollectionRow = {
   day: string; orders: number;
   cash: number; qr: number; card: number; cardNabil: number; cardHbl: number; cardSulimhaNabil: number; cardSulimhaHbl: number; cardUnknown: number; credit: number; other: number;
-  sales: number; receiptsCash: number; receiptsQr: number; receiptsCard: number; receiptsBank: number; receipts: number; received: number; vat: number;
+  sulimhaPos: number; sales: number; creditNotes: number; netSales: number;
+  receiptsCash: number; receiptsQr: number; receiptsCard: number; receiptsBank: number; receipts: number; sulimhaTransfers: number; received: number; vat: number;
 };
 
 const emptyRow = (day: string): CollectionRow => ({
   day, orders: 0, cash: 0, qr: 0, card: 0, cardNabil: 0, cardHbl: 0, cardSulimhaNabil: 0, cardSulimhaHbl: 0, cardUnknown: 0, credit: 0, other: 0,
-  sales: 0, receiptsCash: 0, receiptsQr: 0, receiptsCard: 0, receiptsBank: 0, receipts: 0, received: 0, vat: 0,
+  sulimhaPos: 0, sales: 0, creditNotes: 0, netSales: 0,
+  receiptsCash: 0, receiptsQr: 0, receiptsCard: 0, receiptsBank: 0, receipts: 0, sulimhaTransfers: 0, received: 0, vat: 0,
 });
 
-// Per Nepal day: bills by payment mode, customer receipts by mode, and the money actually received.
-// received = cash + QR + card + other bill parts + customer receipts. Credit is billed, not received.
-export function collectionsByDay(orders: LedgerOrder[], receipts: LedgerReceipt[]): CollectionRow[] {
+const isSulimhaMode = (mode: string) => mode === "card_sulimha_nabil" || mode === "card_sulimha_hbl";
+
+// Per Nepal day: bills by payment mode, credit notes, customer receipts by mode, and the money actually received.
+//  card       = LHC's own machines (and older card bills with no machine recorded)
+//  sulimhaPos = taken on Sulimha Durbar's machines (bills and receipts): Sulimha holds that money until it transfers it
+//  sales      = every mode, Sulimha's machines and credit included; netSales = sales - creditNotes (on the note's own day)
+//  received   = cash + QR + card + other + customer receipts + Sulimha transfers recorded by a settlement on that day.
+//               Credit is billed, not received; Sulimha's machines count only when the transfer is recorded.
+//  vat        = VAT on the bills less VAT on the credit notes of the day
+// reissued: invoices made by Wrong customer; they are not counted (their reissue note is not counted either).
+export function collectionsByDay(orders: LedgerOrder[], receipts: LedgerReceipt[], extra: { notes?: LedgerNote[]; reissued?: Set<number>; sulimhaTransfers?: { settledOn: string; received: number }[] } = {}): CollectionRow[] {
   const byDay = new Map<string, CollectionRow>();
   const row = (day: string) => { let r = byDay.get(day); if (!r) { r = emptyRow(day); byDay.set(day, r); } return r; };
   for (const o of orders.filter(counts)) {
+    if (extra.reissued?.has(o.id)) continue;
     const r = row(nepalDay(o.at));
     r.orders++;
     r.vat += parseFloat(String(o.vatAmount ?? 0)) || 0;
     for (const p of o.parts) {
-      const g = modeOf(p.mode);
-      r[g] += p.amount;
       r.sales += p.amount;
       const m = cardMachineOf(p.mode);
-      if (m === "nabil") r.cardNabil += p.amount; else if (m === "hbl") r.cardHbl += p.amount; else if (m === "sulimha_nabil") r.cardSulimhaNabil += p.amount; else if (m === "sulimha_hbl") r.cardSulimhaHbl += p.amount; else if (m === "unknown") r.cardUnknown += p.amount;
+      if (m === "sulimha_nabil") { r.cardSulimhaNabil += p.amount; r.sulimhaPos += p.amount; continue; }
+      if (m === "sulimha_hbl") { r.cardSulimhaHbl += p.amount; r.sulimhaPos += p.amount; continue; }
+      r[modeOf(p.mode)] += p.amount;
+      if (m === "nabil") r.cardNabil += p.amount; else if (m === "hbl") r.cardHbl += p.amount; else if (m === "unknown") r.cardUnknown += p.amount;
     }
+  }
+  for (const n of extra.notes ?? []) {
+    if (!reducesSales(n)) continue;
+    const r = row(n.noteDate);
+    r.creditNotes += n.total;
+    r.vat -= n.vatAmount;
   }
   for (const rc of receipts) {
     const r = row(rc.receiptDate);
+    if (isSulimhaMode(rc.mode)) { r.sulimhaPos += rc.amount; continue; }
     if (rc.mode === "cash") r.receiptsCash += rc.amount;
     else if (rc.mode === "nabil_qr") r.receiptsQr += rc.amount;
     else if (modeOf(rc.mode) === "card") r.receiptsCard += rc.amount;
     else r.receiptsBank += rc.amount;
     r.receipts += rc.amount;
   }
+  for (const t of extra.sulimhaTransfers ?? []) row(t.settledOn).sulimhaTransfers += t.received;
   return Array.from(byDay.values()).sort((a, b) => a.day.localeCompare(b.day)).map(r => {
     const out: any = { ...r };
     for (const k of Object.keys(out)) if (typeof out[k] === "number" && k !== "orders") out[k] = round2(out[k]);
-    out.received = round2(out.cash + out.qr + out.card + out.other + out.receipts);
+    out.netSales = round2(out.sales - out.creditNotes);
+    out.received = round2(out.cash + out.qr + out.card + out.other + out.receipts + out.sulimhaTransfers);
     return out as CollectionRow;
   });
 }
@@ -160,6 +197,44 @@ export async function receiptsBetween(fromDay: string, toDay: string, mode?: str
     ))
     .orderBy(customerReceiptsTable.id);
   return rows.map(r => ({ ...r, amount: round2(parseFloat(String(r.amount))), createdAt: new Date(r.createdAt) }));
+}
+
+// Active customer credit notes dated within the Nepal days given, with the ingredient cost put back by a "not served" cancel
+export async function creditNotesBetween(fromDay: string, toDay: string): Promise<LedgerNote[]> {
+  const rows = await db.select({
+    id: creditNotesTable.id, noteNo: creditNotesTable.noteNo, noteDate: creditNotesTable.noteDate, orderId: creditNotesTable.orderId, kind: creditNotesTable.kind,
+    subtotal: creditNotesTable.subtotal, vatAmount: creditNotesTable.vatAmount, total: creditNotesTable.total, stockRestored: creditNotesTable.stockRestored,
+    customerName: loyaltyCustomersTable.name,
+  }).from(creditNotesTable)
+    .leftJoin(loyaltyCustomersTable, eq(loyaltyCustomersTable.id, creditNotesTable.customerId))
+    .where(and(eq(creditNotesTable.status, "active"), gte(creditNotesTable.noteDate, fromDay), lte(creditNotesTable.noteDate, toDay)))
+    .orderBy(creditNotesTable.id);
+  const restored = rows.filter(r => r.stockRestored).map(r => r.id);
+  const costByNote = new Map<number, number>();
+  if (restored.length) {
+    const lines = await db.select({ noteId: creditNoteItemsTable.noteId, quantity: creditNoteItemsTable.quantity, unitCost: orderItemsTable.unitCost })
+      .from(creditNoteItemsTable).innerJoin(orderItemsTable, eq(orderItemsTable.id, creditNoteItemsTable.orderItemId))
+      .where(inArray(creditNoteItemsTable.noteId, restored));
+    for (const l of lines) costByNote.set(l.noteId, (costByNote.get(l.noteId) ?? 0) + (parseFloat(String(l.unitCost ?? 0)) || 0) * Number(l.quantity));
+  }
+  const n = (v: unknown) => round2(parseFloat(String(v ?? 0)) || 0);
+  return rows.map(r => ({ ...r, subtotal: n(r.subtotal), vatAmount: n(r.vatAmount), total: n(r.total), restoredCost: round2(costByNote.get(r.id) ?? 0) }));
+}
+
+// Invoices re-issued by Wrong customer (the new invoice of an active reissue note). Sales reports skip them, and skip the
+// reissue note, so a moved sale counts once.
+export async function reissuedOrderIds(): Promise<Set<number>> {
+  const rows = await db.select({ id: creditNotesTable.reissuedOrderId }).from(creditNotesTable)
+    .where(and(eq(creditNotesTable.status, "active"), eq(creditNotesTable.kind, "reissue")));
+  return new Set(rows.map(r => r.id).filter((x): x is number => x != null));
+}
+
+// Money Sulimha Durbar transferred for its card machines: the amount received on each active settlement, on its settled date
+export async function sulimhaTransfersBetween(fromDay: string, toDay: string): Promise<{ settledOn: string; received: number }[]> {
+  const rows = await db.select({ settledOn: settlementsTable.settledOn, received: settlementsTable.received }).from(settlementsTable)
+    .innerJoin(settlementMachinesTable, eq(settlementMachinesTable.machine, settlementsTable.machine))
+    .where(and(eq(settlementsTable.status, "active"), eq(settlementMachinesTable.collectedBy, "sulimha"), gte(settlementsTable.settledOn, fromDay), lte(settlementsTable.settledOn, toDay)));
+  return rows.map(r => ({ settledOn: r.settledOn, received: round2(parseFloat(String(r.received))) }));
 }
 
 export async function isDrawerClosed(day: string): Promise<boolean> {

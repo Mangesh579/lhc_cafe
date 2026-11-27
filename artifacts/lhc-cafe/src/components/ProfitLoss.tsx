@@ -49,8 +49,10 @@ export default function ProfitLoss({ ym }: { ym: string }) {
       const year = parseInt(ym.slice(0, 4), 10);
       const y = await apiJson(`/costing/pnl-year?year=${year}`);
       const lines = [
-        { Line: "Sales (net of VAT, without complimentary)", "Rs.": pnl.sales },
-        { Line: "Less: ingredient cost of dishes sold", "Rs.": -pnl.cogs },
+        { Line: "Sales before credit notes (net of VAT, without complimentary)", "Rs.": pnl.salesBeforeCreditNotes ?? pnl.sales },
+        { Line: `Less: credit notes (${pnl.creditNotesCount ?? 0}, net of VAT)`, "Rs.": -(pnl.creditNotes ?? 0) },
+        { Line: "NET SALES", "Rs.": pnl.sales },
+        { Line: "Less: ingredient cost of dishes sold (less stock put back by not-served cancels)", "Rs.": -pnl.cogs },
         { Line: "GROSS PROFIT", "Rs.": pnl.grossBefore },
         { Line: "Less: complimentary (NC) food at ingredient cost", "Rs.": -pnl.ncCost },
         { Line: "Less: recorded waste and spoilage, at cost", "Rs.": -pnl.wasteCost },
@@ -63,7 +65,7 @@ export default function ProfitLoss({ ym }: { ym: string }) {
         { Line: "Memo: orders missing ingredient costs", "Rs.": pnl.incompleteOrders },
       ];
       const monthly = y.months.map((m: any, i: number) => ({
-        "Month": `${MONTHS[i]} ${year}`, "Sales": m.sales, "Ingredient cost": m.cogs, "Gross profit": m.grossBefore,
+        "Month": `${MONTHS[i]} ${year}`, "Sales before credit notes": m.salesBeforeCreditNotes ?? m.sales, "Credit notes": m.creditNotes ?? 0, "Net sales": m.sales, "Ingredient cost": m.cogs, "Gross profit": m.grossBefore,
         "Complimentary (NC) cost": m.ncCost, "Recorded waste": m.wasteCost, "Overheads": m.overhead, "Net profit": m.netProfit, "Direct purchases (memo)": m.directPurchases,
       }));
       const wb = XLSX.utils.book_new();
@@ -100,8 +102,10 @@ export default function ProfitLoss({ ym }: { ym: string }) {
           <Button variant="outline" size="sm" className="mr-3 gap-2" onClick={exportExcel}><Download className="w-4 h-4" /> Export Excel (month + year)</Button>
         </div>
         <div className="p-4 text-sm max-w-2xl">
-          <Line label="Sales" hint="Net of VAT and discounts; complimentary (NC) bills are not sales" value={pnl.sales} />
-          <Line label="Less: ingredient cost of dishes sold" value={-pnl.cogs} indent />
+          <Line label="Sales" hint="Net of VAT and discounts; complimentary (NC) bills are not sales" value={pnl.salesBeforeCreditNotes ?? pnl.sales} />
+          <Line label="Less: credit notes" hint={`${pnl.creditNotesCount ?? 0} customer credit note${pnl.creditNotesCount === 1 ? "" : "s"} dated this month, net of VAT (a Wrong-customer move is not counted)`} value={-(pnl.creditNotes ?? 0)} indent />
+          <Line label="NET SALES" value={pnl.sales} bold />
+          <Line label="Less: ingredient cost of dishes sold" hint={(pnl.creditNoteCostBack ?? 0) > 0 ? `after ${money(pnl.creditNoteCostBack)} put back into stock by not-served cancels` : undefined} value={-pnl.cogs} indent />
           <Line label="GROSS PROFIT" value={pnl.grossBefore} bold tone={pnl.grossBefore >= 0 ? "green" : "red"} hint={pnl.grossMarginPct != null ? `${pnl.grossMarginPct.toFixed(1)}% of sales` : undefined} />
           <Line label="Less: complimentary (NC) food, at ingredient cost" hint={`${pnl.ncDishes} dish${pnl.ncDishes === 1 ? "" : "es"} given away`} value={-pnl.ncCost} indent />
           <Line label="Less: recorded waste and spoilage, at cost" hint={`${pnl.wasteEntries} Waste Log entr${pnl.wasteEntries === 1 ? "y" : "ies"} this month`} value={-pnl.wasteCost} indent />

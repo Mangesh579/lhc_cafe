@@ -80,7 +80,7 @@ router.get("/stays/:id", authenticate, async (req: AuthRequest, res: Response): 
   if (!MONEY_ROLES.includes(roleOf(req)) && !COST_ROLES.includes(roleOf(req))) { res.json({ ...stay, bills: null }); return; }
   const orders = await db.select().from(ordersTable).where(and(eq(ordersTable.roomStayId, stay.id), eq(ordersTable.paymentStatus, "paid"))).orderBy(ordersTable.id);
   const inv = new Map((await creditInvoices({ orderIds: orders.map(o => o.id) })).map(i => [i.orderId, i]));
-  const items = orders.length ? await db.select({ orderId: orderItemsTable.orderId, name: menuItemsTable.name, quantity: orderItemsTable.quantity, unitPrice: orderItemsTable.unitPrice, subtotal: orderItemsTable.subtotal, unitCost: orderItemsTable.unitCost })
+  const items = orders.length ? await db.select({ orderId: orderItemsTable.orderId, name: menuItemsTable.name, quantity: orderItemsTable.quantity, unitPrice: orderItemsTable.unitPrice, subtotal: orderItemsTable.subtotal, unitCost: orderItemsTable.unitCost, menuPrice: menuItemsTable.price })
     .from(orderItemsTable).leftJoin(menuItemsTable, eq(menuItemsTable.id, orderItemsTable.menuItemId)).where(inArray(orderItemsTable.orderId, orders.map(o => o.id))) : [];
   const showCost = COST_ROLES.includes(roleOf(req));
   const bills = orders.map(o => {
@@ -90,7 +90,7 @@ router.get("/stays/:id", authenticate, async (req: AuthRequest, res: Response): 
       orderId: o.id, invoiceNumber: o.invoiceNumber, day: nepalDay(new Date(o.paidAt ?? o.createdAt)), stayCharge: o.stayCharge, breakfastCount: o.breakfastCount,
       onGuest: o.loyaltyCustomerId === stay.customerId, total: round2(parseFloat(String(o.totalAmount))), outstanding: i?.outstanding ?? 0, receivable: i?.receivable ?? 0,
       items: its.map(x => ({ name: x.name ?? "item", quantity: x.quantity, amount: round2(parseFloat(String(x.subtotal))) })),
-      ...(showCost && o.stayCharge === "breakfast" ? { lhcCost: breakfastCost(its.map(x => ({ name: x.name ?? "item", quantity: x.quantity, unitCost: x.unitCost, unitPrice: x.unitPrice }))) } : {}),
+      ...(showCost && o.stayCharge === "breakfast" ? { lhcCost: breakfastCost(its.map(x => ({ name: x.name ?? "item", quantity: x.quantity, unitCost: x.unitCost, unitPrice: x.menuPrice ?? x.unitPrice }))) } : {}),
     };
   });
   res.json({ ...stay, bills });

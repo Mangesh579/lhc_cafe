@@ -36,6 +36,15 @@ function toNepaliDateTime(dateStr: string): string {
   } catch { return dateStr; }
 }
 
+// Credit notes (2026-11-27): what reduces this sale (item-wise and cancel notes, not a Wrong-customer move), and whether
+// this invoice is the re-issue of a moved sale (then it is not counted: the sale counts once, on the original invoice)
+const creditNotesOf = (o: any): number => Number(o?.salesCreditNotes ?? 0);
+const creditNotesNetOf = (o: any): number => Number(o?.salesCreditNotesNet ?? 0);
+const isReissue = (o: any): boolean => !!o?.reissueOf;
+const netAfterNotes = (o: any): number => Math.round((parseFloat(String(o.totalAmount)) - creditNotesOf(o)) * 100) / 100;
+const moveNote = (o: any): string => o?.reissueOf ? `Re-issue of ${o.reissueOf} (not counted again)`
+  : [o?.movedTo ? `Moved to ${o.movedTo}` : null, ...((o?.creditNoteList ?? []) as any[]).filter(n => n.kind !== "reissue").map(n => `${n.noteNo} ${n.noteDate}`)].filter(Boolean).join(", ");
+
 // Profit for one order: net sales (after discount, without VAT or card charge) minus ingredient cost
 function orderProfitLegacy(order: any) {
   const items: any[] = order.items ?? [];
@@ -43,7 +52,7 @@ function orderProfitLegacy(order: any) {
   const complete = items.length > 0 && items.every(i => i.costComplete);
   const total = parseFloat(String(order.totalAmount ?? 0));
   const vat = parseFloat(String(order.vatAmount ?? 0));
-  const revenue = order.isNc ? 0 : Math.max(0, total - vat);
+  const revenue = order.isNc ? 0 : Math.max(0, total - vat) - creditNotesNetOf(order);
   return { cost, complete, revenue, profit: revenue - cost };
 }
 
@@ -122,7 +131,7 @@ function orderProfit(order: any) {
   }
   const total = parseFloat(String(order.totalAmount ?? 0));
   const vat = parseFloat(String(order.vatAmount ?? 0));
-  const revenue = order.isNc ? 0 : Math.max(0, total - vat);
+  const revenue = order.isNc ? 0 : Math.max(0, total - vat) - creditNotesNetOf(order); // credit notes come off, pre-VAT
   const cost = ingredient + variable + fixed;
   return { revenue, ingredient, variable, fixed, cost, ingredientOk, opOk, complete: ingredientOk && opOk, profit: revenue - cost, grossProfit: revenue - ingredient };
 }
@@ -331,7 +340,7 @@ export default function OrderLog() {
       return true;
     });
 
-    const headers = ["Order ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Payment mode", "Credit outstanding", "Total", "Discount", ...(canSeeProfit ? ["Net Sales", "Ingredient Cost", "Operating Cost", "Overhead Share", "Total Cost", "Net Profit", "Costing"] : [])];
+    const headers = ["Order ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Payment mode", "Credit outstanding", "Total", "Discount", "Credit notes", "Net after credit notes", "Note", ...(canSeeProfit ? ["Net Sales", "Ingredient Cost", "Operating Cost", "Overhead Share", "Total Cost", "Net Profit", "Costing"] : [])];
     const rows = ordersToExport.map(o => [
       o.id,
       new Date((o as any).backdatedAt ?? o.createdAt).toLocaleString(),
@@ -344,6 +353,9 @@ export default function OrderLog() {
       (o as any).creditOutstanding ? Number((o as any).creditOutstanding).toFixed(2) : "",
       parseFloat(String(o.totalAmount)).toFixed(0),
       parseFloat(String((o as any).discountAmount ?? 0)).toFixed(0),
+      creditNotesOf(o).toFixed(2),
+      isReissue(o) ? "0.00" : netAfterNotes(o).toFixed(2),
+      moveNote(o),
     ]);
     const profitCols = (o: any) => { const p = orderProfit(o); return [p.revenue.toFixed(2), p.ingredient.toFixed(2), p.variable.toFixed(2), p.fixed.toFixed(2), p.cost.toFixed(2), p.complete ? p.profit.toFixed(2) : "", p.complete ? "Complete" : "Incomplete"]; };
     const csv = [headers, ...rows.map((r, idx) => canSeeProfit ? [...r, ...profitCols(ordersToExport[idx])] : r)].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -379,6 +391,9 @@ export default function OrderLog() {
       "Credit outstanding": (o as any).creditOutstanding ? Number((o as any).creditOutstanding) : "",
       "Total": parseFloat(String(o.totalAmount)).toFixed(0),
       "Discount": parseFloat(String((o as any).discountAmount ?? 0)).toFixed(0),
+      "Credit notes": creditNotesOf(o),
+      "Net after credit notes": isReissue(o) ? 0 : netAfterNotes(o),
+      "Note": moveNote(o),
     }));
     const rowsOut = canSeeProfit ? rows.map((r, idx) => {
       const p = orderProfit(ordersToExport[idx] as any);
@@ -432,7 +447,7 @@ export default function OrderLog() {
     doc.text("LHC Cafe — Order Log", 14, 15);
     autoTable(doc, {
       startY: 22,
-      head: [["ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Total", "Discount"]],
+      head: [["ID", "Date", "Table", "Staff", "Customer", "Status", "Payment", "Total", "Discount", "Credit notes"]],
       body: ordersToExport.map(o => [
         o.id,
         new Date((o as any).backdatedAt ?? o.createdAt).toLocaleDateString(),
@@ -443,6 +458,7 @@ export default function OrderLog() {
         o.paymentStatus,
         `Rs.${parseFloat(String(o.totalAmount)).toFixed(0)}`,
         `Rs.${parseFloat(String((o as any).discountAmount ?? 0)).toFixed(0)}`,
+        isReissue(o) ? `re-issue of ${(o as any).reissueOf}` : creditNotesOf(o) > 0 ? `-Rs.${creditNotesOf(o).toFixed(0)}` : "",
       ]),
       styles: { fontSize: 8 },
     });
@@ -563,13 +579,17 @@ export default function OrderLog() {
     } catch { setPrintLogs([]); }
   };
 
-  const totalSales = filteredOrders.reduce((sum, o) => o.paymentStatus !== 'paid' || (o as any).isNc ? sum : sum + parseFloat(String(o.totalAmount)), 0);
-  const paidCount = filteredOrders.filter(o => o.paymentStatus === 'paid').length;
+  // Paid sales less credit notes; a re-issued invoice (Wrong customer) is not a second sale
+  const countedOrders = filteredOrders.filter(o => o.paymentStatus === 'paid' && !(o as any).isNc && !isReissue(o));
+  const grossSales = countedOrders.reduce((sum, o) => sum + parseFloat(String(o.totalAmount)), 0);
+  const totalCreditNotes = countedOrders.reduce((sum, o) => sum + creditNotesOf(o), 0);
+  const totalSales = grossSales - totalCreditNotes;
+  const paidCount = filteredOrders.filter(o => o.paymentStatus === 'paid' && !isReissue(o)).length;
 
   const categorySales = new Map<number, { name: string; qty: number; revenue: number }>();
   if (categoryFilter === "all") {
     filteredOrders.forEach(order => {
-      if (order.paymentStatus !== 'paid' || (order as any).isNc) return;
+      if (order.paymentStatus !== 'paid' || (order as any).isNc || isReissue(order)) return;
       order.items?.forEach((item: any) => {
         const catId = itemCategoryMap.get(item.menuItemId);
         if (!catId) return;
@@ -633,8 +653,9 @@ export default function OrderLog() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card className="bg-primary text-primary-foreground border-none">
           <CardContent className="p-4">
-            <p className="text-xs opacity-80">Paid Sales</p>
+            <p className="text-xs opacity-80">Paid Sales{totalCreditNotes > 0 ? " (after credit notes)" : ""}</p>
             <p className="text-xl font-bold mt-1">Rs. {totalSales.toFixed(0)}</p>
+            {totalCreditNotes > 0 && <p className="text-[11px] opacity-80">Rs. {grossSales.toFixed(0)} less Rs. {totalCreditNotes.toFixed(0)} credit notes</p>}
           </CardContent>
         </Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Filtered Orders</p><p className="text-xl font-bold mt-1">{filteredOrders.length}</p></CardContent></Card>
@@ -645,7 +666,7 @@ export default function OrderLog() {
       {canSeeProfit && (() => {
         let revenue = 0, cost = 0, nUncosted = 0;
         for (const o of filteredOrders as any[]) {
-          if (o.paymentStatus !== "paid") continue;
+          if (o.paymentStatus !== "paid" || isReissue(o)) continue;
           const p = orderProfit(o);
           if (p.complete) { revenue += p.revenue; cost += p.cost; } else nUncosted++;
         }
@@ -889,6 +910,9 @@ export default function OrderLog() {
                         {order.paymentStatus}
                       </Badge>
                     )}
+                    {creditNotesOf(order) > 0 && <Badge variant="secondary" className="text-xs bg-red-50 text-red-700">Credit notes −{rs(creditNotesOf(order))}</Badge>}
+                    {(order as any).movedTo && <Badge variant="secondary" className="text-xs">Moved to invoice {(order as any).movedTo}</Badge>}
+                    {isReissue(order) && <Badge variant="secondary" className="text-xs">Re-issue of {(order as any).reissueOf}: not counted again</Badge>}
                     {(order as any).creditOutstanding > 0 && order.paymentStatus === "paid" && (
                       <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-900">Owes {rs((order as any).creditOutstanding)}</Badge>
                     )}

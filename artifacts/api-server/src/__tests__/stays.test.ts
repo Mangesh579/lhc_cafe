@@ -97,6 +97,9 @@ describe("charging bills to the stay", () => {
     const o = await order(id);
     expect([o.totalAmount, o.loyaltyCustomerId, o.paymentMethod, o.stayCharge, o.breakfastCount, o.roomStayId, o.discountAmount]).toEqual(["1600.00", sulimha, "credit", "breakfast", 2, stayId, "0.00"]);
     expect(o.notes).toMatch(/Hotel breakfast x 2 @ Rs\. 800\.00, room 103 \(Ram Thapa\)/);
+    // 2026-11-27: the lines share the Rs 1,600 in proportion to their menu value (900 : 500), so item reports add up
+    const lines = await ctx.db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, id)).orderBy(orderItemsTable.id);
+    expect(lines.map((l: any) => [l.subtotal, l.unitPrice])).toEqual([["1028.57", "514.29"], ["571.43", "285.71"]]);
     // LHC's cost for the admin: 2 x 95.50 + Americano at its menu price for now (2 x 250)
     const f = (await api("admin", "GET", `/stays/${stayId}`)).body;
     expect(f.bills[0]).toMatchObject({ stayCharge: "breakfast", total: 1600, lhcCost: { cost: 691, noRecipeCost: ["Americano"] } });

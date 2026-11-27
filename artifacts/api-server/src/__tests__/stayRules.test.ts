@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateCheckIn, breakfastBill, breakfastCost } from "../lib/stayRules";
+import { validateCheckIn, breakfastBill, breakfastCost, allocateTotal } from "../lib/stayRules";
 
 const TODAY = "2026-11-26";
 const ok = { tableId: 10, guestName: " Ram Thapa ", phone: "9800000009", adults: 2, children: 1, breakfastIncluded: true, checkIn: TODAY, checkOut: "2026-11-28" };
@@ -38,5 +38,17 @@ describe("LHC's cost of a breakfast (admin and accountant only)", () => {
       { name: "Americano", quantity: 2, unitCost: null, unitPrice: "250" },
     ]);
     expect(r).toEqual({ cost: 691, noRecipeCost: ["Americano"] });
+  });
+});
+
+// 2026-11-27: the Rs 800 x breakfasts total is spread over the item lines, so item and category reports add up to the invoice
+describe("breakfast lines share the invoice total", () => {
+  it("in proportion to their menu value, to the paisa, the last line taking the remainder", () => {
+    const r = allocateTotal([{ id: 1, quantity: 2, subtotal: 900 }, { id: 2, quantity: 2, subtotal: 500 }], 1600);
+    expect(r).toEqual([{ id: 1, subtotal: 1028.57, unitPrice: 514.29 }, { id: 2, subtotal: 571.43, unitPrice: 285.71 }]);
+    expect(r.reduce((s, l) => s + l.subtotal, 0)).toBeCloseTo(1600, 2);
+  });
+  it("lines with no menu value share by quantity", () => {
+    expect(allocateTotal([{ id: 1, quantity: 1, subtotal: 0 }, { id: 2, quantity: 3, subtotal: 0 }], 800)).toEqual([{ id: 1, subtotal: 200, unitPrice: 200 }, { id: 2, subtotal: 600, unitPrice: 200 }]);
   });
 });

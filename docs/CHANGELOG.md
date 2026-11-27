@@ -802,3 +802,62 @@ db/migrations/012_room_stays.sql: NOT YET RUN on the server.
 
 - The owner ran db/migrations/012_room_stays.sql on the server (after a backup), merged room-stays into main from the terminal (f8af8aa) and deployed hotel room stays. Recorded as run in CLAUDE.md and docs/HANDOFF.md.
 - Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
+
+
+## 2026-11-27: Credit-note aware reports, Sulimha collections, breakfast line prices, not-served stock
+
+### Summary
+- Skills used: ponytail, tdd, backend-patterns, react-patterns, database-migrations.
+- **Credit notes reduce sales.**
+  - New readers in lib/ledgerData.ts: creditNotesBetween (active notes by Nepal note date, with the cost put back by not-served cancels), reissuedOrderIds and creditNoteEffect.
+  - Collections: Credit notes and Net sales columns, VAT after notes; the totals reconcile.
+  - Dashboard: today, the week and sales by day less notes; top items less credited items.
+  - Profit: today and by day, revenue less notes and cost less the stock put back.
+  - P&L: sales before notes, less credit notes, net sales; cost less the stock put back; Excel with the same lines and columns.
+  - Order Log: each order shows its credit notes; paid sales after notes; profit after notes; CSV, Excel and PDF with Credit notes, Net after credit notes and Note columns.
+  - **Wrong customer:** the reissue note is not a credit and the re-issued invoice is not counted, so the sale counts once, on the original invoice and day. The Order Log marks both ("Moved to ...", "Re-issue of ...: not counted again").
+- **Sulimha's machines:**
+  - Collections has a Sulimha POS column (bills and receipts on Sulimha's machines). Card is now LHC's machines only.
+  - Sulimha's money is out of Money received until a Sulimha settlement is recorded; the transfer then counts on its settled date (Sulimha transfers column).
+- **Hotel breakfast:** new breakfast invoices spread Rs 800 x breakfasts over the item lines in proportion to their menu value (to the paisa, the last line takes the remainder), so item and category reports add up to the invoice. Old invoices are not changed. The folio's cost view now uses the menu item's price as the stand-in cost.
+- **Not served:** a cancel with "Not served" reverses the Stock Log movements the order recorded for each credited menu item (the sale, its prep waste, less any KOT cancelled), in proportion for a part credit. Older orders whose Stock Log lines have no menu item use today's recipe; the cancel's response says which ("stock": fromSale or fromRecipe). Voiding the note takes out exactly the lines it put back (found by the note number), falling back to the recipe only if none are found.
+- **Docs:**
+  - CLAUDE.md: the bill rule now applies to purchases and non-petty-cash expenses, and petty cash follows the owner's 2026-11-25 rule; a rule for reports and credit notes is added.
+  - docs/HANDOFF.md: item 25; Known limits and Next work rewritten (stale items removed).
+
+### Files
+- New: api-server src/__tests__/collectionsCreditNotes.test.ts, src/__tests__/reportsCreditNotes.test.ts.
+- Changed:
+  - api-server: src/lib/ledgerData.ts, lib/stockMoves.ts, lib/stayRules.ts (allocateTotal); src/routes/ledgers.ts, routes/dashboard.ts, routes/opcosting.ts, routes/orders.ts (credit-note info on orders, profit/daily, breakfast allocation), routes/receivables.ts (stock reversal), routes/stays.ts (cost view).
+  - api-server tests: sulimhaCards (collections expectation), stayRules (+2), stays (allocation).
+  - lhc-cafe: pages/ledgers.tsx, pages/order-log.tsx, components/ProfitLoss.tsx, components/ProfitTodayCard.tsx.
+  - Docs: CLAUDE.md, docs/HANDOFF.md.
+
+### Tables
+- None changed. New breakfast invoices store re-priced order_items.unit_price and subtotal at the moment they are billed.
+
+### Migration
+None needed.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 32 files, 241 tests pass; typecheck api-server, lhc-cafe and libs clean; both artifacts build.
+- New:
+  - collectionsCreditNotes (4): note on its own day, reconciled totals; VAT follows the note; a moved sale counts once with no row for the reissue note; Sulimha column, received only by transfer.
+  - reportsCreditNotes (7, real routes on PGlite):
+    - Collections (sales 2,000, notes 1,000, net 1,000, received 250);
+    - P&L (2,000 - 1,000 = 1,000, cost 320 - 160);
+    - profit by day (revenue 1,000, cost 160);
+    - dashboard (today's notes 1,000; top items 8 sold - 4 credited);
+    - Order Log fields (credit notes, movedTo, reissueOf);
+    - not served restores 0.3 L per latte as the sale took (today's recipe is 0.25), and voiding takes exactly that out again;
+    - a part credit restores its share; an older order without menu items on its Stock Log uses today's recipe.
+  - stayRules (+2): allocation 900:500 of 1,600 to the paisa, and by quantity when there is no menu value.
+  - stays (+1 assertion): a breakfast bill's lines total Rs 1,600.
+- Changed: sulimhaCards: Card 300, Sulimha POS 600, received 400 (was card 900, received 1,000), the owner's new rule.
+- Not run: the screens in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- A credit note counts on its own date, not on the invoice's date, so closed days do not change.
+- A Wrong-customer move is not a sales return: neither the note nor the re-issued invoice is counted.
+- A Sulimha transfer counts in Money received at the amount received (after Sulimha's fee), on the settlement's date.
+- Breakfast lines share the total by their menu value.

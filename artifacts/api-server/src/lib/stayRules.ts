@@ -34,6 +34,21 @@ export function breakfastBill(items: { name: string; isBreakfast: boolean }[], c
   return { total: round2(count * price) };
 }
 
+// The breakfast invoice total (price x breakfasts) spread over its item lines in proportion to their menu value (by quantity
+// when they have none), to the paisa; the last line takes the rounding remainder. The subtotal is the line's amount; the unit
+// price is the subtotal / quantity, rounded (2026-11-27: item and category reports add up to the invoice total).
+export function allocateTotal(lines: { id: number; quantity: number; subtotal: number }[], total: number): { id: number; subtotal: number; unitPrice: number }[] {
+  const base = lines.reduce((s, l) => s + Math.max(0, l.subtotal), 0);
+  const qty = lines.reduce((s, l) => s + l.quantity, 0);
+  let rest = round2(total);
+  return lines.map((l, i) => {
+    const share = base > 0 ? Math.max(0, l.subtotal) / base : (qty > 0 ? l.quantity / qty : 1 / lines.length);
+    const subtotal = i === lines.length - 1 ? round2(rest) : round2(total * share);
+    rest = round2(rest - subtotal);
+    return { id: l.id, subtotal, unitPrice: l.quantity > 0 ? round2(subtotal / l.quantity) : subtotal };
+  });
+}
+
 // LHC's own cost of the breakfast items (admin and accountant only). Owner, 2026-11-26: until every recipe is costed,
 // an item with no recipe cost counts at its menu price here, and is named so the margin is read with care.
 export function breakfastCost(items: { name: string; quantity: number; unitCost: unknown; unitPrice: unknown }[]): { cost: number; noRecipeCost: string[] } {
