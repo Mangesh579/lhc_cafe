@@ -90,6 +90,26 @@ async function sourcesBetween(fromDay: string, toDay: string, opts: { vatEnabled
   ];
 }
 
+// Sources dated in [fromDay, toDay] that have no journal entry at all (2026-11-27: the database finds them, instead of
+// re-reading every source since the start date). A source with any entry is either in force (checked as a late change)
+// or was reversed because it was cancelled or voided, which cannot be undone, so it never needs posting again.
+const noEntry = (type: string, id: any) => sql`NOT EXISTS (SELECT 1 FROM journal_entries je WHERE je.source_type = ${type} AND je.source_id = ${id})`;
+const paidAtSql = sql`COALESCE(${ordersTable.paidAt} AT TIME ZONE 'UTC', ${ordersTable.backdatedAt} AT TIME ZONE 'UTC', ${ordersTable.createdAt})`;
+async function unpostedSourcesBetween(fromDay: string, toDay: string, opts: { vatEnabled: boolean; reissued: Set<number> }) {
+  const orders = await db.select().from(ordersTable).where(and(eq(ordersTable.paymentStatus, "paid"), eq(ordersTable.isNc, false),
+    sql`${paidAtSql} >= ${dayRangeUtc(fromDay).from}`, sql`${paidAtSql} <= ${dayRangeUtc(toDay).to}`, noEntry("order", ordersTable.id)));
+  const sales = await saleSources(orders, opts);
+  const notes = await noteSources(and(eq(creditNotesTable.status, "active"), gte(creditNotesTable.noteDate, fromDay), lte(creditNotesTable.noteDate, toDay), noEntry("credit_note", creditNotesTable.id)));
+  const receipts = await receiptSources(and(eq(customerReceiptsTable.status, "active"), gte(customerReceiptsTable.receiptDate, fromDay), lte(customerReceiptsTable.receiptDate, toDay), noEntry("receipt", customerReceiptsTable.id)));
+  const setts = await settlementSources(and(eq(settlementsTable.status, "active"), gte(settlementsTable.settledOn, fromDay), lte(settlementsTable.settledOn, toDay), noEntry("settlement", settlementsTable.id)));
+  return [
+    ...sales.map(s => ({ type: "order" as SourceType, id: s.src.orderId, day: s.src.day, postable: s.postable, built: s.built })),
+    ...notes.map(n => ({ type: "credit_note" as SourceType, ...n })),
+    ...receipts.map(r => ({ type: "receipt" as SourceType, ...r })),
+    ...setts.map(s => ({ type: "settlement" as SourceType, ...s })),
+  ];
+}
+
 // The current state of posted sources (any status), to see whether they changed after posting
 async function currentOf(keys: { type: string; id: number }[], opts: { vatEnabled: boolean; reissued: Set<number> }) {
   const ids = (t: string) => keys.filter(k => k.type === t).map(k => k.id);
@@ -146,18 +166,20 @@ async function machinesAsOf(day: string) {
 
 // ── The review of one day ──
 
-export async function reviewDay(day: string) {
+export async function reviewDay(day: string, opts_: { preview?: boolean } = {}) {
   const settings = await ledgerSettings(db);
   const today = nepalDay(new Date());
   const [posted] = await db.select().from(postingDaysTable).where(eq(postingDaysTable.day, day));
   const base = { day, dayBs: bsLabel(day), startDate: settings.startDate };
-  if (posted) {
+  if (posted && !opts_.preview) {
     const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.entryDate, day)).orderBy(asc(journalEntriesTable.id));
     return { ...base, status: "posted" as const, postedBy: posted.postedBy, postedAt: posted.postedAt, note: posted.note, entries: entries.map(e => ({ id: e.id, entryNo: e.entryNo, voucherType: e.voucherType, narration: e.narration, kind: e.kind, sourceRef: e.sourceRef, revision: e.revision })),
       totals: posted.totals ? JSON.parse(posted.totals) : [], acknowledged: posted.problems ? JSON.parse(posted.problems) : [], canPost: false, blockers: [], problems: [], late: [], reconciliation: [] };
   }
 
   const blockers: string[] = [];
+  if (opts_.preview) blockers.push("Preview only: nothing is posted from here.");
+  if (posted) blockers.push(`${day} is already posted.`);
   if (day < settings.startDate) blockers.push(`The ledger starts on ${settings.startDate} (${bsLabel(settings.startDate)}). Nothing before it posts.`);
   if (day >= today) blockers.push("A day is posted the next day, once it has ended.");
   if (day > settings.startDate) {
@@ -169,7 +191,8 @@ export async function reviewDay(day: string) {
   if (settings.openingStatus !== "confirmed") problems.push({ level: "fix", code: "opening", message: "The opening balances are not confirmed yet (Opening balances tab)." });
 
   // the day's own sources
-  const inForce = await inForceEntries(addDays(day, 1));
+  // any entry in force for a source, whatever its date (a source may have been posted late, or re-posted, on a later day)
+  const inForce = await inForceEntries("9999-12-31");
   const regular: Draft[] = [];
   for (const s of (await sourcesBetween(day, day, opts)).filter(s => s.postable && s.built)) {
     const b = s.built!;
@@ -190,7 +213,7 @@ export async function reviewDay(day: string) {
       if (!draft) late.push({ action: "reverse", sourceType: k.type, sourceId: k.id, sourceRef: null, entryId: e.id, entryNo: e.entryNo, oldLines: e.lines, reason: cur ? "cancelled or voided after posting" : "the document no longer exists" });
       else if (!sameLines(e.lines, draft.lines)) late.push({ action: "repost", sourceType: k.type, sourceId: k.id, sourceRef: draft.sourceRef, entryId: e.id, entryNo: e.entryNo, oldLines: e.lines, draft: { ...draft, date: day }, reason: "changed after posting" });
     }
-    for (const s of (await sourcesBetween(settings.startDate, addDays(day, -1), opts)).filter(s => s.postable && s.built?.entry && !posted.has(`${s.type}:${s.id}`))) {
+    for (const s of (await unpostedSourcesBetween(settings.startDate, addDays(day, -1), opts)).filter(s => s.postable && s.built?.entry && !posted.has(`${s.type}:${s.id}`))) {
       const b = s.built!, entry = b.entry!;
       problems.push(...b.problems);
       late.push({ action: "add", sourceType: s.type, sourceId: s.id, sourceRef: entry.sourceRef, draft: { ...entry, date: day }, reason: `dated ${s.day}, entered after that day was posted` });
@@ -227,7 +250,7 @@ export async function reviewDay(day: string) {
   for (const r of recon) if (!r.ok) problems.push({ level: "ack", code: "reconciliation", message: `${r.check}: ledger Rs. ${r.ledger.toFixed(2)}, ${r.note ?? "operational"} Rs. ${r.operational.toFixed(2)} (difference Rs. ${r.difference.toFixed(2)}).` });
 
   return {
-    ...base, status: "open" as const, canPost: !blockers.length && !problems.some(p => p.level === "fix"), blockers, problems,
+    ...base, status: "open" as const, preview: !!opts_.preview, canPost: !opts_.preview && !blockers.length && !problems.some(p => p.level === "fix"), blockers, problems,
     entries: regular, late: late.map(l => ({ ...l, oldLines: undefined })), lateLines: late, totals: [...totals.entries()].map(([accountCode, t]) => ({ accountCode, ...t })).sort((a, b) => a.accountCode.localeCompare(b.accountCode)),
     reconciliation: recon,
   };

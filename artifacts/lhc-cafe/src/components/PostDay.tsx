@@ -20,6 +20,14 @@ export function PostDayTab() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
+  // Read-only rehearsal on real data: any past day, even before the start date (2026-11-27). Never posts.
+  const [previewDay, setPreviewDay] = useState("");
+  const preview = async () => {
+    if (!previewDay) return;
+    setDay(null); setR(null);
+    try { setR(await apiJson(`/gl/preview/${previewDay}`)); }
+    catch (e: any) { toast({ title: "Could not preview the day", description: e?.error, variant: "destructive" }); }
+  };
 
   const loadDays = useCallback(async () => {
     try { const d = await apiJson("/gl/days"); setDays(d); setDay(cur => cur ?? (d.days.find((x: any) => x.next)?.day ?? d.days[0]?.day ?? null)); }
@@ -41,6 +49,11 @@ export function PostDayTab() {
   return (
     <div className="grid md:grid-cols-[220px_1fr] gap-3 mt-3">
       <Card><CardContent className="p-0 max-h-[70vh] overflow-y-auto">
+        <div className="px-3 py-2 border-b space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Preview a day</p>
+          <div className="flex gap-1"><Input type="date" className="h-8 text-xs" max={days.today} value={previewDay} onChange={e => setPreviewDay(e.target.value)} /><Button size="sm" variant="outline" className="h-8 text-xs" disabled={!previewDay} onClick={preview}>Show</Button></div>
+          <p className="text-[11px] text-muted-foreground">Any past day, even before the start: see what would post. Nothing is posted.</p>
+        </div>
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-3 py-2 bg-muted/40">Days from {days.startDateBs}</p>
         {days.days.length === 0 && <p className="px-3 py-3 text-xs text-muted-foreground">No day to post yet: the ledger starts on {days.startDate} ({days.startDateBs}).</p>}
         {days.days.map((d: any) => (
@@ -51,11 +64,12 @@ export function PostDayTab() {
         ))}
       </CardContent></Card>
 
-      {!r ? <p className="text-sm text-muted-foreground">{day ? "Loading…" : "Choose a day."}</p> : (
+      {!r ? <p className="text-sm text-muted-foreground">{day ? "Loading…" : "Choose a day, or preview one."}</p> : (
         <div className="space-y-3">
+          {r.preview && <p className="text-sm bg-sky-50 text-sky-900 border border-sky-200 rounded-md px-3 py-2"><strong>Preview:</strong> what would post for this day from today's data. Nothing is posted or saved.</p>}
           <div className="flex items-center justify-between flex-wrap gap-2">
             <p className="text-lg font-semibold">{r.day} <span className="text-sm font-normal text-muted-foreground">{r.dayBs}</span></p>
-            {r.status === "posted" ? <Badge className="bg-green-700">Posted by {r.postedBy}</Badge> : r.canPost ? <Badge>Ready to post</Badge> : <Badge variant="secondary">Cannot post yet</Badge>}
+            {r.preview ? <Badge variant="secondary">Preview</Badge> : r.status === "posted" ? <Badge className="bg-green-700">Posted by {r.postedBy}</Badge> : r.canPost ? <Badge>Ready to post</Badge> : <Badge variant="secondary">Cannot post yet</Badge>}
           </div>
           {r.blockers?.map((b: string) => <p key={b} className="text-sm bg-muted rounded-md px-3 py-2">{b}</p>)}
           {r.status === "posted" && r.note && <p className="text-xs text-muted-foreground">Note when posting: {r.note}</p>}
@@ -105,7 +119,7 @@ export function PostDayTab() {
             </table></CardContent></Card>
           )}
 
-          {r.status !== "posted" && (
+          {r.status !== "posted" && !r.preview && (
             <Card><CardContent className="p-3 space-y-2">
               {acks.length > 0 && <Input placeholder="Note acknowledging the problems above (required)" value={note} onChange={e => setNote(e.target.value)} />}
               <Button disabled={busy || !r.canPost || (acks.length > 0 && !note.trim())} onClick={post}>{busy ? "Posting…" : `Post ${r.day}`}</Button>

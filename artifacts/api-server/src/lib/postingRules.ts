@@ -68,6 +68,8 @@ export function saleEntry(s: SaleSource, opts: { vatEnabled: boolean }): Built {
   }
   const debits: Line[] = [];
   for (const p of s.parts) {
+    // A Rs 0 part is no money (a Rs 0 bill: payment_method 'none' and no payment rows, or a 100% discount): no line, no problem
+    if (Math.abs(p.amount) < 0.005) continue;
     const acct = MODE_ACCOUNT[p.mode];
     if (!acct) { problems.push({ level: "fix", code: "payment_mode", message: `${ref}: payment mode "${p.mode}" has no account.`, ref }); continue; }
     if (acct === RECEIVABLE && !s.customerId) { problems.push({ level: "fix", code: "credit_customer", message: `${ref}: a credit part with no customer.`, ref }); continue; }

@@ -31,6 +31,17 @@ describe("a bill posts as one entry per invoice", () => {
     const r = saleEntry(sale({ total: 0, parts: [] }), { vatEnabled: false });
     expect(lines(r)).toEqual([["4950", 500, 0, null], ["4000", 0, 200, null], ["4010", 0, 300, null]]);
   });
+  // 2026-11-27: a Rs 0 bill is stored with payment_method 'none' and no payment rows, so it reaches the rules as one Rs 0 part
+  it("a Rs 0 reward bill (payment 'none', Rs 0) has no payment line and no problem", () => {
+    const r = saleEntry(sale({ total: 0, items: [{ name: "Latte", subtotal: 250, kind: "beverage", category: "Coffee" }], parts: [{ mode: "none", amount: 0 }] }), { vatEnabled: false });
+    expect(r.problems).toEqual([]);
+    expect(lines(r)).toEqual([["4950", 250, 0, null], ["4010", 0, 250, null]]);
+  });
+  it("a Rs 0 bill from a 100% discount, picked as card, posts sales gross and the discount only", () => {
+    const r = saleEntry(sale({ total: 0, parts: [{ mode: "card_nabil", amount: 0 }] }), { vatEnabled: false });
+    expect(r.problems).toEqual([]);
+    expect(lines(r)).toEqual([["4950", 500, 0, null], ["4000", 0, 200, null], ["4010", 0, 300, null]]);
+  });
   it("VAT on a bill goes to 2200, flagged while VAT is off", () => {
     const r = saleEntry(sale({ total: 565, vat: 65, parts: [{ mode: "cash", amount: 565 }] }), { vatEnabled: false });
     expect(lines(r)).toContainEqual(["2200", 0, 65, null]);
