@@ -39,7 +39,8 @@ describe("payment modes", () => {
       { day: "2026-11-20", machine: "sulimha_nabil_pos", bills: 1, gross: 600 },
     ]);
     const [row] = collectionsByDay(orders, []);
-    expect(row).toMatchObject({ card: 900, cardNabil: 300, cardSulimhaNabil: 600, cardSulimhaHbl: 0, cash: 100, received: 1000 });
+    // 2026-11-27: Sulimha's machines are their own column and stay out of Money received until the transfer is settled
+    expect(row).toMatchObject({ card: 300, cardNabil: 300, cardSulimhaNabil: 600, cardSulimhaHbl: 0, sulimhaPos: 600, cash: 100, sales: 1000, received: 400 });
   });
 
   it("a settlement may name the LHC account the money went into", () => {

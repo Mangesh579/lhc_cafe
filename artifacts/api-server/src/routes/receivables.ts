@@ -7,7 +7,7 @@ import { isDay, nepalDay, isDrawerClosed } from "../lib/ledgerData";
 import { creditInvoices, customerBalances, creditDefaults, syncLoyaltyForOrder } from "../lib/receivables";
 import { validateAllocations, buildCreditNote, fullCreditNote, RECEIPT_MODES, RECEIPT_MODE_LABEL } from "../lib/receivableRules";
 import { nextVoucherNumber, nextInvoiceNumber } from "../lib/fiscal";
-import { moveStockForSold, recipesFor } from "../lib/stockMoves";
+import { moveStockForSold, recipesFor, restoreSaleStock, reverseNoteStock } from "../lib/stockMoves";
 import { round2 } from "../lib/payments";
 
 const router = Router();
@@ -377,7 +377,10 @@ router.post("/credit-notes/:id/void", authenticate, async (req: AuthRequest, res
       if (n.kind === "reissue") throw new HttpError(400, "This credit note moved the invoice to another customer and cannot be voided. To move it back, use Wrong customer on the new invoice.");
       await lockCustomer(tx, n.customerId);
       await tx.update(creditNotesTable).set({ status: "void", voidReason: reason, voidedBy: user, voidedAt: new Date() }).where(eq(creditNotesTable.id, id));
-      if (n.stockRestored) await moveStockForSold(tx, await soldLinesOfNote(tx, id), recipes, -1, `${n.noteNo} voided: stock taken out again`, n.orderId, user);
+      // Take out exactly what the note put back; a note whose Stock Log lines cannot be found falls back to today's recipe
+      if (n.stockRestored && !(await reverseNoteStock(tx, n.orderId, n.noteNo, `${n.noteNo} voided: stock taken out again`, user))) {
+        await moveStockForSold(tx, await soldLinesOfNote(tx, id), recipes, -1, `${n.noteNo} voided: stock taken out again (by today's recipe)`, n.orderId, user);
+      }
       await syncLoyaltyForOrder(tx, n.orderId, `${n.noteNo} voided`, user);
     });
     res.json({ success: true });
@@ -434,15 +437,17 @@ router.post("/receivables/invoices/:orderId/cancel", authenticate, async (req: A
   const user = req.user?.username ?? "user";
   const recipes = restoreStock ? await recipesFor((await db.select({ m: orderItemsTable.menuItemId }).from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId))).map(r => r.m)) : new Map();
   try {
+    let stock: { fromSale: number[]; fromRecipe: number[] } | null = null;
     const id = await db.transaction(async (tx) => {
       const { o, inv, v } = await wholeInvoice(tx, orderId);
       const row = await insertNote(tx, { orderId, customerId: o.loyaltyCustomerId, reason: `Invoice cancelled: ${reason}`, user, kind: "cancel", stockRestored: restoreStock, v });
-      if (restoreStock) await moveStockForSold(tx, await soldLinesOfNote(tx, row.id), recipes, 1, `Invoice ${inv.invoiceNumber} cancelled (${row.noteNo}), not served: stock restored`, orderId, user);
+      // 2026-11-27: reverse what the sale took out (its Stock Log lines); today's recipe only for older orders without them
+      if (restoreStock) stock = await restoreSaleStock(tx, orderId, await soldLinesOfNote(tx, row.id), recipes, `Invoice ${inv.invoiceNumber} cancelled (${row.noteNo}), not served: stock restored`, user);
       await syncLoyaltyForOrder(tx, orderId, `${row.noteNo} issued (invoice cancelled)`, user);
       return row.id;
     });
     const [n] = await notesWithItems(eq(creditNotesTable.id, id));
-    res.status(201).json(n);
+    res.status(201).json({ ...n, stock });
   } catch (e: any) {
     if (e instanceof HttpError) { res.status(e.status).json({ error: e.message }); return; }
     throw e;

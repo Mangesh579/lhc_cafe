@@ -57,6 +57,7 @@ export default function ProfitTodayCard() {
                 <p><span className="text-muted-foreground">Gas, oil, water, soap </span><strong>{money(d.net.variableCost)}</strong></p>
                 <p><span className="text-muted-foreground">Overhead share </span><strong>{money(d.net.overheadCost)}</strong></p>
                 {d.ncCost > 0 && <p className="text-xs text-muted-foreground">includes {money(d.ncCost)} of free (NC) items</p>}
+                {d.creditNotes?.count > 0 && <p className="text-xs text-muted-foreground">after {money(d.creditNotes.subtotal)} of credit notes ({d.creditNotes.count})</p>}
               </div>
               <div className="text-sm">
                 <p className="text-xs text-muted-foreground">Profit after ingredients only</p>

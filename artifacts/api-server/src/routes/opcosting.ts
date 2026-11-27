@@ -6,6 +6,7 @@ import { authenticate, requireAdminOrAccountant, type AuthRequest } from "../mid
 import { loadCostingContext, ratesFor, itemOperating, evaluateOrder, currentYm, ymOf, shiftMonth, reportEntries } from "../lib/opcosting";
 import { menuItemCosting } from "../lib/costing";
 import { expandUsage } from "../lib/ingredientUsage";
+import { creditNotesBetween, creditNoteEffect, reissuedOrderIds, nepalDay } from "../lib/ledgerData";
 
 const router = Router();
 
@@ -25,7 +26,8 @@ function monthDates(ym: string) {
 // Each report entry acts as one "sale" with its own date and revenue: a normal order is one sale,
 // a monthly-account bill is one sale per KOT (on the day it was ordered).
 async function paidOrdersWithItems(from: Date, to: Date) {
-  const entries = await reportEntries(from, to);
+  const reissued = await reissuedOrderIds(); // a re-issued invoice (Wrong customer) is not a second sale
+  const entries = (await reportEntries(from, to)).filter(e => !reissued.has(e.order.id));
   const orders: any[] = [];
   const byOrder = new Map<number, any[]>();
   entries.forEach((e, idx) => {
@@ -250,11 +252,15 @@ router.get("/profit/net-daily", authenticate, requireAdminOrAccountant, async (r
       if (ev.isNc) ncCost += ev.ingredient + ev.variable + ev.fixed;
     } else { n.excludedOrders++; n.excludedRevenue += ev.revenue; }
   }
+  // Credit notes on these days come off revenue; a "not served" cancel also takes its ingredient cost back
+  const cn = creditNoteEffect(await creditNotesBetween(nepalDay(from), nepalDay(to)));
+  g.revenue -= cn.subtotal; g.ingredientCost -= cn.restoredCost;
+  n.revenue -= cn.subtotal; n.ingredientCost -= cn.restoredCost;
   g.profit = g.revenue - g.ingredientCost;
   n.profit = n.revenue - n.ingredientCost - n.variableCost - n.overheadCost;
   const rates = ratesFor(ctx, ymOf(from));
   res.json({
-    orders: orders.length, gross: g,
+    orders: orders.length, gross: g, creditNotes: cn,
     net: { ...n, marginPct: n.revenue > 0 ? (n.profit / n.revenue) * 100 : null },
     ncCost,
     overhead: { available: rates.available, estimatedBuckets: rates.estimatedBuckets, volumeSource: rates.volumeSource },
@@ -284,6 +290,11 @@ async function computePnl(ym: string) {
       cogs += cost; dishes += qty;
     }
   }
+
+  // Credit notes dated in the month: off sales (pre-VAT), and "not served" cancels take their ingredient cost back
+  const cn = creditNoteEffect(await creditNotesBetween(fromStr, toStr));
+  const salesBeforeCreditNotes = sales;
+  sales -= cn.subtotal; cogs -= cn.restoredCost;
 
   const ex = await db.select().from(expensesTable).where(and(
     eq(expensesTable.status, "active"),
@@ -344,6 +355,7 @@ async function computePnl(ym: string) {
   const net = grossAfter - overhead;
   return {
     month: ym, orders: orders.length, incompleteOrders: incomplete, dishesSold: dishes, ncDishes,
+    salesBeforeCreditNotes: round2(salesBeforeCreditNotes), creditNotes: cn.subtotal, creditNotesCount: cn.count, creditNotesVat: cn.vat, creditNoteCostBack: cn.restoredCost,
     sales: round2(sales), cogs: round2(cogs), grossBefore: round2(grossBefore),
     ncCost: round2(ncCost), grossAfter: round2(grossAfter),
     wasteCost: round2(wasteCost), wasteEntries: wasteRows.filter(w => !w.equipmentItemId).length, wasteUnvalued, equipmentLoss: round2(equipmentLoss),

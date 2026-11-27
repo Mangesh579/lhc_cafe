@@ -45,9 +45,11 @@ export default function Ledgers() {
   useEffect(() => { if (allowed) load(); }, [allowed, load]);
 
   const collRow = (r: any, label: string) => ({
-    Date: label, Bills: r.orders, Cash: r.cash, "QR Payment": r.qr, "Card - LHC Nabil POS": r.cardNabil, "Card - LHC HBL POS": r.cardHbl, "Card - Sulimha Nabil POS": r.cardSulimhaNabil ?? 0, "Card - Sulimha HBL POS": r.cardSulimhaHbl ?? 0, "Card (machine not recorded)": r.cardUnknown,
-    Other: r.other, "Credit (billed, not received)": r.credit, "Total sales": r.sales,
-    "Receipts - Cash": r.receiptsCash, "Receipts - QR": r.receiptsQr, "Receipts - Card": r.receiptsCard ?? 0, "Receipts - Bank": r.receiptsBank, "Money received": r.received, "VAT included": r.vat,
+    Date: label, Bills: r.orders, Cash: r.cash, "QR Payment": r.qr, "Card - LHC Nabil POS": r.cardNabil, "Card - LHC HBL POS": r.cardHbl, "Card (machine not recorded)": r.cardUnknown,
+    "Sulimha POS (held by Sulimha)": r.sulimhaPos ?? 0, "of which Sulimha Nabil POS bills": r.cardSulimhaNabil ?? 0, "of which Sulimha HBL POS bills": r.cardSulimhaHbl ?? 0,
+    Other: r.other, "Credit (billed, not received)": r.credit, "Total sales": r.sales, "Credit notes": -(r.creditNotes ?? 0), "Net sales": r.netSales ?? r.sales,
+    "Receipts - Cash": r.receiptsCash, "Receipts - QR": r.receiptsQr, "Receipts - Card": r.receiptsCard ?? 0, "Receipts - Bank": r.receiptsBank,
+    "Sulimha transfers received": r.sulimhaTransfers ?? 0, "Money received": r.received, "VAT (after credit notes)": r.vat,
   });
   const exportCollections = () => {
     if (!coll) return;
@@ -91,23 +93,28 @@ export default function Ledgers() {
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-xs text-muted-foreground uppercase tracking-wider"><tr>
                 <th className="px-4 py-3 text-left">Date</th><th className="px-3 py-3 text-right">Bills</th><th className="px-3 py-3 text-right">Cash</th><th className="px-3 py-3 text-right">QR Payment</th>
-                <th className="px-3 py-3 text-right">Card</th><th className="px-3 py-3 text-right">Other</th><th className="px-3 py-3 text-right">Credit</th><th className="px-3 py-3 text-right">Total sales</th>
-                <th className="px-3 py-3 text-right">Customer receipts</th><th className="px-3 py-3 text-right">Money received</th><th className="px-3 py-3 text-right">VAT included</th>
+                <th className="px-3 py-3 text-right">Card (LHC)</th><th className="px-3 py-3 text-right">Sulimha POS</th><th className="px-3 py-3 text-right">Other</th><th className="px-3 py-3 text-right">Credit</th><th className="px-3 py-3 text-right">Total sales</th>
+                <th className="px-3 py-3 text-right">Credit notes</th><th className="px-3 py-3 text-right">Net sales</th>
+                <th className="px-3 py-3 text-right">Customer receipts</th><th className="px-3 py-3 text-right">Sulimha transfers</th><th className="px-3 py-3 text-right">Money received</th><th className="px-3 py-3 text-right">VAT</th>
               </tr></thead>
               <tbody className="divide-y">
-                {loading && <tr><td colSpan={11} className="px-4 py-6 text-center text-muted-foreground">Loading…</td></tr>}
-                {!loading && coll?.rows.length === 0 && <tr><td colSpan={11} className="px-4 py-6 text-center text-muted-foreground">No paid bills in this period.</td></tr>}
+                {loading && <tr><td colSpan={15} className="px-4 py-6 text-center text-muted-foreground">Loading…</td></tr>}
+                {!loading && coll?.rows.length === 0 && <tr><td colSpan={15} className="px-4 py-6 text-center text-muted-foreground">No paid bills in this period.</td></tr>}
                 {[...(coll?.rows ?? []).map((r: any) => ({ r, total: false })), ...(coll && coll.rows.length > 0 ? [{ r: { ...coll.totals, day: "Total" }, total: true }] : [])].map(({ r, total }: any) => (
                   <tr key={r.day} className={total ? "font-semibold bg-muted/30" : ""}>
                     <td className="px-4 py-2 whitespace-nowrap">{r.day}</td><td className="px-3 py-2 text-right">{r.orders}</td>
                     <td className="px-3 py-2 text-right">{money(r.cash)}</td><td className="px-3 py-2 text-right">{money(r.qr)}</td>
-                    <td className="px-3 py-2 text-right" title={`LHC Nabil ${money(r.cardNabil)} · LHC HBL ${money(r.cardHbl)} · Sulimha Nabil ${money(r.cardSulimhaNabil ?? 0)} · Sulimha HBL ${money(r.cardSulimhaHbl ?? 0)} · not recorded ${money(r.cardUnknown)}`}>
-                      {money(r.card)}{(r.cardNabil > 0 || r.cardHbl > 0 || r.cardSulimhaNabil > 0 || r.cardSulimhaHbl > 0) && <span className="block text-[10px] text-muted-foreground font-normal">N {money(r.cardNabil)} · H {money(r.cardHbl)}{(r.cardSulimhaNabil > 0 || r.cardSulimhaHbl > 0) ? ` · SN ${money(r.cardSulimhaNabil)} · SH ${money(r.cardSulimhaHbl)}` : ""}{r.cardUnknown > 0 ? ` · ? ${money(r.cardUnknown)}` : ""}</span>}
+                    <td className="px-3 py-2 text-right" title={`LHC Nabil ${money(r.cardNabil)} · LHC HBL ${money(r.cardHbl)} · not recorded ${money(r.cardUnknown)}`}>
+                      {money(r.card)}{(r.cardNabil > 0 || r.cardHbl > 0) && <span className="block text-[10px] text-muted-foreground font-normal">N {money(r.cardNabil)} · H {money(r.cardHbl)}{r.cardUnknown > 0 ? ` · ? ${money(r.cardUnknown)}` : ""}</span>}
                     </td>
+                    <td className="px-3 py-2 text-right text-sky-700" title={`Sulimha Nabil ${money(r.cardSulimhaNabil ?? 0)} · Sulimha HBL ${money(r.cardSulimhaHbl ?? 0)} (bills), the rest receipts`}>{money(r.sulimhaPos ?? 0)}</td>
                     <td className="px-3 py-2 text-right">{money(r.other)}</td>
                     <td className="px-3 py-2 text-right text-amber-700">{money(r.credit)}</td>
                     <td className="px-3 py-2 text-right">{money(r.sales)}</td>
+                    <td className="px-3 py-2 text-right text-red-600">{(r.creditNotes ?? 0) > 0 ? `- ${money(r.creditNotes)}` : money(0)}</td>
+                    <td className="px-3 py-2 text-right">{money(r.netSales ?? r.sales)}</td>
                     <td className="px-3 py-2 text-right">{money(r.receipts)}</td>
+                    <td className="px-3 py-2 text-right">{money(r.sulimhaTransfers ?? 0)}</td>
                     <td className="px-3 py-2 text-right font-medium">{money(r.received)}</td>
                     <td className="px-3 py-2 text-right text-muted-foreground">{money(r.vat)}</td>
                   </tr>
@@ -115,7 +122,7 @@ export default function Ledgers() {
               </tbody>
             </table>
           </div></CardContent></Card>
-          <p className="text-xs text-muted-foreground">Bills are counted on the Nepal day they were paid; a split bill counts each part in its own mode. Credit is billed but not received, so it is not in Money received; customer receipts against credit are. Not Chargeable bills are not collections.</p>
+          <p className="text-xs text-muted-foreground">Bills are counted on the Nepal day they were paid; a split bill counts each part in its own mode. Credit is billed but not received, so it is not in Money received; customer receipts against credit are. Not Chargeable bills are not collections. Credit notes are counted on their own date and come off Net sales (a Wrong-customer move is a single sale and is not counted twice); VAT is after credit notes. Money taken on Sulimha Durbar's machines is in Sulimha POS, and reaches Money received only on the day its settlement (Sulimha's transfer) is recorded.</p>
         </TabsContent>
 
         <TabsContent value="ledger" className="mt-4 space-y-3">

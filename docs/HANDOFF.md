@@ -52,6 +52,13 @@
   - **Closing with unpaid extras** is admin only with a reason; the extras are re-issued to Sulimha (the Wrong customer logic, now the shared reissueInvoice).
   - Migration 012 run by the owner (recorded 2026-11-27).
 
+25. Credit-note aware reports, 2026-11-27.
+  - **Credit notes reduce sales:** Collections, the dashboard, profit (today and by day), the P&L and the Order Log subtract active customer credit notes on their own Nepal date, each in a separate Credit notes column or line, with the VAT following the note. A Wrong-customer move counts the sale once.
+  - **Sulimha POS:** Sulimha's machines have their own Collections column and reach Money received only on the date their settlement is recorded.
+  - **Hotel breakfast lines:** new breakfast invoices spread the Rs 800 x breakfasts total over their item lines.
+  - **"Not served" cancel:** reverses the sale's own Stock Log movements, with today's recipe only for older orders. Voiding the note reverses exactly what it put back.
+  - No migration.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -70,30 +77,39 @@
 - None.
 
 # Known limits
-- Fixed in item 13: the drawer and ledgers read order_payments; there is a credit invoice flow and receivable ledger; there are Nepal-day-boundary tests.
-- Monthly accounts are retired in code (item 10). Until that code is deployed, the old code can still open a monthly bill; after deploying, Receivables > Converted monthly bills shows a live "no monthly bill is open" check (and a link to convert one if any appears).
-- Tests: the database tests (accountConversionRun, migration004) run on PGlite, an in-memory PostgreSQL, so `pnpm test` still needs no server. PGlite and drizzle-kit are dev dependencies of api-server.
-- Customer credit notes exist only for credit invoices and cannot exceed what is still owed. Refunds of money already received are not modelled (accountant: avoid refunds; when needed, void with a reason). Supplier debit notes are built (item 19).
-- Credit notes do not yet change sales, profit or VAT reports (VAT credit-note register is roadmap step 6).
-- The default credit limit is blank until the owner sets it (Receivables > Change defaults).
-- Cash vouchers (CV) with supplier PAN for cash expenses are not built yet; drawer payouts only require a bill number for now (roadmap step 3).
-- Purchase bills (item 17): payments, allocation, advances and aging are built (item 18); returns and debit notes are item 19. The opening-balance date must be set before opening bills can be entered. Opening supplier balances (unpaid bills from before the start date, no stock change) are specified for part B (spec section 12). Step 3 must post purchases to inventory and only consumption to cost of sales, never the purchase expenses again (spec section 13). Line units must be the ingredient's own unit (no unit conversion). Bills dated in an earlier fiscal year are refused. Existing purchases (from the old Record purchase) are not bills and are not payables.
-- Settlements: one per machine and sales day, only for days that have ended. Older "Card" payments with no machine recorded are listed but cannot be settled. A day's sales that change after settling (late or cancelled bill) are flagged on the Settlements page; the settled figures are not changed.
-- The OpenAPI spec and generated client still list only cash/nabil_qr for payment methods.
-- scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
-- On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary).
-- Server PostgreSQL timezone is Etc/UTC (confirmed in CLAUDE.md); the ledger code is safe either way.
+- **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
+- **Credit notes:**
+  - Customer credit notes exist only for credit invoices and cannot exceed what is still owed. Refunds of money already received are not modelled (accountant: avoid refunds; void with a reason).
+  - Reports subtract credit notes (item 25), but the category totals on the Order Log page are from the order lines and do not subtract item-wise notes. The VAT credit-note register comes with VAT (roadmap step 5).
+  - The dashboard's "today" and "last 7 days" use the server's calendar day (UTC), not the Nepal day (older behaviour; Collections and the drawer use the Nepal day).
+- **Credit limit:** the default credit limit is blank until the owner sets it (Receivables > Change defaults).
+- **Settlements:** one per machine and sales day, only for days that have ended. Older "Card" payments with no machine recorded are listed but cannot be settled. A day's sales that change after settling are flagged; the settled figures are not changed.
+- **Sulimha's machines:** the money is owed by Sulimha Durbar until its settlement. The chart of accounts has no "Receivable - Sulimha Durbar" account yet (ask the accountant before step 3 posting).
+- **Purchases (step 3 posting):** posting must go to inventory and only consumption to cost of sales, never the purchase expenses again (docs/specs/step2-suppliers.md section 13).
+  - Bill line units must be the ingredient's own unit (no conversion).
+  - Bills dated in an earlier fiscal year are refused.
+  - Old "Record purchase" entries are not bills and not payables.
+- **Debit notes:**
+  - The cost per unit is not changed by a return.
+  - A return of stock already used is allowed within the bill line, and stock can go negative.
+  - A debit note's credit goes to its own bill first; other allocation is manual.
+  - Debit notes in an earlier fiscal year are refused.
+- **Petty cash:** a voided payout keeps its CV number (numbers are never reused). Payouts recorded before migration 011 have no CV number.
+- **Complimentary and rewards:**
+  - Complimentary at the payment step takes cost from each item's cost snapshot; items with no recipe cost count as 0.
+  - A reward item is one unit at its sold price, and is not linked to the customer's redemption record.
+- **"Not served" cancel:** orders whose Stock Log lines carry no menu item (older orders) are put back by today's recipe; the response and Stock Log say which.
+- **Room stays:**
+  - VAT on the breakfast price is not added yet (the VAT switch, step 5).
+  - Breakfast invoices made before 2026-11-27 keep menu prices on their lines (not changed).
+  - The bill printed from the payment screen before a room charge shows menu prices; reprint from Order Log.
+  - Sulimha Durbar must be on the Loyalty page and chosen in Room Stays > Settings before the first breakfast.
+- **API docs:** the OpenAPI spec and generated client still list only cash and nabil_qr as payment methods.
 
 # Next work
-Roadmap step 2 in CLAUDE.md: suppliers, purchases, payables, supplier ledger, payments (PV), returns with debit notes, supplier on each ingredient, price history. Then steps 3 to 9. Each task must end with a docs/CHANGELOG.md entry.
-- Debit notes (item 19): cost per unit is not changed by a return (the stock value may stay slightly high until consumption; step 3 posting will credit 1400/1410 at the returned value). A return of stock already used is allowed as long as the quantity is within the bill line; stock can then go negative, as with any stock movement. A debit note's credit is applied to its own bill first; allocation to other bills is manual. Debit notes in an earlier fiscal year are refused.
-- Sulimha card machines: until a Sulimha settlement is recorded, the money shows as unsettled on Settlements (it is owed by Sulimha Durbar). The chart of accounts has no "Receivable - Sulimha Durbar" account yet; step 3 posting needs one (ask the accountant). Older bills keep the LHC machines; nothing is moved between machines.
-- Done from the owner's testing of 2026-11-25: hotel room stays (built 2026-11-26) (breakfast at cost billed to Sulimha Durbar, extras paid at checkout), plan first.
-- Cancel invoice with "Not served" puts back stock by today's recipe, not the recipe on the day of the sale (same as cancelling an order). Wrong customer: until credit notes reduce sales reports, the original and the re-issued invoice both count in sales totals (the existing credit-note limit).
-- Petty cash CV: a voided payout keeps its CV number (shown as void on the Expenses page); numbers are never reused. Payouts recorded before migration 011 have no CV number.
-- Complimentary at the payment step takes cost from each item's cost snapshot; items with no recipe cost count as 0 (shown as incomplete NC cost, as for POS NC orders). A reward item is one unit at its sold price; two free items need two bills or a staff % for the second. The reward is not linked to the customer's redemption record (that is still made by the customer on the QR page).
-- Room stays:
-  - A breakfast invoice lists items at menu prices but totals Rs 800 x breakfasts, so item-level sales reports show breakfast items at menu prices.
-  - VAT on the breakfast price is not added yet (the VAT switch, roadmap step 5).
-  - The bill printed from the payment screen before a room charge shows menu prices; reprint from Order Log after saving.
-  - Sulimha Durbar must be added on the Loyalty page and chosen in Room Stays > Settings before the first breakfast.
+Roadmap step 3 in CLAUDE.md: chart of accounts, vouchers (RV, CV, JV, PV), double-entry posting, next-day posting and the period lock. Before writing it:
+- ask the accountant for the Sulimha Durbar receivable account;
+- follow the posting rules in docs/specs/step2-suppliers.md section 13 and docs/specs/room-stays.md section 5;
+- credit notes post to 4900 Sales returns.
+
+Then steps 4 to 9. Each task ends with a docs/CHANGELOG.md entry.

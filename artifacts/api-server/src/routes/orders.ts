@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, orderPaymentsTable, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable, wasteLogsTable, orderKotCancellationsTable, roomStaysTable } from "@workspace/db";
+import { db, orderPaymentsTable, ordersTable, orderItemsTable, menuItemsTable, inventoryItemsTable, inventoryLogsTable, recipesTable, loyaltyCustomersTable, cafeTablesTable, tableSessionsTable, loyaltyRedemptionsTable, orderCorrectionsTable, billPrintLogsTable, invoiceSequencesTable, wasteLogsTable, orderKotCancellationsTable, roomStaysTable, creditNotesTable } from "@workspace/db";
 import { eq, and, gte, lte, desc, sql, inArray } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth";
 import { applyPrepWaste } from "../lib/prepWaste";
@@ -13,7 +13,8 @@ import { MONTHLY_RETIRED_MSG } from "../lib/monthlyRetired";
 import { validateSplit, partsFor, summaryMethod, creditAmountOf, round2, billDiscount, PAYMENT_MODES, MODE_LABEL } from "../lib/payments";
 import { allocatedByOrder, customerBalances, creditNotesByOrder, syncLoyaltyForOrder } from "../lib/receivables";
 import { creditLimitWarning, outstandingOf } from "../lib/receivableRules";
-import { breakfastBill, breakfastCost } from "../lib/stayRules";
+import { breakfastBill, breakfastCost, allocateTotal } from "../lib/stayRules";
+import { creditNotesBetween, creditNoteEffect, reissuedOrderIds, nepalDay } from "../lib/ledgerData";
 import { hotelSettings } from "./stays";
 
 const router = Router();
@@ -34,15 +35,34 @@ async function paymentInfo(orders: { id: number; totalAmount: unknown; paymentMe
   const creditIds = settled.filter(o => creditAmountOf(partsFor(o, byOrder.get(o.id))) > 0).map(o => o.id);
   const alloc = await allocatedByOrder(creditIds);
   const notes = await creditNotesByOrder(creditIds);
-  const info = new Map<number, { payments: { mode: string; label: string; amount: number; reference: string | null }[]; creditAmount: number; creditPaid: number; creditNotes: number; creditOutstanding: number }>();
+  // Credit notes for the Order Log (2026-11-27): the notes that reduce the sale (not a Wrong-customer move), their pre-VAT
+  // amount for profit, and the move both ways: "movedTo" on the original invoice, "reissueOf" on the re-issued one
+  const noteRows = ids.length ? await db.select({
+    orderId: creditNotesTable.orderId, noteNo: creditNotesTable.noteNo, noteDate: creditNotesTable.noteDate, kind: creditNotesTable.kind,
+    subtotal: creditNotesTable.subtotal, total: creditNotesTable.total, reissuedOrderId: creditNotesTable.reissuedOrderId,
+  }).from(creditNotesTable).where(and(eq(creditNotesTable.status, "active"), sql`(${inArray(creditNotesTable.orderId, ids)} OR ${inArray(creditNotesTable.reissuedOrderId, ids)})`)) : [];
+  const newIds = noteRows.map(n => n.reissuedOrderId).filter((x): x is number => x != null);
+  const invNo = new Map<number, string | null>();
+  for (const r of await (newIds.length || noteRows.length ? db.select({ id: ordersTable.id, inv: ordersTable.invoiceNumber }).from(ordersTable).where(inArray(ordersTable.id, [...newIds, ...noteRows.map(n => n.orderId)])) : Promise.resolve([]))) invNo.set(r.id, r.inv);
+  const info = new Map<number, { payments: { mode: string; label: string; amount: number; reference: string | null }[]; creditAmount: number; creditPaid: number; creditNotes: number; creditOutstanding: number;
+    salesCreditNotes: number; salesCreditNotesNet: number; creditNoteList: { noteNo: string; noteDate: string; kind: string; total: number }[]; movedTo: string | null; reissueOf: string | null }>();
   for (const o of orders) {
     const parts = o.paymentStatus === "paid" && !o.isNc ? partsFor(o, byOrder.get(o.id)) : [];
     const creditAmount = creditAmountOf(parts);
     const creditPaid = alloc.get(o.id) ?? 0;
     const cn = notes.get(o.id) ?? 0;
+    const mine = noteRows.filter(n => n.orderId === o.id);
+    const counted = mine.filter(n => n.kind !== "reissue");
+    const move = mine.find(n => n.kind === "reissue");
+    const from = noteRows.find(n => n.kind === "reissue" && n.reissuedOrderId === o.id);
     info.set(o.id, {
       payments: parts.map(p => ({ mode: p.mode, label: MODE_LABEL[p.mode] ?? p.mode, amount: p.amount, reference: p.reference ?? null })),
       creditAmount, creditPaid, creditNotes: cn, creditOutstanding: outstandingOf(creditAmount, cn, creditPaid),
+      salesCreditNotes: round2(counted.reduce((t, n) => t + parseFloat(String(n.total)), 0)),
+      salesCreditNotesNet: round2(counted.reduce((t, n) => t + parseFloat(String(n.subtotal)), 0)),
+      creditNoteList: mine.map(n => ({ noteNo: n.noteNo, noteDate: n.noteDate, kind: n.kind, total: round2(parseFloat(String(n.total))) })),
+      movedTo: move?.reissuedOrderId ? (invNo.get(move.reissuedOrderId) ?? `#${move.reissuedOrderId}`) : null,
+      reissueOf: from ? (invNo.get(from.orderId) ?? `#${from.orderId}`) : null,
     });
   }
   return info;
@@ -398,6 +418,7 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   // included breakfast, a credit invoice to Sulimha Durbar at the fixed price x breakfasts (only breakfast items).
   let stayNote: string | null = null;
   let noRecipeCost: string[] = [];
+  let itemPrices: { id: number; subtotal: number; unitPrice: number }[] = []; // breakfast lines re-priced to share the invoice total
   if (roomCharge && !nc) {
     const [stay] = await db.select().from(roomStaysTable).where(eq(roomStaysTable.id, Number(roomCharge.stayId)));
     if (!stay || stay.status !== "open") { res.status(400).json({ error: "That room has no open stay. Ask reception to open it." }); return; }
@@ -407,7 +428,7 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
       if (!stay.breakfastIncluded) { res.status(400).json({ error: "Breakfast is not included in this stay. Charge it to the room at menu prices instead." }); return; }
       const settings = await hotelSettings();
       if (!settings.sulimhaCustomerId) { res.status(400).json({ error: "Choose which customer is Sulimha Durbar first (Stays > Settings)." }); return; }
-      const items = await db.select({ name: menuItemsTable.name, isBreakfast: menuItemsTable.isBreakfast, quantity: orderItemsTable.quantity, unitCost: orderItemsTable.unitCost, unitPrice: orderItemsTable.unitPrice })
+      const items = await db.select({ id: orderItemsTable.id, name: menuItemsTable.name, isBreakfast: menuItemsTable.isBreakfast, quantity: orderItemsTable.quantity, unitCost: orderItemsTable.unitCost, unitPrice: orderItemsTable.unitPrice, subtotal: orderItemsTable.subtotal })
         .from(orderItemsTable).leftJoin(menuItemsTable, eq(menuItemsTable.id, orderItemsTable.menuItemId)).where(eq(orderItemsTable.orderId, id));
       const count = Number(roomCharge.breakfasts);
       const v = breakfastBill(items.map(i => ({ name: i.name ?? "item", isBreakfast: !!i.isBreakfast })), count, settings.breakfastPrice);
@@ -415,6 +436,9 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
       noRecipeCost = breakfastCost(items.map(i => ({ name: i.name ?? "item", quantity: i.quantity, unitCost: i.unitCost, unitPrice: i.unitPrice }))).noRecipeCost;
       billTotal = v.total;
       customerId = settings.sulimhaCustomerId;
+      // 2026-11-27: the lines share the Rs 800 x breakfasts total in proportion to their menu value, so item and category
+      // reports add up to the invoice (only new breakfast bills; old invoices are not changed)
+      itemPrices = allocateTotal(items.map(i => ({ id: i.id, quantity: i.quantity, subtotal: parseFloat(String(i.subtotal)) || 0 })).sort((a, b) => a.id - b.id), v.total);
       stayNote = `Hotel breakfast x ${count} @ Rs. ${settings.breakfastPrice.toFixed(2)}, room ${room?.name ?? ""} (${guest?.name ?? "guest"}), billed to Sulimha Durbar`;
       // VAT is added on top once LHC is VAT registered (owner); until then none
       Object.assign(updateData, { totalAmount: String(v.total), discountAmount: "0", vatAmount: "0", billType: "pan", nonTaxableAmount: "0", stayCharge: "breakfast", breakfastCount: count });
@@ -495,6 +519,7 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
     if (order.tableId) await tx.delete(tableSessionsTable).where(eq(tableSessionsTable.tableId, order.tableId));
 
     await tx.update(ordersTable).set(set).where(eq(ordersTable.id, id));
+    for (const p of itemPrices) await tx.update(orderItemsTable).set({ unitPrice: String(p.unitPrice), subtotal: String(p.subtotal) }).where(eq(orderItemsTable.id, p.id));
     if (writeRows) {
       for (const p of parts) {
         await tx.insert(orderPaymentsTable).values({ orderId: id, mode: p.mode, amount: String(p.amount), reference: p.reference ?? null, paidAt, createdBy: username });
@@ -648,11 +673,12 @@ router.get("/profit/daily", authenticate, requireAdmin, async (req, res): Promis
   const to = new Date(String(req.query.to ?? ""));
   if (isNaN(from.getTime()) || isNaN(to.getTime()) || from >= to) { res.status(400).json({ error: "Valid from and to times are required." }); return; }
 
-  const dayOrders = await db.select().from(ordersTable).where(and(
+  const reissued = await reissuedOrderIds(); // a re-issued invoice is not a second sale
+  const dayOrders = (await db.select().from(ordersTable).where(and(
     eq(ordersTable.paymentStatus, "paid"),
     sql`COALESCE(${ordersTable.backdatedAt}, ${ordersTable.createdAt}) >= ${from}`,
     sql`COALESCE(${ordersTable.backdatedAt}, ${ordersTable.createdAt}) <= ${to}`,
-  ));
+  ))).filter(o => !reissued.has(o.id));
   const ids = dayOrders.map(o => o.id);
   const items = ids.length ? await db.select().from(orderItemsTable).where(inArray(orderItemsTable.orderId, ids)) : [];
   const byOrder = new Map<number, typeof items>();
@@ -669,10 +695,13 @@ router.get("/profit/daily", authenticate, requireAdmin, async (req, res): Promis
     costedOrders++; revenue += net; cost += c;
     if (o.isNc) ncCost += c;
   }
+  // Credit notes of these days (on their own Nepal day) come off revenue; a "not served" cancel also takes its cost back
+  const cn = creditNoteEffect(await creditNotesBetween(nepalDay(from), nepalDay(to)));
+  revenueAll -= cn.subtotal; revenue -= cn.subtotal; cost -= cn.restoredCost;
   const profit = revenue - cost;
   res.json({
     orders: dayOrders.length, costedOrders, uncostedOrders,
-    revenueAll, revenue, cost, profit,
+    revenueAll, revenue, cost, profit, creditNotes: cn,
     marginPct: revenue > 0 ? (profit / revenue) * 100 : null,
     ncCost, uncostedRevenue,
   });

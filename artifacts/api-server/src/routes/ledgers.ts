@@ -3,7 +3,7 @@ import type { Response } from "express";
 import { db, cashDaysTable, cashMovementsTable, expensesTable, creditNotesTable, loyaltyCustomersTable, settlementsTable } from "@workspace/db";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
-import { isDay, dayRangeUtc, paidOrdersBetween, modeOf, nepalDay, addDays, collectionsByDay, receiptsBetween, type CollectionRow } from "../lib/ledgerData";
+import { isDay, dayRangeUtc, paidOrdersBetween, modeOf, nepalDay, addDays, collectionsByDay, receiptsBetween, creditNotesBetween, reissuedOrderIds, sulimhaTransfersBetween, type CollectionRow } from "../lib/ledgerData";
 import { MODE_LABEL } from "../lib/payments";
 import { supplierPaymentsBetween, bankPaidBillsBetween } from "../lib/supplierPaymentsRead";
 
@@ -33,7 +33,7 @@ router.get("/ledger/collections", authenticate, async (req: AuthRequest, res: Re
   if (from > to) { res.status(400).json({ error: "The start date is after the end date." }); return; }
   const orders = await paidOrdersBetween(dayRangeUtc(from).from, dayRangeUtc(to).to);
   const receipts = await receiptsBetween(from, to);
-  const rows = collectionsByDay(orders, receipts);
+  const rows = collectionsByDay(orders, receipts, { notes: await creditNotesBetween(from, to), reissued: await reissuedOrderIds(), sulimhaTransfers: await sulimhaTransfersBetween(from, to) });
   const totals: Record<string, number> = {};
   for (const r of rows) for (const [k, v] of Object.entries(r)) if (typeof v === "number") totals[k] = (totals[k] ?? 0) + v;
   for (const k of Object.keys(totals)) if (k !== "orders") totals[k] = round2(totals[k]);
