@@ -76,7 +76,7 @@
     - opening balances: a draft (dummy) filled from the app (cash, customers, suppliers, stock) plus typed lines, with an audit trail, confirmed by the admin into one OP entry balanced by 3050.
   - **Database rules (013 triggers):** entries cannot be edited or deleted, must balance, and lines only go on postable, active accounts.
   - **Revisions:** a source posts as revision 1, and after a late change is reversed and re-posted as revision 2, 3 ... (unique per source and revision; a new revision only after the previous one is reversed).
-  - **Not yet:** no source document posts yet (3b, 3c); no posting days or locks yet (3b, 3d). Needs migration 013.
+  - **Not yet:** no source document posts yet (3b, 3c); no posting days or locks yet (3b, 3d). Migration 013 run (recorded 2026-11-27).
 
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
@@ -91,9 +91,10 @@
 - 010_credit_note_kinds.sql (2026-11-26, by the owner): credit_notes.kind, stock_restored, reissued_order_id.
 - 011_petty_cash_cv.sql (2026-11-26, by the owner): expenses.voucher_no with a unique index.
 - 012_room_stays.sql (recorded 2026-11-27, by the owner): cafe_tables.is_room, room_stays, hotel_settings, orders.room_stay_id, stay_charge and breakfast_count, menu_items.is_breakfast, loyalty_customers.email optional, card modes on customer_receipts.
+- 013_ledger_accounts_journal.sql (recorded 2026-11-27, by the owner; the edited version with journal_entries.revision): accounts, expense_account_map, journal_entries (with revision) and journal_lines (with triggers), ledger_settings (start 2026-12-16, lock 3), opening_balance_lines, opening_balance_log.
 
 # Not yet applied on the server
-- 013_ledger_accounts_journal.sql (written 2026-11-27, revision column added the same day): accounts, expense_account_map, journal_entries (with revision) and journal_lines (with triggers), ledger_settings (start 2026-12-16, lock 3), opening_balance_lines, opening_balance_log. Run before deploying item 27.
+- None.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.

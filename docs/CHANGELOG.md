@@ -1009,3 +1009,10 @@ db/migrations/013_ledger_accounts_journal.sql (edited): NOT YET RUN on the serve
   - the trial balance nets to the revision in force (200);
   - migration 013 creates the (source_type, source_id, revision) index;
   - re-running the new 013 on a database built by the first 013 adds revision (default 1) and rebuilds the index.
+
+
+## 2026-11-27: Migration 013 run
+
+- The owner ran db/migrations/013_ledger_accounts_journal.sql on the server (the edited version, with journal_entries.revision and the (source_type, source_id, revision) index) and deployed ledger 3a with the revision fix (79247ba). Recorded as run in CLAUDE.md and docs/HANDOFF.md.
+- **Open:** the owner has not yet said whether the first version of 013 had been run before the edit. Either way, the edited file leaves the same result; the check queries (the revision column and the index on revision) confirm it.
+- Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
