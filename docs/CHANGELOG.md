@@ -1093,3 +1093,9 @@ db/migrations/014_ledger_posting.sql: NOT YET RUN on the server.
 - The ingredient cost put back by a not-served cancel posts with consumption in 3c, not in 3b.
 - A day is posted only after it has ended (Nepal time).
 - Confirmed opening balances are a must-fix before the first posting.
+
+
+## 2026-11-27: Migration 014 run
+
+- The owner ran db/migrations/014_ledger_posting.sql on the server (after a backup) and deployed ledger 3b (70fb1c9). Recorded as run in CLAUDE.md and docs/HANDOFF.md.
+- Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
