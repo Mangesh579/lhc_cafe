@@ -281,6 +281,16 @@ router.post("/gl/days/:day/post", authenticate, async (req: AuthRequest, res: Re
   await run(res, () => postDay(day, req.body?.note ?? null, userOf(req)), 201);
 });
 
+// ── Step 4b: the comparison's highlight rule (Reports), admin only ──
+router.patch("/gl/report-settings", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, ["admin"], "Only the admin can change the report settings.")) return;
+  const p = parseFloat(String(req.body?.highlightPct ?? "")), m = parseFloat(String(req.body?.highlightMin ?? ""));
+  if (!(p >= 0) || !(m >= 0)) { res.status(400).json({ error: "Enter the percentage and the amount (0 or more)." }); return; }
+  await db.execute(sql`INSERT INTO report_settings (id, highlight_pct, highlight_min, updated_by) VALUES (1, ${p}, ${m}, ${userOf(req)})
+    ON CONFLICT (id) DO UPDATE SET highlight_pct = EXCLUDED.highlight_pct, highlight_min = EXCLUDED.highlight_min, updated_by = EXCLUDED.updated_by, updated_at = now()`);
+  res.json({ pct: p, min: m });
+});
+
 // ── Step 3d: the admin reopen of a locked day, and the BS month close ──
 router.post("/gl/days/:day/reopen", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, ["admin"], "Only the admin can reopen a locked day.")) return;

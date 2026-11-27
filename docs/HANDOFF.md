@@ -130,6 +130,22 @@
   - **Drill-down:** voucher, entry, source document (read-only, with "Open in <page>"; only purchase bills open the exact document), plus the Consumption view.
   - **Not yet:** the P&L, Balance Sheet, statements and comparison (4b), and the Excel and PDF exports (4c).
 
+34. Reports part 4b, 2026-11-28 (docs/specs/step4-reports.md section 13). Needs migration 018 (not yet applied).
+  - **Profit and Loss:**
+    - the layout of the Step 4 decisions;
+    - this period, previous, change, fiscal year to date, each with % of net sales, and the key ratios;
+    - last year's columns from Poush 2084;
+    - changes coloured only above 20% and Rs 1,000. The admin can change both on the Compare tab.
+  - **Balance Sheet:**
+    - advances on the right side, drawings deducted, opening balance equity apart;
+    - profit split at Shrawan 1 into retained earnings and this year to date;
+    - columns at the date, last month end, change, and the fiscal year start.
+  - **Statements and comparison:**
+    - customer and supplier statements with a running balance, checked against the Receivables and Suppliers screens;
+    - all-customer and all-supplier summaries;
+    - the Compare tab, side by side.
+  - **Not yet:** Excel and PDF (4c).
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -151,7 +167,7 @@
 - 017_report_indexes.sql (recorded 2026-11-28, by the owner): report indexes on journal_lines and journal_entries.
 
 # Not yet applied on the server
-- None.
+- 018_report_settings.sql (2026-11-28): report_settings (the highlight rule, 20% and Rs 1,000). Run after a backup, before deploy.sh.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.

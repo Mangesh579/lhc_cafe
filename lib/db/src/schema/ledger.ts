@@ -144,3 +144,12 @@ export const periodClosesTable = pgTable("period_closes", {
 }, (t) => ({
   byMonth: index("period_closes_month_idx").on(t.bsYear, t.bsMonth),
 }));
+
+// Step 4b (migration 018): the comparison's highlight rule (a change above highlight_pct % AND above highlight_min rupees)
+export const reportSettingsTable = pgTable("report_settings", {
+  id: integer("id").primaryKey(),
+  highlightPct: numeric("highlight_pct", { precision: 6, scale: 2 }).notNull().default("20"),
+  highlightMin: numeric("highlight_min", { precision: 14, scale: 2 }).notNull().default("1000"),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});

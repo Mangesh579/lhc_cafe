@@ -377,3 +377,22 @@ Total liabilities and equity       = Total assets (checked; a red line if not)
 - **Migration:** 017_report_indexes.sql (section 6).
 - **Screen:** /reports with the four tabs; the BS period picker; the "Posted up to" line; lakh grouping with brackets for negatives.
 - **Not built:** 4b statements, 4c exports.
+
+## 13. Part 4b as built (2026-11-28; see docs/CHANGELOG.md)
+- **Layout and columns** (lib/reportLayout.ts, config): PL_LAYOUT, BS_LAYOUT, PL_COLUMNS and BS_COLUMNS.
+  - buildProfitLoss and buildBalanceSheet are pure: account sums in, rows out.
+  - keyRatios gives the ratios; changeOf gives the highlight and the good/bad tone.
+- **Net profit** is every income and expense account's Cr - Dr, so it equals the Trial Balance by construction; the endpoint checks it anyway.
+- **Server** (lib/reports/statements.ts): profitLoss, balanceSheet, compareView, customerStatement, supplierStatement, partySummary.
+- **Periods** (lib/reports/periods.ts): previousPeriod, lastYearPeriod (bsYearEarlier for days and ranges), ytdPeriod and fyStartOf.
+- **Settings:** report_settings (migration 018), changed by the admin with PATCH /gl/report-settings, outside /reports.
+- **Balance Sheet:**
+  - each customer's and supplier's net is placed by its sign (receivable or customer advance; payable or supplier advance);
+  - retained earnings = 3200 + the profit before the fiscal year's start; current profit = from the fiscal year's start to the date;
+  - the fiscal-year-start column is the day before Shrawan 1, or the opening entry alone in the first year.
+- **Statements:**
+  - built on generalLedger with the party filter;
+  - each line is named from its source: invoice, credit note (cancel, re-issue), receipt, bill, opening bill, payment, debit note, correction;
+  - the agreement compares the ledger at the last posted day with receivablesAsOf or payablesAsOf.
+- **Screen:** the Profit and Loss, Balance Sheet, Statements and Compare tabs (components/reports/statements.tsx).
+- **Not built:** 4c exports.
