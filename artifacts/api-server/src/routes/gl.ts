@@ -10,6 +10,8 @@ import { bsLabel } from "../lib/fiscal";
 import { ledgerSettings, postEntry, reverseEntry, entryWithLines, trialBalance, accountLedger, LedgerError } from "../lib/ledger";
 import { openingDraft, fillFromSystem, saveLine, removeLine, confirmOpening } from "../lib/openingBalances";
 import { reviewDay, postDay, listDays } from "../lib/glPosting";
+import { lockGuard } from "../lib/periodLock";
+import { listMonths, reviewMonth, closeMonth, reopenMonth, reopenDay, dayReopens } from "../lib/monthClose";
 import { round2 } from "../lib/payments";
 
 const router = Router();
@@ -188,12 +190,14 @@ router.get("/gl/journals/:id", authenticate, async (req: AuthRequest, res: Respo
 router.post("/gl/journals", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res)) return;
   const b = req.body ?? {};
+  if (!(await lockGuard(res, b.entryDate, "This journal voucher"))) return;
   await run(res, () => db.transaction(tx => postEntry(tx, { entryDate: b.entryDate, voucherType: "JV", narration: b.narration, kind: "manual", lines: b.lines, user: userOf(req) })), 201);
 });
 
 router.post("/gl/journals/:id/reverse", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res)) return;
   const date = isDay(req.body?.date) ? req.body.date : nepalDay(new Date());
+  if (!(await lockGuard(res, date, "This reversal"))) return;
   await run(res, () => db.transaction(tx => reverseEntry(tx, idOf(req.params.id), date, req.body?.reason, userOf(req))), 201);
 });
 
@@ -275,6 +279,35 @@ router.post("/gl/days/:day/post", authenticate, async (req: AuthRequest, res: Re
   const day = String(req.params.day);
   if (!isDay(day)) { res.status(400).json({ error: "A valid day is required." }); return; }
   await run(res, () => postDay(day, req.body?.note ?? null, userOf(req)), 201);
+});
+
+// ── Step 3d: the admin reopen of a locked day, and the BS month close ──
+router.post("/gl/days/:day/reopen", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, ["admin"], "Only the admin can reopen a locked day.")) return;
+  const day = String(req.params.day);
+  if (!isDay(day)) { res.status(400).json({ error: "A valid day is required." }); return; }
+  await run(res, () => reopenDay(day, req.body?.reason, userOf(req)));
+});
+router.get("/gl/day-reopens", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  res.json(await dayReopens(isDay(req.query.day) ? String(req.query.day) : undefined));
+});
+router.get("/gl/months", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  res.json(await listMonths());
+});
+router.get("/gl/months/:y/:m", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  await run(res, () => reviewMonth(idOf(req.params.y), idOf(req.params.m)));
+});
+// The accountant closes the month (the admin may too); only the admin reopens it
+router.post("/gl/months/:y/:m/close", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  await run(res, () => closeMonth(idOf(req.params.y), idOf(req.params.m), req.body?.note, userOf(req)), 201);
+});
+router.post("/gl/months/:y/:m/reopen", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, ["admin"], "Only the admin can reopen a closed month.")) return;
+  await run(res, () => reopenMonth(idOf(req.params.y), idOf(req.params.m), req.body?.reason, userOf(req)));
 });
 
 export default router;

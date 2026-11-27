@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { lockGuard } from "../lib/periodLock";
 import type { Response } from "express";
 import { db, settlementsTable, settlementMachinesTable, settlementSettingsTable, expensesTable, expenseChangesTable } from "@workspace/db";
 import { and, eq, gte, lte, desc } from "drizzle-orm";
@@ -113,6 +114,7 @@ router.post("/settlements", authenticate, async (req: AuthRequest, res: Response
   if (!can(req, res, WRITE_ROLES, "Only the admin or the accountant can record settlements.")) return;
   const cfg = await loadConfig();
   const today = nepalDay(new Date());
+  if (!(await lockGuard(res, req.body?.settledOn ?? today, "This settlement"))) return;
   const v = validateSettlementInput(req.body, { today, startDate: cfg.startDate });
   if ("error" in v) { res.status(400).json({ error: v.error }); return; }
   const rule = cfg.rules.get(v.machine);
@@ -168,6 +170,8 @@ router.post("/settlements", authenticate, async (req: AuthRequest, res: Response
 router.post("/settlements/:id/void", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, ["admin"], "Only the admin can void a settlement.")) return;
   const id = idOf(req.params.id);
+  const [st] = await db.select({ d: settlementsTable.settledOn }).from(settlementsTable).where(eq(settlementsTable.id, id));
+  if (st && !(await lockGuard(res, st.d, "This settlement"))) return;
   const reason = clean(req.body?.reason, 300);
   if (!reason) { res.status(400).json({ error: "A reason is required." }); return; }
   const user = req.user?.username ?? "admin";

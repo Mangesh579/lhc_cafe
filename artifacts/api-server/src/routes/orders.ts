@@ -16,6 +16,7 @@ import { creditLimitWarning, outstandingOf } from "../lib/receivableRules";
 import { breakfastBill, breakfastCost, allocateTotal, stayText, breakfastWarning, type StayInfo } from "../lib/stayRules";
 import { stayInfoByOrder } from "../lib/stayInfo";
 import { ledgerSettings } from "../lib/ledger";
+import { lockGuard, orderDay, PAID_ORDER_ALT } from "../lib/periodLock";
 import { creditNotesBetween, creditNoteEffect, reissuedOrderIds, nepalDay } from "../lib/ledgerData";
 import { hotelSettings } from "./stays";
 
@@ -239,6 +240,8 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
 
 router.post("/orders", authenticate, async (req, res): Promise<void> => {
   const { tableId, paymentMethod, loyaltyCustomerId, notes, items, discountAmount, backdatedAt, isNc, ncPersonName, ncReason } = req.body;
+  // Step 3d: a backdated order cannot land in a locked day
+  if (backdatedAt && !(await lockGuard(res, nepalDay(new Date(backdatedAt)), "A backdated order"))) return;
   if (!items?.length) { res.status(400).json({ error: "Order must have at least one item" }); return; }
   if (isNc && !ncPersonName?.trim()) { res.status(400).json({ error: "Person name is required for Not Chargeable orders" }); return; }
 
@@ -602,6 +605,7 @@ router.patch("/orders/:id/cancel", authenticate, requireAdmin, async (req: any, 
   // original order row itself.
   const [orderBeforeCancel] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!orderBeforeCancel) { res.status(404).json({ error: "Order not found" }); return; }
+  if (orderBeforeCancel.paymentStatus === "paid" && !(await lockGuard(res, orderDay(orderBeforeCancel), "This bill", { alt: PAID_ORDER_ALT }))) return;
   if (orderBeforeCancel.paymentStatus === "cancelled") { res.status(400).json({ error: "This order is already cancelled." }); return; }
   if (orderBeforeCancel.paymentStatus === "converted") { res.status(400).json({ error: CONVERTED_MSG }); return; }
   // A credit invoice that has customer receipts allocated to it cannot be cancelled until those receipts are voided
@@ -914,6 +918,7 @@ router.post("/orders/:id/corrections", authenticate, requireAdmin, async (req: a
   }
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+  if (!(await lockGuard(res, orderDay(order), "This bill", { alt: PAID_ORDER_ALT }))) return;
   if (order.paymentStatus === "converted") { res.status(400).json({ error: CONVERTED_MSG }); return; }
 
   const [correction] = await db.insert(orderCorrectionsTable).values({

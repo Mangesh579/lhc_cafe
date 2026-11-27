@@ -2,7 +2,7 @@
 // Reads run on the shared connection before the posting transaction (PGlite has one connection); the posting is one transaction.
 import {
   db, ordersTable, orderItemsTable, menuItemsTable, menuCategoriesTable, creditNotesTable, customerReceiptsTable, settlementsTable,
-  settlementSettingsTable, journalEntriesTable, journalLinesTable, postingDaysTable, cashDaysTable,
+  settlementSettingsTable, journalEntriesTable, journalLinesTable, postingDaysTable, periodClosesTable, cashDaysTable,
   purchaseBillsTable, purchaseBillItemsTable, supplierPaymentsTable, debitNotesTable, debitNoteItemsTable, expensesTable, expenseAccountMapTable,
   cashMovementsTable, wasteLogsTable, inventoryItemsTable, creditNoteItemsTable,
 } from "@workspace/db";
@@ -19,6 +19,7 @@ import { ledgerSettings, postEntry, reverseEntry, LedgerError } from "./ledger";
 import { mirrorLines } from "./glRules";
 import { bsLabel } from "./fiscal";
 
+import { lockOnDay } from "./periodLock";
 const num = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
 type SourceType = "order" | "credit_note" | "receipt" | "settlement" | "purchase_bill" | "supplier_payment" | "debit_note" | "expense" | "cash_movement" | "cash_close" | "consumption";
 const keyDay = (k: number) => `${String(k).slice(0, 4)}-${String(k).slice(4, 6)}-${String(k).slice(6, 8)}`;
@@ -453,12 +454,30 @@ export async function listDays() {
   const today = nepalDay(new Date());
   const posted = await db.select().from(postingDaysTable).orderBy(asc(postingDaysTable.day));
   const map = new Map(posted.map(p => [p.day, p]));
-  const days: { day: string; dayBs: string; status: string; entries: number; postedBy: string | null; next: boolean }[] = [];
+  const closes = (await db.select().from(periodClosesTable).where(eq(periodClosesTable.status, "closed")));
+  const days: { day: string; dayBs: string; status: string; entries: number; postedBy: string | null; next: boolean; locked: boolean; lockOn: string | null; monthClosed: boolean; reopenedOn: string | null }[] = [];
   let next = true;
   for (let d = settings.startDate; d < today && days.length < 400; d = addDays(d, 1)) {
     const p = map.get(d);
-    days.push({ day: d, dayBs: bsLabel(d), status: p ? p.status : "not posted", entries: p?.entries ?? 0, postedBy: p?.postedBy ?? null, next: !p && next });
+    const monthClosed = closes.some(c => c.fromDay <= d && c.toDay >= d);
+    const lockOn = p ? lockOnDay(d, p.reopenedOn ?? null, settings.lockAfterDays) : null;
+    days.push({ day: d, dayBs: bsLabel(d), status: p ? p.status : "not posted", entries: p?.entries ?? 0, postedBy: p?.postedBy ?? null, next: !p && next,
+      locked: monthClosed || (!!lockOn && today >= lockOn), lockOn, monthClosed, reopenedOn: p?.reopenedOn ?? null });
     if (!p) next = false;
   }
   return { startDate: settings.startDate, startDateBs: bsLabel(settings.startDate), today, days: days.reverse() };
+}
+
+// Step 3d: the balance checks at the end of a posted period (month close): the ledger alone, nothing pending
+export async function balanceChecksAt(day: string) {
+  const out: { check: string; ledger: number; operational: number; difference: number; ok: boolean; note?: string }[] = [];
+  const push = (check: string, ledger: number, operational: number, note?: string) => { const difference = round2(ledger - operational); out.push({ check, ledger: round2(ledger), operational: round2(operational), difference, ok: Math.abs(difference) < 0.01, note }); };
+  const sum = (m: Map<any, number>) => [...m.values()].reduce((a, b) => a + b, 0);
+  push("Receivables at the month end (1300)", sum(await ledgerNet(["1300"], day)), sum(await receivablesAsOf(day)), "Receivables");
+  push("Payables at the month end (2100)", -sum(await ledgerNet(["2100"], day)), sum(await payablesAsOf(day)), "Suppliers");
+  const mLedger = await ledgerNet(["1250", "1260", "1270", "1280"], day), mOp = await machinesAsOf(day);
+  for (const [a, label] of [["1250", "LHC Nabil POS"], ["1260", "LHC HBL POS"], ["1270", "QR"], ["1280", "Sulimha machines"]]) push(`Unsettled ${label} (${a})`, mLedger.get(a) ?? 0, mOp.get(a) ?? 0, "Settlements");
+  const [cd] = await db.select().from(cashDaysTable).where(eq(cashDaysTable.day, day));
+  if (cd?.status === "closed" && cd.countedClosing != null) push("Cash at the month end (1100)", (await ledgerNet(["1100"], day)).get("1100") ?? 0, num(cd.countedClosing), "Cash Drawer: counted at the close");
+  return out;
 }

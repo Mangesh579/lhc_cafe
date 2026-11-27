@@ -114,6 +114,11 @@
   - **Ledger 3c fixes:** a drawer reopened and closed again posts its new difference (the close counts as unposted when it has no entry in force); waste is credited by the ingredient's own department.
   - No migration.
 
+31. Ledger part 3d, the period lock and the Nepali month close, 2026-11-27 (docs/specs/step3-ledger.md section 17). Needs migration 015 (not yet applied).
+  - **Lock:** a posted day locks after lock_after_days (3) days: open on D+3, locked from D+4. One guard (lib/periodLock.ts) on every write route that dates a document; see the CHANGELOG for the list. A locked day's paid bill is fixed with Cancel invoice or a credit note, which are dated today.
+  - **Reopen a day:** admin only, with a reason, logged in day_reopens. The day locks again 3 days after the reopen. Refused inside a closed month.
+  - **Month close:** Chart of Accounts > Month close, by the accountant or the admin, once every day is posted and locked and the month-end checks agree or are noted. A closed month locks all its days. Only the admin reopens it, with a reason. The tab has the month's summary, its trial balance and an Excel export.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -132,7 +137,7 @@
 - 014_ledger_posting.sql (recorded 2026-11-27, by the owner): menu_categories.revenue_kind, ledger_settings.vat_enabled, bank_account on customer_receipts / cash_movements / expenses, cash_movements.account_code, posting_days.
 
 # Not yet applied on the server
-- None.
+- 015_period_lock.sql (2026-11-27): posting_days.reopened_on; day_reopens; period_closes. Run after a backup, before deploy.sh.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.

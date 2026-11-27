@@ -14,6 +14,7 @@ import { apiJson } from "@/lib/expenseApi";
 import { rs } from "@/lib/payments";
 import * as XLSX from "xlsx";
 import { PostDayTab, MenuCategoriesTab } from "@/components/PostDay";
+import { MonthCloseTab } from "@/components/MonthClose";
 
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
 const TYPE_LABEL: Record<string, string> = { asset: "Asset", liability: "Liability", equity: "Equity", income: "Income", expense: "Expense" };
@@ -65,6 +66,7 @@ export default function ChartOfAccounts() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="post">Post a day</TabsTrigger>
+          <TabsTrigger value="month">Month close</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
           <TabsTrigger value="map">Expense categories</TabsTrigger>
           <TabsTrigger value="journals">Journals</TabsTrigger>
@@ -73,6 +75,7 @@ export default function ChartOfAccounts() {
           <TabsTrigger value="categories">Menu categories</TabsTrigger>
         </TabsList>
         <TabsContent value="post"><PostDayTab /></TabsContent>
+        <TabsContent value="month"><MonthCloseTab /></TabsContent>
         <TabsContent value="categories"><MenuCategoriesTab /></TabsContent>
         <TabsContent value="accounts"><AccountsTab accounts={accounts} onChanged={load} /></TabsContent>
         <TabsContent value="map"><MapTab map={map} postable={postable} onChanged={load} /></TabsContent>

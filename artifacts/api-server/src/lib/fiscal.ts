@@ -61,3 +61,17 @@ export function adOfBs(year: number, month: number, day: number): string {
   const j: Date = new (nepaliDateClass())(year, month - 1, day).toJsDate();
   return `${j.getFullYear()}-${String(j.getMonth() + 1).padStart(2, "0")}-${String(j.getDate()).padStart(2, "0")}`;
 }
+
+// The BS year and month (1 = Baisakh) of a Nepal day, and a BS month's first and last AD day
+export function bsYearMonthOf(day: string): { year: number; month: number } {
+  const [y, m, d] = day.split("-").map(Number);
+  const bs = new (nepaliDateClass())(new Date(y, m - 1, d, 12, 0, 0));
+  return { year: bs.getYear(), month: bs.getMonth() + 1 };
+}
+export function bsMonthRange(year: number, month: number): { fromDay: string; toDay: string; label: string } {
+  const next = month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 };
+  const fromDay = adOfBs(year, month, 1);
+  const last = new Date(`${adOfBs(next.y, next.m, 1)}T12:00:00Z`);
+  last.setUTCDate(last.getUTCDate() - 1);
+  return { fromDay, toDay: last.toISOString().slice(0, 10), label: `${BS_MONTHS[month - 1]} ${year}` };
+}
