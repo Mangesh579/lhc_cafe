@@ -284,8 +284,11 @@ router.post("/gl/days/:day/post", authenticate, async (req: AuthRequest, res: Re
 // ── Step 4b: the comparison's highlight rule (Reports), admin only ──
 router.patch("/gl/report-settings", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, ["admin"], "Only the admin can change the report settings.")) return;
-  const p = parseFloat(String(req.body?.highlightPct ?? "")), m = parseFloat(String(req.body?.highlightMin ?? ""));
-  if (!(p >= 0) || !(m >= 0)) { res.status(400).json({ error: "Enter the percentage and the amount (0 or more)." }); return; }
+  // step 4c fix A3: numbers in range only ("abc", "", null and out-of-range values are refused)
+  const isNum = (v: unknown) => (typeof v === "number" || (typeof v === "string" && v.trim() !== "")) && Number.isFinite(Number(v));
+  const p = Number(req.body?.highlightPct), m = Number(req.body?.highlightMin);
+  if (!isNum(req.body?.highlightPct) || p < 0 || p > 1000) { res.status(400).json({ error: "The highlight percentage must be between 0 and 1,000." }); return; }
+  if (!isNum(req.body?.highlightMin) || m < 0 || m > 1_000_000_000) { res.status(400).json({ error: "The highlight amount must be between 0 and 1,00,00,00,000." }); return; }
   await db.execute(sql`INSERT INTO report_settings (id, highlight_pct, highlight_min, updated_by) VALUES (1, ${p}, ${m}, ${userOf(req)})
     ON CONFLICT (id) DO UPDATE SET highlight_pct = EXCLUDED.highlight_pct, highlight_min = EXCLUDED.highlight_min, updated_by = EXCLUDED.updated_by, updated_at = now()`);
   res.json({ pct: p, min: m });

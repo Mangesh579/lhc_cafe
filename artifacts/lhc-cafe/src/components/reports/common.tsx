@@ -5,7 +5,7 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { apiJson } from "@/lib/expenseApi";
+import { apiJson, apiDownload } from "@/lib/expenseApi";
 
 // Nepali (lakh) grouping, two decimals, negatives in brackets: 1,23,45,678.50 and (1,250.00)
 const nf = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -52,6 +52,27 @@ export function PeriodLine({ r }: { r: any }) {
       <p className="text-sm">{p ? <><strong>{p.label}</strong> <span className="text-muted-foreground">({p.fromBs} to {p.toBs}; {p.from} to {p.to})</span></> : r.toBs ? <><strong>As at {r.toBs}</strong> <span className="text-muted-foreground">({r.to})</span></> : null}</p>
       {posted && <p className="text-xs text-muted-foreground">Posted up to {posted.postedUpTo ? `${posted.postedUpToBs} (${posted.postedUpTo})` : "no day yet"}.</p>}
       {posted?.warning && <p role="status" className="text-sm bg-amber-50 text-amber-900 border border-amber-200 rounded-md px-3 py-2">{posted.warning}</p>}
+    </div>
+  );
+}
+
+// Step 4c: Excel and PDF of the report on screen, with the same period and filters (built by the server)
+export function DownloadButtons({ path }: { path: string | null }) {
+  const [busy, setBusy] = useState<"xlsx" | "pdf" | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => setErr(null), [path]);
+  const go = async (format: "xlsx" | "pdf") => {
+    if (!path) return;
+    setBusy(format); setErr(null);
+    try { await apiDownload(`${path}${path.includes("?") ? "&" : "?"}format=${format}`, `LHC_report.${format}`); }
+    catch (e: any) { setErr(e?.error ?? "The download failed"); }
+    finally { setBusy(null); }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button size="sm" variant="outline" disabled={!path || !!busy} onClick={() => go("xlsx")}>{busy === "xlsx" ? "Preparing…" : "Excel"}</Button>
+      <Button size="sm" variant="outline" disabled={!path || !!busy} onClick={() => go("pdf")}>{busy === "pdf" ? "Preparing…" : "PDF"}</Button>
+      {err && <span role="alert" className="text-xs text-red-700">{err}</span>}
     </div>
   );
 }

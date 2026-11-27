@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
 import { apiJson } from "@/lib/expenseApi";
-import { amt, side, drcr, select, PeriodLine, Pager, type Meta, type Period } from "@/components/reports/common";
+import { amt, side, drcr, select, PeriodLine, Pager, DownloadButtons, type Meta, type Period } from "@/components/reports/common";
 
 function useGet(path: string | null) {
   const [r, setR] = useState<any>(null);
@@ -55,7 +55,10 @@ export function PLTable({ r }: { r: any }) {
       {missing.map((c: any) => <p key={c.key} className="text-xs text-muted-foreground">{c.label}: {c.reason}</p>)}
       <Card><CardContent className="p-0 overflow-x-auto">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-3 py-2 bg-muted/40">Key ratios</p>
-        <table className="w-full text-sm min-w-[480px]"><tbody className="divide-y">{r.ratios.map((x: any) => (
+        <table className="w-full text-sm min-w-[480px]">
+          {/* step 4c fix A2: the same column names as the P&L, available columns only */}
+          <thead className="text-xs text-muted-foreground"><tr><th className="px-3 py-2 text-left font-normal">Ratio</th>{cols.filter((c: any) => c.key in (r.ratios[0]?.values ?? {})).map((c: any) => <th key={c.key} className="px-2 py-2 text-right font-medium">{c.label}{c.period && <span className="block font-normal">{c.period.label}</span>}</th>)}</tr></thead>
+          <tbody className="divide-y">{r.ratios.map((x: any) => (
           <tr key={x.key}><td className="px-3 py-1">{x.label}</td>{cols.filter((c: any) => c.key in x.values).map((c: any) => <td key={c.key} className="px-2 py-1 text-right tabular-nums">{pctTxt(x.values[c.key])}</td>)}</tr>))}</tbody></table>
       </CardContent></Card>
       {cols.some((c: any) => c.change) && <p className="text-xs text-muted-foreground">A change is coloured only when it is above {r.rule.pct}% and above Rs {amt(r.rule.min)}: green when it helps profit, red when it hurts.</p>}
@@ -89,7 +92,7 @@ export function ProfitLossTab({ q }: { q: string }) {
     <div className="space-y-3 mt-3">
       <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={compare} onChange={e => setCompare(e.target.checked)} /> Compare with the previous period</label>
       <Err err={err} />
-      {r && <><PeriodLine r={r} /><PLTable r={r} /></>}
+      {r && <><div className="flex flex-wrap items-start justify-between gap-2"><PeriodLine r={r} /><DownloadButtons path={`/reports/export/profit-loss?${q}&compare=${compare ? "prev" : "none"}`} /></div><PLTable r={r} /></>}
     </div>
   );
 }
@@ -105,7 +108,7 @@ export function BalanceSheetTab({ defaultAt }: { defaultAt: string }) {
         <label className="flex items-center gap-1.5"><input type="checkbox" checked={compare} onChange={e => setCompare(e.target.checked)} /> Last month end and the fiscal year start</label>
       </div>
       <Err err={err} />
-      {r && <><PeriodLine r={{ ...r, to: r.at, toBs: r.atBs }} /><BSTable r={r} /></>}
+      {r && <><div className="flex flex-wrap items-start justify-between gap-2"><PeriodLine r={{ ...r, to: r.at, toBs: r.atBs }} /><DownloadButtons path={`/reports/export/balance-sheet?at=${at}&compare=${compare ? "prev" : "none"}`} /></div><BSTable r={r} /></>}
     </div>
   );
 }
@@ -126,7 +129,7 @@ export function StatementsTab({ q, onEntry }: { q: string; onEntry: (id: number)
       </div>
       <Err err={id ? st.err : list.err} />
       {!id && list.r && <>
-        <PeriodLine r={list.r} />
+        <div className="flex flex-wrap items-start justify-between gap-2"><PeriodLine r={list.r} /><DownloadButtons path={`/reports/export/${who}?${q}`} /></div>
         <Card><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm min-w-[600px]">
           <thead className="text-xs text-muted-foreground bg-muted/40"><tr><th className="px-3 py-2 text-left">{who === "customers" ? "Customer" : "Supplier"}</th><th className="px-3 py-2 text-right">Opening</th><th className="px-3 py-2 text-right">Debits</th><th className="px-3 py-2 text-right">Credits</th><th className="px-3 py-2 text-right">Closing</th></tr></thead>
           <tbody className="divide-y">
@@ -136,7 +139,7 @@ export function StatementsTab({ q, onEntry }: { q: string; onEntry: (id: number)
           </tbody></table></CardContent></Card>
       </>}
       {s && <>
-        <PeriodLine r={s} />
+        <div className="flex flex-wrap items-start justify-between gap-2"><PeriodLine r={s} /><DownloadButtons path={`/reports/export/${who === "customers" ? "customer" : "supplier"}-statement?id=${id}&${q}`} /></div>
         <Card><CardContent className="p-4 text-sm space-y-1">
           <p className="text-lg font-semibold">{s.party.name}</p>
           <p className="text-xs text-muted-foreground">{[s.party.phone, s.party.pan && `PAN ${s.party.pan}`, s.party.email, `credit days ${s.party.creditDays}`].filter(Boolean).join(" · ")}</p>
@@ -187,7 +190,7 @@ export function CompareTab({ meta }: { meta: Meta }) {
       </div>
       <Err err={err} />
       {r && <>
-        <PeriodLine r={r} />
+        <div className="flex flex-wrap items-start justify-between gap-2"><PeriodLine r={r} /><DownloadButtons path={`/reports/export/compare?period=${kind}&at=${encodeURIComponent(atParam)}`} /></div>
         <div className="grid xl:grid-cols-2 gap-3 items-start"><PLTable r={r.profitLoss} /><BSTable r={r.balanceSheet} /></div>
       </>}
     </div>

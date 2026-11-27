@@ -170,7 +170,8 @@ export const BS_COLUMNS = [
 export function changeOf(current: number, previous: number, better: "up" | "down" | undefined, rule: { pct: number; min: number }) {
   const change = r2(current - previous);
   const changePct = previous ? r2((change / Math.abs(previous)) * 100) : null;
-  const highlight = !!better && changePct != null && Math.abs(changePct) > rule.pct && Math.abs(change) > rule.min;
+  // from 0 there is no percentage: the amount alone decides (step 4c fix A1)
+  const highlight = !!better && Math.abs(change) > rule.min && (changePct == null ? previous === 0 && current !== 0 : Math.abs(changePct) > rule.pct);
   const tone = !better || change === 0 ? null : (change > 0) === (better === "up") ? "good" : "bad";
   return { change, changePct, highlight, tone: highlight ? tone : null };
 }

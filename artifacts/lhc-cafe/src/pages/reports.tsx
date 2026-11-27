@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/auth";
 import { apiJson } from "@/lib/expenseApi";
-import { amt, side, drcr, select, PeriodPicker, PeriodLine, Pager, EntryDialog, ConsumptionDialog, initialPeriod, periodQuery, type Meta, type Period } from "@/components/reports/common";
+import { amt, side, drcr, select, PeriodPicker, PeriodLine, Pager, DownloadButtons, EntryDialog, ConsumptionDialog, initialPeriod, periodQuery, type Meta, type Period } from "@/components/reports/common";
 import { ProfitLossTab, BalanceSheetTab, StatementsTab, CompareTab, asAtOf } from "@/components/reports/statements";
 
 export default function Reports() {
@@ -88,6 +88,8 @@ function DayBook({ q, meta, parties, accounts, onEntry }: { q: string; meta: Met
   const [page, setPage] = useState(1);
   useEffect(() => setPage(1), [q, type, kind, account, party, qText]);
   const [pt, pid] = party.split(":");
+  const filters = `${type ? `&types=${type}` : ""}${kind ? `&kinds=${kind}` : ""}${account ? `&account=${account}` : ""}${pt === "c" ? `&customerId=${pid}` : pt === "s" ? `&supplierId=${pid}` : ""}${qText ? `&q=${encodeURIComponent(qText)}` : ""}`;
+  const exportPath = `/reports/export/day-book?${q}${filters}`;
   const path = `/reports/day-book?${q}&page=${page}${type ? `&types=${type}` : ""}${kind ? `&kinds=${kind}` : ""}${account ? `&account=${account}` : ""}${pt === "c" ? `&customerId=${pid}` : pt === "s" ? `&supplierId=${pid}` : ""}${qText ? `&q=${encodeURIComponent(qText)}` : ""}`;
   const { r, err } = useReport(path);
   return (
@@ -103,7 +105,7 @@ function DayBook({ q, meta, parties, accounts, onEntry }: { q: string; meta: Met
       </div>
       <Err err={err} />
       {r && <>
-        <PeriodLine r={r} />
+        <div className="flex flex-wrap items-start justify-between gap-2"><PeriodLine r={r} /><DownloadButtons path={exportPath} /></div>
         <Card><CardContent className="p-0 overflow-x-auto">
           <table className="w-full text-sm min-w-[720px]">
             <thead className="text-xs text-muted-foreground bg-muted/40"><tr><th className="px-3 py-2 text-left">Voucher</th><th className="px-3 py-2 text-left">Account</th><th className="px-3 py-2 text-right">Debit</th><th className="px-3 py-2 text-right">Credit</th></tr></thead>
@@ -148,7 +150,7 @@ function Ledger({ q, parties, accounts, onEntry }: { q: string; parties: any; ac
       </div>
       <Err err={err} />
       {r && <>
-        <PeriodLine r={r} />
+        <div className="flex flex-wrap items-start justify-between gap-2"><PeriodLine r={r} /><DownloadButtons path={`/reports/export/ledger?code=${code}&${q}${key && party ? `&${key}=${party}` : ""}`} /></div>
         <p className="font-medium">{r.account.code} {r.account.name} <span className="text-xs text-muted-foreground">({r.account.type}, normal {r.account.normalSide})</span></p>
         {r.account.isHeader ? (
           <Card><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm min-w-[600px]">
@@ -195,7 +197,7 @@ function Books({ q, meta, onEntry }: { q: string; meta: Meta; onEntry: (id: numb
       <select aria-label="Book" className={select} value={code} onChange={e => setCode(e.target.value)}>{Object.entries(meta.books).map(([k, v]) => <option key={k} value={k}>{v} ({k})</option>)}</select>
       <Err err={err} />
       {r && <>
-        <PeriodLine r={r} />
+        <div className="flex flex-wrap items-start justify-between gap-2"><PeriodLine r={r} /><DownloadButtons path={`/reports/export/book?code=${code}&${q}`} /></div>
         <Card><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm min-w-[860px]">
           <thead className="text-xs text-muted-foreground bg-muted/40"><tr><th className="px-3 py-2 text-left">Voucher</th><th className="px-3 py-2 text-left">Particulars</th>{!cash && <th className="px-3 py-2 text-left">Reference</th>}<th className="px-3 py-2 text-right">Receipts</th><th className="px-3 py-2 text-right">Payments</th><th className="px-3 py-2 text-right">Balance</th></tr></thead>
           <tbody>
@@ -224,7 +226,8 @@ function Books({ q, meta, onEntry }: { q: string; meta: Meta; onEntry: (id: numb
 function TrialBalance({ q, period }: { q: string; period: Period }) {
   const [mode, setMode] = useState<"period" | "asAt">("period"), [hideZero, setHideZero] = useState(true), [grouped, setGrouped] = useState(true);
   const to = period.kind === "day" ? period.day : period.kind === "custom" ? period.to : "";
-  const { r, err } = useReport(mode === "period" ? `/reports/trial-balance?${q}&hideZero=${hideZero}` : `/reports/trial-balance?${to ? `to=${to}&` : ""}hideZero=${hideZero}`);
+  const tbQuery = mode === "period" ? `${q}&hideZero=${hideZero}` : `${to ? `to=${to}&` : ""}hideZero=${hideZero}`;
+  const { r, err } = useReport(`/reports/trial-balance?${tbQuery}`);
   const K = ["openingDr", "openingCr", "periodDr", "periodCr", "closingDr", "closingCr"];
   const row = (x: any, cls = "") => K.map(k => <td key={k} className={`px-2 py-1 text-right tabular-nums ${cls}`}>{x[k] ? amt(x[k]) : ""}</td>);
   return (
@@ -237,7 +240,7 @@ function TrialBalance({ q, period }: { q: string; period: Period }) {
       </div>
       <Err err={err} />
       {r && <>
-        <PeriodLine r={r} />
+        <div className="flex flex-wrap items-start justify-between gap-2"><PeriodLine r={r} /><DownloadButtons path={`/reports/export/trial-balance?${tbQuery}`} /></div>
         {r.mode === "period" ? (
           <Card><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm min-w-[900px]">
             <thead className="text-xs text-muted-foreground bg-muted/40">

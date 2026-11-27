@@ -396,3 +396,12 @@ Total liabilities and equity       = Total assets (checked; a red line if not)
   - the agreement compares the ledger at the last posted day with receivablesAsOf or payablesAsOf.
 - **Screen:** the Profit and Loss, Balance Sheet, Statements and Compare tabs (components/reports/statements.tsx).
 - **Not built:** 4c exports.
+
+## 14. Part 4c as built (2026-11-28; plan and decisions in docs/specs/step4c-exports.md)
+- **Built on the server, not in the browser** as sections 5 and 8 (4c) of this plan first said:
+  - GET /reports/export/:report?format=xlsx|pdf;
+  - adapters in lib/reports/exportDocs.ts and builders in lib/reportExport.ts (exceljs, streaming; pdfmake);
+  - helpers in lib/reportFormat.ts, tested in the api-server suite. No vitest in lhc-cafe.
+- **Excel's lakh commas** come from the PC's region (English (India)). The format string `#,##,##0.00` of section 3 does not group in lakhs in Excel, so the files use `#,##0.00;(#,##0.00);"-"`.
+- **File names:** LHC_<Report>_<period>.xlsx|pdf (instead of section 5's `<report>-<period>`).
+- **PDFs:** no carried-forward totals per page (the owner, 2026-11-28); the column headings repeat on every page.

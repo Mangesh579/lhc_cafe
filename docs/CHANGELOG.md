@@ -1663,3 +1663,81 @@ Four new tabs on the Reports page (admin and accountant). Each reads the journal
 
 ## 2026-11-28 (d): Migration 018 recorded as run
 - The owner ran db/migrations/018_report_settings.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 4b entry above. Docs only; no code, no SQL, nothing to deploy.
+
+## 2026-11-28 (e): Reports part 4c, Excel and PDF exports, and three 4b fixes
+
+### Summary
+- **The plan first:** docs/specs/step4c-exports.md, approved by the owner with the answers in its section 10 (recorded in CLAUDE.md "Step 4 decisions").
+- **Part A, the 4b fixes:**
+  1. **changeOf:** from a previous figure of 0, changePct stays null and the row is highlighted when |change| is above highlight_min, toned by direction.
+  2. **The key ratios table:** now has a header row with the P&L's column and period labels (available columns only).
+  3. **PATCH /gl/report-settings:** takes highlightPct 0 to 1,000 and highlightMin 0 to 1,00,00,00,000 only. Anything else, a non-number included, gets 400 with "The highlight percentage must be between 0 and 1,000." or "The highlight amount must be between 0 and 1,00,00,00,000."
+- **Part B, the exports:** every report downloads as Excel (.xlsx) and PDF:
+  - Day Book, General Ledger, Cash Book, Bank Books, Trial Balance (period and as at);
+  - Profit and Loss, Balance Sheet, Compare;
+  - customer and supplier statements, and the all-customers and all-suppliers summaries.
+- **The route:** GET /reports/export/:report?format=xlsx|pdf&<the same query as the screen>. It is GET only, for the admin and the accountant (403 for others); nothing is written and no audit row is made.
+  - The adapters (lib/reports/exportDocs.ts) call the same lib/reports functions as the screen and only reshape their JSON.
+  - The builders are in lib/reportExport.ts: Excel through exceljs's streaming writer, PDF through pdfmake. The formatting helpers are in lib/reportFormat.ts.
+- **Every file:**
+  - **Header block:** Legendary House Cafe & Barista Coffee School; Sulimha Durbar, Patan · PAN 194139113; the report name; the period in BS with the AD dates; "Posted up to <BS date (AD date)>"; the unposted-days warning as on the screen; any party details; "Generated <date time> (Nepal time) by <user>".
+  - **PDF footer:** "<report> · Page x of y".
+- **Excel:**
+  - **Values:** money as real numbers rounded to the paisa, in `#,##0.00;(#,##0.00);"-"` (books show 0.00); percentages as real percentages (`0.0%`); a date column split into the BS date (text) and the AD date (a real date).
+  - **Layout:** headings, subtotals and totals bold, with a border over totals; the column-heading row frozen; widths set per column; one sheet per report (Compare has "Profit and Loss" and "Balance Sheet").
+  - **Highlights:** a highlighted change is filled light green or light red, with the rule text under the table.
+  - **No formulas:** totals are the values the server computed and checked.
+  - **Large files:** the Day Book, ledgers, books and statements are written page by page, row by row, so a full year never sits in memory.
+- **PDF:**
+  - **Orientation:** A4 landscape for the Day Book, General Ledger, books, the period Trial Balance, Compare, and a P&L with comparison columns; portrait for the rest.
+  - **Layout:** the column headings repeat on every page; highlighted changes keep their fill; statements end with "Prepared by / Checked by".
+  - **Names:** a name the standard font cannot draw shows as "(name in Excel) customer #<id>".
+  - **Size limit:** above 5,000 vouchers (Day Book) or lines (ledgers, books, statements) the PDF is refused with "Too many lines for a PDF: use Excel, or narrow the period."
+- **File names:** LHC_<Report>_<period>, safe characters only, e.g. LHC_ProfitLoss_2083-09.xlsx, LHC_BalanceSheet_2083-09-30.pdf, LHC_Statement-Asha_2083-09.pdf. A name with no safe letters falls back to Customer-<id> or Supplier-<id>.
+- **Screen:** Excel and PDF buttons on every tab and on an open statement, using the tab's current period and filters. Both are disabled while a file is prepared, and the server's refusal shows beside them.
+
+### Files
+- New:
+  - api-server: src/lib/reportFormat.ts, src/lib/reportExport.ts, src/lib/reports/exportDocs.ts; src/__tests__/reportFormat.test.ts, src/__tests__/exports4c.test.ts;
+  - docs/specs/step4c-exports.md.
+- Changed:
+  - api-server: package.json (exceljs 4.4.0, pdfmake 0.2.20, @types/pdfmake 0.2.11), build.mjs (exceljs, pdfmake and pdfkit kept external, because pdfkit reads its font files from disk), src/lib/reportLayout.ts (fix A1), src/routes/gl.ts (fix A3), src/routes/reports.ts (the export route), src/__tests__/reports4b.test.ts (fix tests);
+  - lhc-cafe: src/lib/expenseApi.ts (apiDownload), src/components/reports/common.tsx (DownloadButtons), src/components/reports/statements.tsx (fix A2, the buttons), src/pages/reports.tsx (the buttons);
+  - pnpm-lock.yaml; CLAUDE.md; docs/HANDOFF.md; docs/specs/step4-reports.md (section 14).
+
+### Tables and migration
+None.
+
+### Decisions
+- **Where:** exports are built on the server, not in the browser as step4-reports.md sections 5 and 8 first said. The request needs export routes with 403 tests, built from the server's report functions. So no test runner was added to lhc-cafe.
+- **Libraries:** exceljs instead of SheetJS (whose free edition cannot write styles, fills or frozen rows); pdfmake for the PDF.
+- **Two formatters:** the screen keeps its own (Intl en-IN); the tests pin the same strings.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 49 files, 484 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build;
+  - the built server loads exceljs and pdfmake from node_modules and renders a PDF.
+- New and changed:
+  - **reports4b (+2, part A):**
+    - changeOf from 0: 1,500 highlighted good or bad by direction, a fall of 1,500 bad, 800 not highlighted, 0 to 0 not;
+    - the settings: -1, 1,001, "abc", "" and nulls refused with the messages; 0, 1,000, 1,000,000,000 and "25" accepted.
+  - **reportFormat (8):**
+    - 12,34,567.00; 99,99,999.99; 12,34,56,789.50; (1,250.00); "-" and 0.00 for zero;
+    - 0.005 to 0.01 and -0.005 to (0.01); 1.005 to 1.01; 99,999.995 to 1,00,000.00;
+    - one-decimal percentages;
+    - BS with AD at the Poush start and end and at the fiscal-year end;
+    - Nepal time;
+    - safe file names (spaces, "Ram & Sita", accents, Devanagari to Customer-12, path characters, quotes).
+  - **exports4c (10):**
+    - **Excel P&L (Magh against Poush):** every money cell equals the JSON and is numeric; % cells are the JSON / 100; totals bold; the heading row frozen; food's change filled red; the rule text below.
+    - **Excel Balance Sheet:** every cell equals the JSON.
+    - **Compare:** two sheets.
+    - **A customer statement PDF:** %PDF to %%EOF, with the header block, "Generated", "Page 1 of N" and "Prepared by".
+    - **A Devanagari name:** the file is LHC_Statement-Customer-<id>; Excel keeps the name; the PDF shows "(name in Excel) customer #<id>".
+    - **Every other PDF:** the P&L, Balance Sheet, Trial Balance, ledger, bank book and Day Book are produced.
+    - **Size limit:** 5,001 vouchers make the PDF refused with the exact message, and the ledger too; the Excel of the same month has all 5,001 vouchers and 10,002 lines.
+    - **Access:** 403 for staff and supervisor on all 12 routes in both formats; bad requests get 400 or 404.
+    - **No writes:** every table's row count is unchanged after all 24 downloads.
+- Not run: opening the files in Excel and a PDF viewer (by hand, see HANDOFF item 35); anything against production.

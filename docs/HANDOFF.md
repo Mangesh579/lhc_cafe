@@ -146,6 +146,19 @@
     - the Compare tab, side by side.
   - **Not yet:** Excel and PDF (4c).
 
+35. Reports part 4c, Excel and PDF exports, 2026-11-28 (docs/specs/step4c-exports.md). No migration. Step 4 is complete.
+  - **The buttons:** every report tab, and an open statement, has Excel and PDF buttons. The files are built on the server from the same data as the screen (GET /reports/export/:report?format=xlsx|pdf). The header block names the business, the period in BS and AD, "Posted up to", any warning, and who generated it and when.
+  - **The files:** Excel cells are real numbers with lakh commas (from the PC's region: set English (India)), totals bold, the heading row frozen, highlighted changes filled. PDFs are A4, with "Page x of y". A PDF over 5,000 lines is refused (use Excel).
+  - **The 4b fixes:**
+    - a change from 0 is highlighted on its amount alone;
+    - the key ratios table has column headings;
+    - the highlight settings are limited to 0 to 1,000 % and 0 to 1,00,00,00,000 rupees.
+  - **New packages on the server:** exceljs and pdfmake, installed by deploy.sh (pnpm install).
+  - **By hand, after deploying:**
+    - open every report's Excel and PDF once;
+    - check one P&L line by line against the screen;
+    - check that the Excel cells add up with SUM and show lakh commas on the accountant's PC.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
