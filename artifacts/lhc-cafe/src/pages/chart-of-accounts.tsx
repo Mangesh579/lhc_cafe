@@ -1,6 +1,7 @@
 // Step 3a (docs/specs/step3-ledger.md): chart of accounts, expense-category map, journals, trial balance, opening balances.
 // Admin and accountant only. The ledger start date is shown at the top of every tab.
 import { useState, useEffect, useCallback } from "react";
+import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -318,6 +319,7 @@ function TrialBalanceTab() {
   };
   return (
     <Card className="mt-3"><CardContent className="p-0">
+      <p className="px-4 pt-3 text-xs text-muted-foreground">The Trial Balance for a period (opening, movement and closing), the Day Book, the General Ledger and the Cash and Bank Books are on the <Link href="/reports" className="underline">Reports</Link> page.</p>
       <div className="flex items-center justify-between gap-2 px-4 py-2 bg-muted/40"><div className="flex items-center gap-2 text-sm"><span>Up to</span><Input type="date" className="h-8 w-40" value={to} onChange={e => e.target.value && setTo(e.target.value)} /></div>
         <Button size="sm" variant="outline" onClick={exportXlsx} disabled={!tb}>Excel</Button></div>
       {tb && <table className="w-full text-sm"><thead className="text-xs text-muted-foreground"><tr><th className="px-4 py-2 text-left">Account</th><th className="px-3 py-2 text-right">Debit</th><th className="px-3 py-2 text-right">Credit</th><th className="px-4 py-2 text-right">Balance</th></tr></thead>

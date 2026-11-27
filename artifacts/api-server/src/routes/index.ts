@@ -19,6 +19,7 @@ import settlementsRouter from "./settlements";
 import accountConversionRouter from "./accountConversion";
 import staysRouter from "./stays";
 import glRouter from "./gl";
+import reportsRouter from "./reports";
 import purchasesRouter from "./purchases";
 
 const router: IRouter = Router();
@@ -44,5 +45,6 @@ router.use(accountConversionRouter);
 router.use(purchasesRouter);
 router.use(staysRouter);
 router.use(glRouter);
+router.use(reportsRouter);
 
 export default router;

@@ -364,3 +364,16 @@ Total liabilities and equity       = Total assets (checked; a red line if not)
 - Posting, the lock, the month close and the chart of accounts (step 3).
 - The operational screens and reports.
 - No change to any table except the indexes of migration 017 (016 is step 3e, stock adjustments).
+
+## 12. Part 4a as built (2026-11-28; see docs/CHANGELOG.md)
+- **Server:**
+  - lib/reports/periods.ts: resolvePeriod (day, month=2083-09, fy=2083/84, from&to; the default is the current BS month), postedInfo, reportMeta;
+  - lib/reports/books.ts: dayBook, generalLedger (the running balance as a window over the whole period), subLedger, book, trialBalancePeriod, journalParties;
+  - lib/reports/drilldown.ts: SOURCE_LINKS, entryDetail, sourceDocument, consumptionView;
+  - routes/reports.ts.
+- **Endpoints:** the ones in 4.1 to 4.4, plus /reports/meta, /reports/parties, /reports/entries/:id, /reports/source/:type/:id and /reports/consumption/:day.
+- **Day Book kinds:** "correction" and "late" are post entries with "(corrected:" or "(late:" in the narration.
+- **Drill-down:** the source document is shown read-only inside Reports with an "Open in <page>" link. Only /suppliers?bill=<id> opens the exact document; deep links on the other pages are a possible later change.
+- **Migration:** 017_report_indexes.sql (section 6).
+- **Screen:** /reports with the four tabs; the BS period picker; the "Posted up to" line; lakh grouping with brackets for negatives.
+- **Not built:** 4b statements, 4c exports.
