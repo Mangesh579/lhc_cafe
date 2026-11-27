@@ -6,6 +6,8 @@ export const menuCategoriesTable = pgTable("menu_categories", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   displayOrder: integer("display_order").notNull().default(0),
+  // Ledger (step 3b): food -> sales 4000 and consumption 5000; beverage -> 4010 and 5010. Unset blocks posting its sales.
+  revenueKind: text("revenue_kind"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

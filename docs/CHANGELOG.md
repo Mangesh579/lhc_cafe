@@ -1016,3 +1016,80 @@ db/migrations/013_ledger_accounts_journal.sql (edited): NOT YET RUN on the serve
 - The owner ran db/migrations/013_ledger_accounts_journal.sql on the server (the edited version, with journal_entries.revision and the (source_type, source_id, revision) index) and deployed ledger 3a with the revision fix (79247ba). Recorded as run in CLAUDE.md and docs/HANDOFF.md.
 - **Open:** the owner has not yet said whether the first version of 013 had been run before the edit. Either way, the edited file leaves the same result; the check queries (the revision column and the index on revision) confirm it.
 - Files: CLAUDE.md, docs/HANDOFF.md, docs/CHANGELOG.md. No code or tables changed.
+
+
+## 2026-11-27: Ledger part 3b, posting of sales, credit notes, receipts and settlements (migration 014)
+
+### Summary
+- Skills used: ponytail, tdd, backend-patterns, react-patterns, database-migrations.
+- **Migration 014:**
+  - menu_categories.revenue_kind (food | beverage);
+  - ledger_settings.vat_enabled (false);
+  - bank_account (nabil | hbl) on customer_receipts, cash_movements and expenses;
+  - cash_movements.account_code;
+  - posting_days.
+- **Operational changes:**
+  - a receipt by bank, a drawer deposit, and an expense by bank transfer or cheque now require the bank;
+  - other cash in/out requires its account (4200, 7100, 3000, 3100);
+  - VAT bills are refused by the payment API ("VAT bills are stopped until LHC is VAT registered") and greyed out on the payment screen and the reprint, until the admin switches VAT on;
+  - GET /gl/vat-status for every role.
+- **Posting rules (lib/postingRules.ts, pure)**, one entry per document:
+  - **Bills (SJ):** each part to its account: 1100 cash, 1270 QR, 1250/1260 LHC POS, 1280 Sulimha POS, 1300 credit with the customer; an older card with no machine goes to 1250, flagged. Sales go to 4000/4010 by the item's category at the gross item value. Also: 4950 for the discount; 4020 for a hotel breakfast; 2200 for VAT (flagged while VAT is off); a Rs 0 bill posts the sale and the full discount.
+  - **Credit notes (SJ):** 4900 + 2200 against 1300. A Wrong-customer move is a 1300 to 1300 transfer between the customers.
+  - **Receipts (RJ):** the mode's account, or 1200/1210 by the bank, against 1300.
+  - **Settlements (ST):** the bank for what was received, 7000 for the fee, the machine cleared at gross.
+- **Review and posting (lib/glPosting.ts; GET /gl/days, GET /gl/days/:day, POST /gl/days/:day/post):**
+  - the blockers, must-fix and acknowledge problems, late changes and reconciliation (plan section 15);
+  - posting in one transaction, the day row first;
+  - late changes use journal revisions: reverse, then post at the next revision.
+- **Screens (Chart of Accounts):**
+  - "Post a day" (days list, review, problems, reconciliation, late changes, entries, totals, a note, Post);
+  - "Menu categories" (Food / Beverage);
+  - the VAT switch (admin).
+  - **Other screens:** Receivables (the bank on a bank receipt), Cash Drawer (the bank on deposits, the account on other in/out), Expenses (the bank for bank transfer and cheque), Orders payment (VAT bill only when VAT is on), Order Log reprint (likewise).
+
+### Files
+- New: db/migrations/014_ledger_posting.sql; api-server src/lib/postingRules.ts, lib/glPosting.ts, tests postingRules, glPosting (.test.ts); lhc-cafe src/components/PostDay.tsx.
+- Changed:
+  - lib/db schema: menu-categories.ts, cash.ts, payments.ts, expenses.ts, ledger.ts.
+  - api-server: routes/gl.ts, routes/orders.ts (VAT refusal), routes/receivables.ts (receipt bank), routes/cash.ts (deposit bank, other account), routes/expenses.ts (bank); __tests__/cancelInvoice.test.ts (its bank receipt names the bank).
+  - lhc-cafe: pages/chart-of-accounts.tsx, pages/orders.tsx, pages/order-log.tsx, pages/receivables.tsx, pages/cash-drawer.tsx, pages/expenses.tsx.
+  - Docs: CLAUDE.md, docs/HANDOFF.md, docs/specs/step3-ledger.md.
+
+### Tables
+- Changed: menu_categories, ledger_settings, customer_receipts, cash_movements, expenses (new columns, all nullable or defaulted).
+- New: posting_days. Nothing existing is changed.
+
+### Migration
+db/migrations/014_ledger_posting.sql: NOT YET RUN on the server.
+
+### Tests
+- Run on the dev machine: `pnpm test`, 36 files, 279 tests pass; typecheck api-server, lhc-cafe and libs clean; both artifacts build.
+- New:
+  - postingRules (10):
+    - a split bill of cash + QR + credit;
+    - a discount;
+    - Sulimha and HBL machines;
+    - a breakfast to 4020;
+    - a Rs 0 bill;
+    - a VAT bill flagged;
+    - must-fix (category, credit customer, mode) and acknowledge (card machine) problems;
+    - a credit note with VAT, and a Wrong-customer transfer;
+    - receipts in each mode, and a bank receipt needing the bank;
+    - LHC, QR and Sulimha settlements with the fee.
+  - glPosting (8, real routes on PGlite with 013 and 014):
+    - blockers (before the start date, today, out of order) and must-fix problems (opening, category);
+    - after the fixes: entries per invoice, lines, the drawer acknowledgement, and reconciliation equal (sales 1,425, receivables 300, Nabil POS 225);
+    - posting needs a note, posts 5 entries, and only once; the trial balance is balanced;
+    - day 2: a cancelled bill is reversed, a backdated bank receipt is posted late, and the Sulimha bill and the settlement post;
+    - day 3: a changed bill is reversed and re-posted as revision 2;
+    - VAT bills refused while VAT is off, and the admin alone switches it on;
+    - the bank and account fields;
+    - migration 014 runs twice, with its checks.
+- Not run: the screens in a browser; anything against production.
+
+### Decisions made (by Claude; please confirm)
+- Journal numbers have their own series, SJ (sales and credit notes), RJ (receipts) and ST (settlements), so the RV, CV and PV document numbers are not consumed.
+- The ingredient cost put back by a not-served cancel posts with consumption in 3c, not in 3b.
+- A day is posted only after it has ended (Nepal time).
+- Confirmed opening balances are a must-fix before the first posting.

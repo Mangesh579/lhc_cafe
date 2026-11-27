@@ -78,6 +78,17 @@
   - **Revisions:** a source posts as revision 1, and after a late change is reversed and re-posted as revision 2, 3 ... (unique per source and revision; a new revision only after the previous one is reversed).
   - **Not yet:** no source document posts yet (3b, 3c); no posting days or locks yet (3b, 3d). Migration 013 run (recorded 2026-11-27).
 
+28. Ledger part 3b, 2026-11-27 (docs/specs/step3-ledger.md section 15).
+  - **Chart of Accounts > Post a day:**
+    - the days from the start date;
+    - a day's review: what will post (one entry per bill, credit note, receipt, settlement), problems (must fix / to acknowledge), late changes (reverse, reverse and re-post as the next revision, post late) and the reconciliation (sales, VAT, receivables, machines);
+    - Post, in one transaction; days in date order, only after the day ends, nothing before the start date.
+  - **Chart of Accounts > Menu categories:** Food or Beverage.
+  - **VAT:** VAT bills are refused (payment API and screen; the reprint too) until the admin switches VAT on (Chart of Accounts settings).
+  - **Bank field:** Nabil or HBL is now required on receipts by bank (Receivables), drawer deposits (Cash Drawer), and expenses by bank transfer or cheque.
+  - **Other cash in/out:** needs its account (4200, 7100, 3000, 3100).
+  - Needs migration 014.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -94,7 +105,7 @@
 - 013_ledger_accounts_journal.sql (recorded 2026-11-27, by the owner; the edited version with journal_entries.revision): accounts, expense_account_map, journal_entries (with revision) and journal_lines (with triggers), ledger_settings (start 2026-12-16, lock 3), opening_balance_lines, opening_balance_log.
 
 # Not yet applied on the server
-- None.
+- 014_ledger_posting.sql (written 2026-11-27): menu_categories.revenue_kind, ledger_settings.vat_enabled, bank_account on customer_receipts / cash_movements / expenses, cash_movements.account_code, posting_days. Run before deploying item 28.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
@@ -127,14 +138,7 @@
 - **API docs:** the OpenAPI spec and generated client still list only cash and nabil_qr as payment methods.
 
 # Next work
-Roadmap step 3: plan approved (docs/specs/step3-ledger.md, answers in its section 13). Part 3a is built (item 27). Next is part 3b:
-- VAT bills stopped until VAT is on;
-- a bank field on receipts, deposits and bank or cheque expenses;
-- an account on other cash in/out;
-- Food or Beverage on each menu category;
-- the posting of sales, credit notes, receipts and settlements, with the review screen.
-
-Then 3c and 3d. For the posting:
+Roadmap step 3: plan approved (docs/specs/step3-ledger.md, answers in its section 13). Parts 3a and 3b are built (items 27, 28). Next is part 3c: purchases, supplier payments, debit notes, expenses and petty cash through the expense map, drawer movements and short/over, daily consumption, NC, waste, the not-served cost back, and the cash, payables and stock checks. Then 3d (lock and month close). For the posting:
 - ask the accountant for the Sulimha Durbar receivable account;
 - follow the posting rules in docs/specs/step2-suppliers.md section 13 and docs/specs/room-stays.md section 5;
 - credit notes post to 4900 Sales returns.
@@ -144,3 +148,6 @@ Then steps 4 to 9. Each task ends with a docs/CHANGELOG.md entry.
   - The opening balances filled "from the app" are today's figures; fill again on the start date before the owner confirms.
   - The start date cannot change once any journal entry exists.
   - Accountant JVs cannot be dated before the start date (16 Dec 2026), so none can be posted until then (except after the admin moves the start date).
+- Ledger (3b):
+  - The receivables check compares every customer as at the day; the machine check counts unsettled sales from the settlement start date. Both differ until the opening balances include them, so the accountant should type the unsettled machine amounts at the start date.
+  - 3b posts no inventory or cost lines (consumption, NC and the not-served cost back come in 3c).

@@ -2,13 +2,14 @@
 // Admin and accountant only; the admin alone changes the start date and confirms the opening balances (the owner's decision).
 import { Router } from "express";
 import type { Response } from "express";
-import { db, accountsTable, expenseAccountMapTable, expensesTable, journalEntriesTable, journalLinesTable, ledgerSettingsTable, loyaltyCustomersTable, suppliersTable } from "@workspace/db";
+import { db, accountsTable, expenseAccountMapTable, expensesTable, journalEntriesTable, journalLinesTable, ledgerSettingsTable, loyaltyCustomersTable, suppliersTable, menuCategoriesTable } from "@workspace/db";
 import { and, eq, gte, lte, desc, asc, sql, isNull, inArray } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { nepalDay, isDay } from "../lib/ledgerData";
 import { bsLabel } from "../lib/fiscal";
 import { ledgerSettings, postEntry, reverseEntry, entryWithLines, trialBalance, accountLedger, LedgerError } from "../lib/ledger";
 import { openingDraft, fillFromSystem, saveLine, removeLine, confirmOpening } from "../lib/openingBalances";
+import { reviewDay, postDay, listDays } from "../lib/glPosting";
 import { round2 } from "../lib/payments";
 
 const router = Router();
@@ -51,6 +52,10 @@ router.patch("/gl/settings", authenticate, async (req: AuthRequest, res: Respons
     const [{ n }] = await db.select({ n: sql<number>`COUNT(*)` }).from(journalEntriesTable);
     if (Number(n) > 0) { res.status(400).json({ error: "Journal entries are already posted; the start date can no longer change." }); return; }
     set.startDate = b.startDate;
+  }
+  if (b.vatEnabled !== undefined) {
+    if (roleOf(req) !== "admin") { res.status(403).json({ error: "Only the admin switches VAT on (after VAT registration)." }); return; }
+    set.vatEnabled = b.vatEnabled === true;
   }
   if (b.lockAfterDays !== undefined) {
     const n = Number(b.lockAfterDays);
@@ -222,6 +227,44 @@ router.delete("/gl/opening/lines/:id", authenticate, async (req: AuthRequest, re
 router.post("/gl/opening/confirm", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, ["admin"], "Only the admin (the owner) confirms the opening balances.")) return;
   await run(res, async () => { const e = await db.transaction(tx => confirmOpening(tx, userOf(req))); return { entry: e, ...(await openingDraft(db)) }; });
+});
+
+// ── VAT status for the payment screen (every signed-in role): VAT bills are refused while VAT is off ──
+router.get("/gl/vat-status", authenticate, async (_req: AuthRequest, res: Response): Promise<void> => {
+  res.json({ vatEnabled: !!(await ledgerSettings(db) as any).vatEnabled });
+});
+
+// ── Menu categories: Food or Beverage (sales to 4000 / 4010, consumption to 5000 / 5010) ──
+router.get("/gl/menu-categories", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  res.json(await db.select().from(menuCategoriesTable).orderBy(asc(menuCategoriesTable.displayOrder), asc(menuCategoriesTable.name)));
+});
+router.patch("/gl/menu-categories/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  const kind = req.body?.revenueKind;
+  if (kind !== "food" && kind !== "beverage") { res.status(400).json({ error: "Choose Food or Beverage." }); return; }
+  const [row] = await db.update(menuCategoriesTable).set({ revenueKind: kind }).where(eq(menuCategoriesTable.id, idOf(req.params.id))).returning();
+  if (!row) { res.status(404).json({ error: "Category not found." }); return; }
+  res.json(row);
+});
+
+// ── Next-day posting: the days, a day's review, posting it ──
+router.get("/gl/days", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  res.json(await listDays());
+});
+router.get("/gl/days/:day", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  const day = String(req.params.day);
+  if (!isDay(day)) { res.status(400).json({ error: "A valid day is required." }); return; }
+  const r: any = await reviewDay(day);
+  res.json({ ...r, lateLines: undefined });
+});
+router.post("/gl/days/:day/post", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  const day = String(req.params.day);
+  if (!isDay(day)) { res.status(400).json({ error: "A valid day is required." }); return; }
+  await run(res, () => postDay(day, req.body?.note ?? null, userOf(req)), 201);
 });
 
 export default router;

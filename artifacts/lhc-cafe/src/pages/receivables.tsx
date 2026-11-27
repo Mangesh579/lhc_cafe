@@ -106,6 +106,7 @@ export default function Receivables() {
   const [rvResults, setRvResults] = useState<any[]>([]);
   const [rvDate, setRvDate] = useState(nepalToday());
   const [rvMode, setRvMode] = useState("cash");
+  const [rvBank, setRvBank] = useState("");
   const [rvAmount, setRvAmount] = useState("");
   const [rvRef, setRvRef] = useState("");
   const [rvNotes, setRvNotes] = useState("");
@@ -176,7 +177,7 @@ export default function Receivables() {
     try {
       let r: any;
       if (rvTarget) r = await apiJson(`/receipts/${rvTarget.id}/allocate`, "POST", { allocations });
-      else r = await apiJson("/receipts", "POST", { customerId: rvCustomer.id, date: rvDate, mode: rvMode, amount: amountNum, reference: rvRef, notes: rvNotes, allocations });
+      else r = await apiJson("/receipts", "POST", { customerId: rvCustomer.id, date: rvDate, mode: rvMode, bankAccount: rvMode === "bank" ? rvBank : undefined, amount: amountNum, reference: rvRef, notes: rvNotes, allocations });
       toast({ title: rvTarget ? "Allocated" : `Receipt ${r.voucherNo} recorded`, description: r.unallocated > 0 ? `${rs(r.unallocated)} is not yet allocated to an invoice.` : undefined });
       setRvOpen(false);
       if (!rvTarget && confirm("Print the receipt voucher?")) printVoucher(r);
@@ -494,6 +495,7 @@ export default function Receivables() {
                 <div className="space-y-1"><Label>Date</Label><Input type="date" value={rvDate} max={nepalToday()} onChange={e => setRvDate(e.target.value)} /></div>
                 <div className="space-y-1"><Label>Received by</Label>
                   <select className={SELECT} value={rvMode} onChange={e => setRvMode(e.target.value)}>{RECEIPT_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}</select>
+                  {rvMode === "bank" && <select className={`${SELECT} mt-1`} value={rvBank} onChange={e => setRvBank(e.target.value)}><option value="">Which bank? *</option><option value="nabil">Nabil Bank</option><option value="hbl">HBL</option></select>}
                 </div>
                 <div className="space-y-1"><Label>Amount (Rs.)</Label><Input type="number" min="0" step="0.01" value={rvAmount} onChange={e => setRvAmount(e.target.value)} /></div>
                 <div className="space-y-1"><Label>Reference</Label><Input placeholder={rvMode === "bank" ? "Cheque / transfer no." : rvMode === "nabil_qr" ? "QR transaction no." : "Optional"} value={rvRef} onChange={e => setRvRef(e.target.value)} /></div>

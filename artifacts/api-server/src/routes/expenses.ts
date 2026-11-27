@@ -19,6 +19,11 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const TYPES = ["direct", "indirect"];
 const METHODS = ["cash", "bank_transfer", "card", "qr", "cheque"];
+// Step 3b: paid by bank transfer or cheque -> which bank (nabil | hbl); false = missing; null = not a bank payment
+function bankFor(method: unknown, bank: unknown): string | null | false {
+  if (method !== "bank_transfer" && method !== "cheque") return null;
+  return bank === "nabil" || bank === "hbl" ? bank : false;
+}
 const FREQUENCIES = ["monthly", "quarterly", "yearly"];
 const ALLOWED_MIME: Record<string, string> = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "application/pdf": ".pdf" };
 
@@ -145,6 +150,8 @@ router.post("/expenses", authenticate, requireAdminOrAccountant, async (req: Aut
   if (!(amount > 0)) { res.status(400).json({ error: "Enter an amount above 0." }); return; }
   if (!isDate(b.expenseDate)) { res.status(400).json({ error: "A valid date is required." }); return; }
   if (b.paymentMethod === "cash" && b.paidFromDrawer && await isDrawerClosed(b.expenseDate)) { res.status(400).json({ error: "That day's cash drawer is already closed." }); return; }
+  const bankAccount = bankFor(b.paymentMethod, b.bankAccount);
+  if (bankAccount === false) { res.status(400).json({ error: "Choose the bank it was paid from: Nabil or HBL." }); return; }
   const user = req.user?.username ?? "user";
   const fromDrawer = b.paymentMethod === "cash" && !!b.paidFromDrawer;
   // Cash out of the drawer is petty cash: it gets a CV number, like a payout on the Cash Drawer page
@@ -154,7 +161,7 @@ router.post("/expenses", authenticate, requireAdminOrAccountant, async (req: Aut
       expenseDate: b.expenseDate, type: b.type, category: clean(b.category, 80)!, subcategory: clean(b.subcategory, 80),
       description: clean(b.description, 500), vendor: clean(b.vendor, 120), amount: String(round2(amount)),
       paymentMethod: METHODS.includes(b.paymentMethod) ? b.paymentMethod : "cash",
-      paidFromDrawer: fromDrawer, billNumber: clean(b.billNumber, 60), voucherNo,
+      paidFromDrawer: fromDrawer, billNumber: clean(b.billNumber, 60), voucherNo, bankAccount,
       isRecurring: !!b.isRecurring, frequency: b.isRecurring ? (FREQUENCIES.includes(b.frequency) ? b.frequency : "monthly") : null,
       createdBy: user,
     }).returning();
@@ -185,6 +192,11 @@ router.patch("/expenses/:id", authenticate, requireAdminOrAccountant, async (req
   if (b.description !== undefined) { const v = clean(b.description, 500); track("description", ex.description, v); set.description = v; }
   if (b.vendor !== undefined) { const v = clean(b.vendor, 120); track("vendor", ex.vendor, v); set.vendor = v; }
   if (METHODS.includes(b.paymentMethod)) { track("payment method", ex.paymentMethod, b.paymentMethod); set.paymentMethod = b.paymentMethod; }
+  if (METHODS.includes(b.paymentMethod) || b.bankAccount !== undefined) {
+    const bank = bankFor(b.paymentMethod ?? ex.paymentMethod, b.bankAccount ?? (ex as any).bankAccount);
+    if (bank === false) { res.status(400).json({ error: "Choose the bank it was paid from: Nabil or HBL." }); return; }
+    track("bank", (ex as any).bankAccount, bank); set.bankAccount = bank;
+  }
 
   if (!linked) {
     if (TYPES.includes(b.type)) { track("type", ex.type, b.type); set.type = b.type; }

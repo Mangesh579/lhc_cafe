@@ -27,6 +27,7 @@ export const customerReceiptsTable = pgTable("customer_receipts", {
   mode: text("mode").notNull(),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   reference: text("reference"),
+  bankAccount: text("bank_account"), // a receipt "by bank": the bank it reached (nabil | hbl), step 3b
   notes: text("notes"),
   status: text("status").notNull().default("active"),
   voidReason: text("void_reason"),

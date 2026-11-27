@@ -102,3 +102,15 @@ export const openingBalanceLogTable = pgTable("opening_balance_log", {
   changedBy: text("changed_by").notNull(),
   changedAt: timestamp("changed_at").notNull().defaultNow(),
 });
+
+// A Nepal day whose sales, credit notes, receipts and settlements were posted (step 3b; locking comes in 3d)
+export const postingDaysTable = pgTable("posting_days", {
+  day: date("day").primaryKey(),
+  status: text("status").notNull().default("posted"), // posted | locked
+  entries: integer("entries").notNull().default(0),
+  totals: text("totals"),        // JSON: debit and credit per account for the day's entries
+  problems: text("problems"),    // JSON: the problems acknowledged when posting
+  note: text("note"),            // the accountant's note acknowledging them
+  postedBy: text("posted_by").notNull(),
+  postedAt: timestamp("posted_at").notNull().defaultNow(),
+});

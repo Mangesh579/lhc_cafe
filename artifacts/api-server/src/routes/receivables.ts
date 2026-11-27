@@ -31,7 +31,7 @@ async function receiptsWithAllocations(where: any) {
   const rows = await db.select({
     id: customerReceiptsTable.id, voucherNo: customerReceiptsTable.voucherNo, customerId: customerReceiptsTable.customerId,
     customerName: loyaltyCustomersTable.name, customerPhone: loyaltyCustomersTable.phone,
-    receiptDate: customerReceiptsTable.receiptDate, mode: customerReceiptsTable.mode, amount: customerReceiptsTable.amount,
+    receiptDate: customerReceiptsTable.receiptDate, mode: customerReceiptsTable.mode, amount: customerReceiptsTable.amount, bankAccount: customerReceiptsTable.bankAccount,
     reference: customerReceiptsTable.reference, notes: customerReceiptsTable.notes, status: customerReceiptsTable.status,
     voidReason: customerReceiptsTable.voidReason, voidedBy: customerReceiptsTable.voidedBy, createdBy: customerReceiptsTable.createdBy, createdAt: customerReceiptsTable.createdAt,
   }).from(customerReceiptsTable)
@@ -186,6 +186,9 @@ router.post("/receipts", authenticate, async (req: AuthRequest, res: Response): 
   if (!(amount > 0)) { res.status(400).json({ error: "Enter an amount above 0." }); return; }
   if (!(RECEIPT_MODES as readonly string[]).includes(mode)) { res.status(400).json({ error: "Choose how the money was received: cash, QR, card or bank." }); return; }
   if (date > today) { res.status(400).json({ error: "The receipt date cannot be in the future." }); return; }
+  // Step 3b: a receipt by bank records which bank it reached (it posts to 1200 Nabil or 1210 HBL)
+  const bankAccount = mode === "bank" ? String(b.bankAccount ?? "") : null;
+  if (mode === "bank" && !["nabil", "hbl"].includes(bankAccount!)) { res.status(400).json({ error: "Choose the bank the money reached: Nabil or HBL." }); return; }
   if (mode === "cash" && await isDrawerClosed(date)) { res.status(400).json({ error: "That day's cash drawer is already closed. Ask the admin to reopen it, or date the receipt today." }); return; }
   const user = req.user?.username ?? "user";
   try {
@@ -195,7 +198,7 @@ router.post("/receipts", authenticate, async (req: AuthRequest, res: Response): 
       if ("error" in v) throw new HttpError(400, v.error);
       const voucherNo = await nextVoucherNumber(tx, "RV");
       const [row] = await tx.insert(customerReceiptsTable).values({
-        voucherNo, customerId, receiptDate: date, mode, amount: String(amount),
+        voucherNo, customerId, receiptDate: date, mode, amount: String(amount), bankAccount,
         reference: clean(b.reference, 80), notes: clean(b.notes, 300), createdBy: user,
       }).returning();
       for (const a of v.allocations) await tx.insert(receiptAllocationsTable).values({ receiptId: row.id, orderId: a.orderId, amount: String(a.amount), createdBy: user });

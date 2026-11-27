@@ -48,6 +48,12 @@ export default function Orders() {
   const [ncWhy, setNcWhy] = useState("");
   // Reward item (loyalty reward): one unit of an item on the bill comes off before the staff % (owner, 2026-11-26)
   const [rewardItemId, setRewardItemId] = useState<number | null>(null);
+  // VAT bills are refused until LHC is VAT registered (owner and accountant, 2026-11-27)
+  const [vatEnabled, setVatEnabled] = useState(false);
+  useEffect(() => {
+    fetch(`${API_BASE}/api/gl/vat-status`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } })
+      .then(r => r.ok ? r.json() : null).then(d => setVatEnabled(!!d?.vatEnabled)).catch(() => {});
+  }, []);
   // Hotel room stays (2026-11-26): charge the bill to an open stay, as the guest's extra or as the included breakfast (Sulimha)
   const [openStays, setOpenStays] = useState<any[]>([]);
   const [breakfastPrice, setBreakfastPrice] = useState(800);
@@ -1079,9 +1085,10 @@ export default function Orders() {
               <Tabs value={billType} onValueChange={(v) => setBillType(v as "pan" | "vat")}>
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="pan">PAN Bill</TabsTrigger>
-                  <TabsTrigger value="vat">VAT Bill</TabsTrigger>
+                  <TabsTrigger value="vat" disabled={!vatEnabled}>VAT Bill</TabsTrigger>
                 </TabsList>
               </Tabs>
+              {!vatEnabled && <p className="text-xs text-muted-foreground">VAT bills are stopped until LHC is VAT registered.</p>}
               <div className="grid grid-cols-2 gap-2 mt-2">
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">Other Party Name (opt.)</Label>
