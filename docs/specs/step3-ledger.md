@@ -386,3 +386,16 @@ Each part ends with typecheck, build, `pnpm test`, a CHANGELOG entry and the ful
 - **Screens:**
   - Post a day: the lock per day, and Reopen day for the admin.
   - Chart of Accounts > Month close: the months, review, close or reopen, the summary, the trial balance, Excel.
+
+## 18. Part 3e as built (2026-11-27; see docs/CHANGELOG.md)
+- **What it does:** stock changed by hand posts to 5150 Stock adjustment. This replaces the "accountant JV" for stock count differences in section 4.
+- **Marking (migration 016):**
+  - inventory_logs.kind = 'adjustment' and unit_cost (the cost per unit then) are set by POST /inventory/:id/adjust (admin), the approval of an adjustment request, the admin's direct stock edit in PATCH /inventory/:id, and the "Initial stock" log of an ingredient created with stock above 0.
+  - Other logs stay null.
+- **Rule** (lib/postingRules.ts stockAdjustmentEntry), voucher SA, source stock_adjustment / the log id, on the log's Nepal day:
+  - an increase is Dr 1400/1410 (by the ingredient's department), Cr 5150;
+  - a decrease is Dr 5150, Cr 1400/1410;
+  - the amount is |change| x unit_cost;
+  - no cost gives an acknowledge-level problem, not posted.
+- **Review:** included in the day's entries, the totals and the unposted scan (late logs are added). Posted ones are never re-checked, because a log never changes. Nothing before the start date posts.
+- **Stock check:** information only; its note lists what is left to explain.

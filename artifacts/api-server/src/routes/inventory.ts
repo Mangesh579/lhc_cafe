@@ -57,6 +57,8 @@ router.post("/inventory", authenticate, async (req: AuthRequest, res: Response):
     inventoryItemId: item.id, changeAmount: String(currentStock ?? 0),
     stockBefore: "0", stockAfter: String(currentStock ?? 0),
     reason: "Initial stock", changedBy: req.user?.username ?? "system",
+    // step 3e: starting stock is a hand adjustment (posts to 5150 at the cost given)
+    ...(parseFloat(String(currentStock ?? 0)) > 0 ? { kind: "adjustment", unitCost: item.costPerUnit } : {}),
   });
   res.status(201).json(item);
 });
@@ -92,6 +94,7 @@ router.patch("/inventory/:id", authenticate, async (req: AuthRequest, res: Respo
     await db.insert(inventoryLogsTable).values({
       inventoryItemId: id, changeAmount: String(after - before), stockBefore: String(before), stockAfter: String(after),
       reason: "Stock edited directly by admin", changedBy: req.user?.username ?? "admin",
+      kind: "adjustment", unitCost: item.costPerUnit,
     });
   }
   res.json(item);
@@ -166,6 +169,7 @@ router.post("/inventory/:id/adjust", authenticate, async (req: AuthRequest, res:
     inventoryItemId: id, changeAmount: String(quantity),
     stockBefore: String(stockBefore), stockAfter: String(stockAfter),
     reason, changedBy: req.user?.username ?? "staff",
+    kind: "adjustment", unitCost: current.costPerUnit,
   });
   res.json(item);
 });
@@ -445,6 +449,7 @@ router.post("/inventory/requests/:id/approve", authenticate, requireAdmin, async
       stockAfter: String(stockAfter),
       reason: `${request.reason} — requested by ${request.requestedBy}, approved by ${admin}`,
       changedBy: admin,
+      kind: "adjustment", unitCost: current.costPerUnit,
     });
     applied = true;
   });

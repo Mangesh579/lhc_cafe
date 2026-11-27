@@ -119,6 +119,11 @@
   - **Reopen a day:** admin only, with a reason, logged in day_reopens. The day locks again 3 days after the reopen. Refused inside a closed month.
   - **Month close:** Chart of Accounts > Month close, by the accountant or the admin, once every day is posted and locked and the month-end checks agree or are noted. A closed month locks all its days. Only the admin reopens it, with a reason. The tab has the month's summary, its trial balance and an Excel export.
 
+32. Ledger part 3e, stock adjustments, 2026-11-27 (docs/specs/step3-ledger.md section 18). Needs migration 016 (not yet applied).
+  - **What posts:** stock changed by hand posts to 5150 Stock adjustment against 1400/1410, one SA entry per Stock Log row. That covers an admin adjust, an approved request, an admin's direct stock edit, and a new ingredient's starting stock.
+  - **Cost:** the change is valued at the cost per unit recorded with the log. A log with no cost is an acknowledge-level problem and does not post.
+  - **Other logs** (orders, purchases, debit notes, waste, cancels) are not adjustments; their own documents post them.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -138,7 +143,7 @@
 - 015_period_lock.sql (recorded 2026-11-27, by the owner): posting_days.reopened_on, day_reopens, period_closes.
 
 # Not yet applied on the server
-- None.
+- 016_stock_adjustments.sql (2026-11-27): inventory_logs.kind and unit_cost. Run after a backup, before deploy.sh.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.

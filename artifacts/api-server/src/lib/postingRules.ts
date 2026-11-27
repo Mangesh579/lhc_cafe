@@ -139,6 +139,23 @@ export const PAYABLE = "2100", CASH = "1100", DRAWINGS = "3100", CASH_SHORT_OVER
 const INVENTORY: Record<string, string> = { kitchen: "1400", drink: "1410" };
 const CONSUMPTION: Record<string, string> = { food: "5000", beverage: "5010" };
 export const NC_COST = "5200", WASTE = "5100";
+export const STOCK_ADJUSTMENT = "5150";
+
+// Step 3e: a stock change made by hand (Stock Log kind 'adjustment'), valued at the cost per unit recorded with it.
+// Increase: Dr 1400/1410 (the ingredient's department), Cr 5150. Decrease: Dr 5150, Cr 1400/1410.
+export type AdjustmentSource = { logId: number; day: string; itemName: string; department: string | null; unit: string | null; change: number; unitCost: number | null; reason: string };
+export function stockAdjustmentEntry(a: AdjustmentSource): Built {
+  const ref = `Stock adjustment #${a.logId}`;
+  const size = `${a.change > 0 ? "+" : ""}${a.change}${a.unit ? ` ${a.unit}` : ""}`;
+  if (!(a.unitCost && a.unitCost > 0)) return { entry: null, problems: [{ level: "ack", code: "adjustment_no_cost", message: `${ref}: adjustment of ${a.itemName} (${size}) with no cost, not posted.`, ref }] };
+  const amount = round2(Math.abs(a.change) * a.unitCost);
+  if (amount < 0.01) return { entry: null, problems: [] };
+  const stock = INVENTORY[a.department === "drink" ? "drink" : "kitchen"];
+  return { entry: { voucherType: "SA", narration: `${ref}: ${a.itemName} ${size} at Rs. ${a.unitCost} (${a.reason})`, sourceType: "stock_adjustment", sourceId: a.logId, sourceRef: ref, date: a.day,
+    lines: a.change > 0 ? [{ accountCode: stock, debit: amount, credit: 0 }, { accountCode: STOCK_ADJUSTMENT, debit: 0, credit: amount }]
+                        : [{ accountCode: STOCK_ADJUSTMENT, debit: amount, credit: 0 }, { accountCode: stock, debit: 0, credit: amount }] }, problems: [] };
+}
+
 export const dayKey = (day: string) => Number(day.replace(/-/g, "")); // a day as a source id (consumption, drawer close)
 
 // Inventory lines by department (kitchen 1400, drink 1410); an unknown department is a must-fix
