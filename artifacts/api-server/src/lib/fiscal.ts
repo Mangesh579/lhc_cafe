@@ -46,3 +46,18 @@ export async function nextVoucherNumber(ex: Exec, voucherType: string, defaultPr
     .returning();
   return `${row.prefix}-${fy}-${String(row.lastNumber).padStart(5, "0")}`;
 }
+
+const BS_MONTHS = ["Baisakh", "Jestha", "Asar", "Shrawan", "Bhadra", "Ashwin", "Kartik", "Mangsir", "Poush", "Magh", "Falgun", "Chaitra"];
+
+// A Nepal calendar day (YYYY-MM-DD, AD) in BS, e.g. 2026-12-16 -> "1 Poush 2083"
+export function bsLabel(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const bs = new (nepaliDateClass())(new Date(y, m - 1, d, 12, 0, 0));
+  return `${bs.getDate()} ${BS_MONTHS[bs.getMonth()]} ${bs.getYear()}`;
+}
+
+// A BS date (month 1 = Baisakh) as the AD day, YYYY-MM-DD
+export function adOfBs(year: number, month: number, day: number): string {
+  const j: Date = new (nepaliDateClass())(year, month - 1, day).toJsDate();
+  return `${j.getFullYear()}-${String(j.getMonth() + 1).padStart(2, "0")}-${String(j.getDate()).padStart(2, "0")}`;
+}

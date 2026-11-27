@@ -1,6 +1,6 @@
 # Step 3: chart of accounts, vouchers, double-entry posting, next-day posting and period lock (plan)
 
-Written 2026-11-27 for the owner and the accountant to review. **Nothing here is built yet.** Section 12 lists the questions to answer before part 3a starts. Account numbers are the chart the accountant approved on 2026-11-24 (CLAUDE.md, "Chart of accounts").
+Written 2026-11-27 for the owner and the accountant to review. **Approved with the answers in section 13 (CLAUDE.md, "Step 3 answers").** Part 3a is being built; parts 3b to 3d are not. Account numbers are the chart the accountant approved on 2026-11-24 (CLAUDE.md, "Chart of accounts").
 
 ## 1. What step 3 adds, in one paragraph
 Every day's business already exists as source documents: bills, credit notes, receipts (RV), settlements, purchase bills (PJ), supplier payments (CV/PV), debit notes (DN), petty cash (CV), drawer movements and closings. Step 3 turns them into **journal entries** in a double-entry ledger, the next day.
@@ -26,6 +26,7 @@ Every day's business already exists as source documents: bills, credit notes, re
 - **`accounts`:**
   - **Fields:** code (e.g. "1100", the key), name, type (asset, liability, equity, income, expense), normal side (debit or credit), parent code, `is_header`, `is_postable`, `active`, sort order.
   - **Seeded rows:** the approved chart; the headers 1000 Assets and 2000 Liabilities are not postable.
+  - **Also seeded (2026-11-27):** 1280 Receivable - Sulimha Durbar (card collections), 3050 Opening balance equity, 4020 Hotel breakfast income, 5150 Stock adjustment, and 7110 Petty cash, no bill (inactive until the accountant confirms it).
   - **Adding accounts:** new accounts are added by the admin or accountant on a Chart of Accounts screen (they are never deleted, only made inactive). A used account cannot change its type.
 - **`expense_account_map`:** each expense category (the Expenses page categories) maps to an account (6000 to 7100, 5300). Defaults are seeded, and the accountant confirms them on a screen. An expense in an unmapped category is a problem on the review screen, not a guess.
 - **`journal_entries`:**
@@ -42,11 +43,13 @@ Every day's business already exists as source documents: bills, credit notes, re
   - status `open`, `posted` or `locked`; posted at/by, locked at/by;
   - a snapshot of the day's totals and of the problems acknowledged at posting.
 - **`ledger_settings`** (one row):
-  - **ledger start date** (no source before it posts; opening balances are at this date);
-  - **lock after N days** (default 2, accountant: 2 to 3);
+  - **ledger start date:** Poush 1, 2083 BS = 16 December 2026. Nothing before it posts; opening balances are at this date. The admin can change it, and it is shown clearly in BS and AD.
+  - **lock after N days:** default 3 (the accountant may set 2);
   - who may post (admin, accountant) and who may reopen (admin).
 - **`month_closes`:** BS year and month, AD from/to dates, closed at/by, reopened at/by with a reason.
-- **Opening balances:** no new table. One `opening` entry on the start date, prepared by an Opening Balances screen (section 6).
+- **Opening balances:** a draft first, an entry last (owner, 2026-11-27).
+  - `opening_balance_lines` (account, customer or supplier, debit or credit, filled from the system or typed, memo) and `opening_balance_log` (every add, change, removal and fill, with who and when). These can be edited until the owner confirms them, and are marked **dummy** until then.
+  - On confirmation (admin), one `opening` journal entry is posted on the start date, with 3050 Opening balance equity balancing it. After that the lines are read-only; corrections are JVs.
 
 **Vouchers:** documents that already have numbers keep them, and the entry shows that number as its reference:
 - RV (receipts);
@@ -71,7 +74,7 @@ Amounts are pre-VAT unless stated. "Sales" means **4000 Food sales** or **4010 B
 | **Credit part** (credit invoice) | 1300 Accounts Receivable, with the customer | as above | |
 | **Split bill** | each part to its own account above | as above | One entry; the debits add up to the bill total. |
 | **Discount** (bill discount, reward item) | 4950 Discounts allowed | (in the same entry: sales are credited at the gross item value) | Gross item lines less discount = bill total. |
-| **Hotel breakfast to Sulimha** | 1300 with Sulimha Durbar | Sales (the re-priced item lines, total Rs 800 x breakfasts) | A credit invoice like any other. |
+| **Hotel breakfast to Sulimha** | 1300 with Sulimha Durbar | **4020 Hotel breakfast income** (Rs 800 x breakfasts) | A credit invoice like any other (decision 2026-11-27). |
 | **Guest extras charged to room** | 1300 with the guest | Sales | A credit invoice. |
 | **NC (complimentary)** | 5200 Complimentary (NC) cost | 1400 / 1410 Inventory | At ingredient cost (the NC bill's total). No sales and no money. Posted with consumption, below. |
 | **Credit note, item-wise or cancel** (CN) | 4900 Sales returns (pre-VAT); 2200 VAT if any | 1300 with the customer | On its note date. |
@@ -80,7 +83,7 @@ Amounts are pre-VAT unless stated. "Sales" means **4000 Food sales** or **4010 B
 | **Customer receipt** (RV) | 1100 cash, 1270 QR, 1250/1260/1280 card, or 1200/1210 bank (question 6) | 1300 with the customer | An unallocated receipt (an advance) still credits 1300; the customer's balance goes below zero. |
 | **Settlement, LHC machine or QR** | 1200/1210 bank: amount received; 7000 Bank and card charges: the fee | 1250/1260/1270: the gross | The settlement's bank-charge expense row is skipped (posted here). |
 | **Settlement, Sulimha machine** (Sulimha's transfer) | 1200/1210 (the account chosen); 7000: the fee | 1280: the gross | |
-| **Petty cash payout** (CV; expense from the drawer) | the expense's account (expense_account_map) | 1100 | |
+| **Petty cash payout** (CV; expense from the drawer) | the expense's account (expense_account_map) | 1100 | A payout with no bill number posts the same way and is flagged "no bill" on the review screen (7110 stays inactive unless the accountant chooses to use it). |
 | **Other expense** (Expenses page, not from the drawer) | its account | 1100 cash; 1200/1210 bank or cheque (question 6) | Card or QR paid expenses are a problem until the accountant says which account. |
 | **Purchase bill** (PJ) | 1400 for kitchen lines, 1410 for drink lines (by ingredient department); VAT stays in cost until registration | 2100 with the supplier (credit), 1100 (drawer), 1200/1210 (cheque/online, from paid_from_account) | The bill's expense rows are skipped. |
 | **Supplier payment** (CV drawer / PV cheque or online) | 2100 with the supplier | 1100 / 1200 / 1210 | An advance (unallocated) also debits 2100 (question 7). |
@@ -88,14 +91,16 @@ Amounts are pre-VAT unless stated. "Sales" means **4000 Food sales** or **4010 B
 | **Opening supplier bills** | — | — | In the opening balances (2100 per supplier), not posted again. |
 | **Consumption** (per day) | 5000 Food / 5010 Beverage | 1400 / 1410 | From order_items.unit_cost of the day's sold items (not NC, not re-issued invoices), which already includes prep waste. One entry per day. |
 | **Waste** (manual Waste Log, per day) | 5100 Waste and spoilage | 1400 / 1410 | At the logged value, or the cost as on the P&L. Prep waste is already in consumption and is not posted again. |
-| **Drawer deposit to bank** | 1200 / 1210 (question 6) | 1100 | |
+| **Drawer deposit to bank** | 1200 / 1210 (the deposit's bank field) | 1100 | |
 | **Owner withdrawal** | 3100 Drawings | 1100 | |
-| **Other cash in / out** | 1100 / the account chosen | the account chosen / 1100 | The account is chosen when the movement is recorded (new field, question 11). |
+| **Other cash in / out** | 1100 / the account chosen | the account chosen / 1100 | The account is chosen when the movement is recorded: 4200, 7100, 3000 or 3100. |
 | **Drawer close: cash short** | 7050 Cash short/over | 1100 | From the day's counted difference. |
 | **Drawer close: cash over** | 1100 | 7050 | |
 | **Cancelled or voided after posting** | reverse of the original | | On the day of the change (principle 5). |
 
-**Not posted in step 3:** salaries and TDS (step 7 payroll, step 5 TDS), course fees (step 6), depreciation (postponed by the accountant), VAT returns (step 5). Until VAT is switched on, a bill with VAT is flagged on the review screen (question 8).
+**Not posted in step 3:** salaries and TDS (step 7 payroll, step 5 TDS), course fees (step 6), depreciation (postponed by the accountant), VAT returns (step 5). VAT bills are stopped until VAT is switched on (3b); an older VAT bill is flagged on the review screen.
+
+**Stock count differences** post to **5150 Stock adjustment** (accountant JV), not to 5100.
 
 ## 5. Next-day posting: the review screen
 - **Who:** admin and accountant. The page **Ledger > Post a day** lists days from the start date: not posted, posted, locked.
@@ -176,7 +181,11 @@ Each part ends with typecheck, build, `pnpm test`, a CHANGELOG entry and the ful
 
 **3b. Sales, credit notes, receipts and settlements posting, plus the review screen** (migration 014 if the bank-account fields are added)
 - **Build:**
-  - the builders for bills (all modes, split, discount, VAT flag, Sulimha machines, breakfast, room extras), credit notes (including the not-served cost back and the Wrong-customer transfer), receipts and settlements;
+  - **VAT bills stopped:** the payment screen and the payment API refuse a VAT bill unless VAT is switched on (a setting, off until registration).
+  - **Bank fields:** a Nabil or HBL field on receipts "by bank", on drawer deposits, and on expenses paid by bank transfer or cheque (migration 014).
+  - **Other cash in/out:** an account field limited to 4200, 7100, 3000 and 3100.
+  - **Food or Beverage on each menu category.**
+  - the builders for bills (all modes, split, discount, Sulimha machines, breakfast to 4020, room extras), credit notes (including the not-served cost back and the Wrong-customer transfer), receipts and settlements;
   - the review screen, Post, and late-change reversals for these sources;
   - the reconciliation checks for sales, VAT, receivables and machines.
 - **Tests (one per builder):**
@@ -245,9 +254,10 @@ Each part ends with typecheck, build, `pnpm test`, a CHANGELOG entry and the ful
 - **Locking:** it adds refusals to many existing routes (3d). Each is tested.
 
 ## 11. Changes needed in today's screens (small, in 3b/3c)
-- **Which bank:** a field on receipts "by bank", on drawer deposits, and on expenses paid by bank transfer or cheque (question 6).
-- **Other cash in/out:** an account field (question 11).
-- **Menu categories:** "Food" or "Beverage" on each category (question 4).
+- **Which bank:** a "bank" field (Nabil or HBL) on receipts "by bank", on drawer deposits, and on expenses paid by bank transfer or cheque (3b, migration 014).
+- **Other cash in/out:** an account field, one of 4200, 7100, 3000, 3100 (3b).
+- **Menu categories:** "Food" or "Beverage" on each category (3b).
+- **VAT bills:** refused on the payment screen and API until VAT is switched on (3b).
 
 ## 12. Questions for the owner and the accountant
 1. **Sulimha's card machines:** the money is owed by Sulimha until it transfers. Is a new account **1280 Receivable - Sulimha card collections** right? Or should it go into 1300 under Sulimha Durbar's customer account, where its breakfast bills already are?
@@ -263,3 +273,36 @@ Each part ends with typecheck, build, `pnpm test`, a CHANGELOG entry and the ful
 11. **Other cash in / out:** which accounts can be chosen? (Suggestion: 4200 Other income, 7100 Other expenses, 3000 Owner's capital, 3100 Drawings.)
 12. **Stock differences:** when the ledger's 1400/1410 differ from stock x cost (after a stock count), should the adjusting JV go to 5100 Waste and spoilage, or to a new account?
 13. **Changes after posting:** reverse and re-post on the day of the change (recommended)? Or refuse any change to a document whose day is posted?
+
+## 13. Answers (owner and accountant, 2026-11-27; CLAUDE.md "Step 3 answers")
+1. **New accounts:** 1280 Receivable - Sulimha Durbar (card collections), 4020 Hotel breakfast income (breakfast invoices post here), and 7110 Petty cash, no bill (inactive until confirmed). Petty cash without a bill posts to its category and is flagged "no bill".
+2. **Opening balance difference:** goes to 3050 Opening balance equity, cleared into 3200 by the accountant later. Opening balances are editable with an audit trail and marked dummy until the owner confirms them. Receivables, payables, inventory and cash are filled from the system; banks, equipment and equity are typed.
+3. **Start date:** Poush 1, 2083 BS (16 December 2026).
+4. **Food or beverage:** menu categories are marked Food or Beverage, for sales and consumption; inventory is credited by the ingredient's department.
+5. **Expense map:** the accountant reviews the defaults on the Chart of Accounts screen. An unmapped category blocks posting.
+   - **Ingredient categories:** to 1400 or 1410 (milk and dairy to 1400).
+   - **5300:** packaging, other consumables, cooking gas, cooking oil, cleaning supplies.
+   - **Other accounts:** electricity and water to 6200; salaries to 6000; rent to 6100; internet and telephone to 6300; equipment repairs to 6700; laundry, pest control and other administrative to 7100; bank and card charges to 7000.
+6. **Which bank:** receipts by bank, drawer deposits, and expenses by bank transfer or cheque record the bank.
+7. **Supplier advances:** stay on 2100 as a negative balance.
+8. **VAT bills:** stopped while not VAT registered.
+9. **Lock:** 3 days after posting (the accountant may set 2). The accountant closes each Nepali month; only the admin reopens a day or a month, with a reason.
+10. **Entries:** one journal entry per invoice.
+11. **Other cash in/out:** 4200, 7100, 3000, 3100.
+12. **Stock count differences:** to 5150 Stock adjustment.
+13. **Changes after posting:** reverse and re-post on the day of the change.
+
+## 14. Part 3a as built (see docs/CHANGELOG.md)
+- **Migration 013:**
+  - **Accounts and map:** `accounts` (seeded) and `expense_account_map` (seeded with the defaults, unconfirmed).
+  - **Journals:** `journal_entries` and `journal_lines`. The database refuses edits and deletes, unbalanced entries, and lines on header or inactive accounts.
+  - **Settings:** `ledger_settings` (start date 2026-12-16, lock 3 days).
+  - **Opening draft:** `opening_balance_lines` and `opening_balance_log`.
+  - `posting_days` and `month_closes` come with 3b and 3d.
+- **Journal engine (lib/ledger.ts):** post, reverse, trial balance, account ledger.
+- **Accounts page (admin and accountant):**
+  - the chart, with add and deactivate, and the expense map with problems;
+  - journals: list, accountant JV with a reason, reverse;
+  - the trial balance;
+  - opening balances: fill from the system, type, the log, and confirm by the admin;
+  - settings: the start date shown in BS and AD.
