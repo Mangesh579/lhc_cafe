@@ -1539,7 +1539,7 @@ None.
   - journal_lines(account_code, entry_id);
   - journal_lines(customer_id) and journal_lines(supplier_id), each where not null;
   - journal_entries(voucher_type, entry_date).
-- NOT run on the server yet. Idempotent (tested twice). The reports work without it, only slower on a large journal, but run it before deploying as usual.
+- Run on the server by the owner (recorded 2026-11-28). Idempotent (tested twice). The reports work without it, only slower on a large journal, but run it before deploying as usual.
 
 ### Decisions
 - The Day Book's "correction" and "late" kinds are posted entries whose narration says "(corrected: ...)" or "(late: ...)", as glPosting writes them.
@@ -1567,3 +1567,6 @@ None.
   - Every endpoint answered in under 0.5 seconds; the limit is 5 seconds.
   - The year's Day Book total equals the Trial Balance movement.
 - Not run: the screens in a browser; anything against production.
+
+## 2026-11-28 (b): Migration 017 recorded as run
+- The owner ran db/migrations/017_report_indexes.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 4a entry above. Docs only; no code, no SQL, nothing to deploy.

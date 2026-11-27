@@ -124,7 +124,7 @@
   - **Cost:** the change is valued at the cost per unit recorded with the log. A log with no cost is an acknowledge-level problem and does not post.
   - **Other logs** (orders, purchases, debit notes, waste, cancels) are not adjustments; their own documents post them.
 
-33. Reports part 4a, 2026-11-28 (docs/specs/step4-reports.md section 12). Needs migration 017 (not yet applied; indexes only).
+33. Reports part 4a, 2026-11-28 (docs/specs/step4-reports.md section 12). Migration 017 run (recorded 2026-11-28; indexes only).
   - **Reports page** (/reports, admin and accountant): Day Book, General Ledger (with the 1300/2100 party lists), Cash and Bank Books, Trial Balance for a period (six columns) or as at a date. All read from the journal, GET only.
   - **Every report** shows its period in BS and AD, "Posted up to", and a warning for days not posted yet.
   - **Drill-down:** voucher, entry, source document (read-only, with "Open in <page>"; only purchase bills open the exact document), plus the Consumption view.
@@ -148,9 +148,10 @@
 - 014_ledger_posting.sql (recorded 2026-11-27, by the owner): menu_categories.revenue_kind, ledger_settings.vat_enabled, bank_account on customer_receipts / cash_movements / expenses, cash_movements.account_code, posting_days.
 - 015_period_lock.sql (recorded 2026-11-27, by the owner): posting_days.reopened_on, day_reopens, period_closes.
 - 016_stock_adjustments.sql (recorded 2026-11-28, by the owner): inventory_logs.kind and unit_cost.
+- 017_report_indexes.sql (recorded 2026-11-28, by the owner): report indexes on journal_lines and journal_entries.
 
 # Not yet applied on the server
-- 017_report_indexes.sql (2026-11-28): indexes on journal_lines and journal_entries for the reports. Run after a backup, before deploy.sh.
+- None.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
