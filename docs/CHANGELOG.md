@@ -2196,7 +2196,7 @@ Plan: docs/specs/step5-vat-tds.md sections 4b, 5, 6, 8 and 11 (answers 11 and 12
 - No existing row's values change. Existing receipts have tds_amount 0, so their entries and figures are unchanged.
 
 ### Migration
-- db/migrations/022_tds_receivable.sql. **Not yet run on the server.** Idempotent (run twice in the tests). Run it before deploy.sh: the new code reads the two columns.
+- db/migrations/022_tds_receivable.sql. Run on the server by the owner (recorded 2026-11-28). Idempotent (run twice in the tests).
 
 ### Tests
 - Run on the dev machine:
@@ -2224,3 +2224,6 @@ Plan: docs/specs/step5-vat-tds.md sections 4b, 5, 6, 8 and 11 (answers 11 and 12
 - **Claude's interpretation:** TDS may not exceed the invoices the receipt settles. "Not above the settled total" is always true, so this reads "more TDS than invoices is refused".
 - **Claude's interpretation:** card and QR receipts carry no TDS (both are machine money, settled to LHC's bank).
 - **Hint line:** it uses the service_vat type's rate (1.5%) on the allocated invoices. Once VAT is on (5e), it must leave out the VAT.
+
+## 2026-11-28 (o): Migration 022 recorded as run
+- The owner ran db/migrations/022_tds_receivable.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 5c entry above. Docs only; no code, no SQL, nothing to deploy.
