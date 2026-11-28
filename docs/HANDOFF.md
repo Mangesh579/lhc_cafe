@@ -177,13 +177,23 @@
     - customers: PAN (Sulimha Durbar).
   - **Nothing posts differently yet.** VAT stays in cost until 5d; TDS starts in 5b and 5c.
 
-38. Step 5b, TDS payable, 2026-11-28 (docs/specs/step5-vat-tds.md section 13). Migration 021 NOT yet run.
+38. Step 5b, TDS payable, 2026-11-28 (docs/specs/step5-vat-tds.md section 13). Migration 021 run (recorded 2026-11-28).
   - **Withholding:** the admin and accountant pick a TDS type on an expense (needs the supplier's PAN; never petty cash from the drawer) or on a payment to a service supplier (pre-filled from the supplier). The form shows gross, TDS and net. The ledger gets Cr 2250 with the payee.
   - **Contract type:** only above its threshold, counting the same PAN's payments of the 10 days before.
   - **Confirming:** Chart of Accounts > Taxes has Confirm buttons. An unconfirmed rate is allowed with a warning. Changing a rate asks for it again. The TDS base (before VAT, the default) is a setting the accountant must confirm.
   - **Deposit:** Chart of Accounts > Tax payments records the TDS deposit (voucher TX, Dr 2250 Cr bank) and voids it with a reason.
   - **Report:** Reports > TDS payable for a BS month, with Excel and PDF, the deadline reminder and the 2250 check.
   - **Balance Sheet:** shows 1460 and, once active, 2270.
+
+39. App update notice and the QR sign-in, 2026-11-28. No migration.
+  - **Update notice:** after a deploy, an open page shows "A new version of the app is ready" with Refresh and Later. It checks when the tab is opened again and every 5 minutes, and never reloads by itself. Pages opened before this deploy need one manual refresh to get it.
+  - **QR page:**
+    - leaving the browser for another app no longer signs the member out (the sign-in lasts while the table stays open, at most 4 hours);
+    - the cart is kept;
+    - a Wi-Fi or network blip shows "Reconnecting…" instead of "Your session has ended";
+    - "Not you? Sign out" on the loyalty screen.
+  - **Email codes:** a new code can be asked for after 1 minute (3 an hour before a longer wait). A successful sign-in resets the count.
+  - **Security fix:** redeeming points now needs the member's own sign-in. Before this, the page sent only a customer number.
 
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
@@ -207,9 +217,10 @@
 - 018_report_settings.sql (recorded 2026-11-28, by the owner): report_settings (the highlight rule, 20% and Rs 1,000).
 - 019_hotel_guests.sql (recorded 2026-11-28, by the owner): loyalty_customers kind, archive and promotion columns, phone optional, member-only email rule; orders.paid_by; stay_events.
 - 020_vat_tds_ready.sql (recorded 2026-11-28, by the owner): VAT settings, tax_rates, tds_types, tax_payments, the VAT/PAN/TDS fields, accounts 1460 and 2270 (inactive).
+- 021_tds_payable.sql (recorded 2026-11-28, by the owner): ledger_settings.tds_base; confirmed_by and confirmed_at on tax_rates and tds_types; TDS indexes.
 
 # Not yet applied on the server
-- 021_tds_payable.sql: ledger_settings.tds_base; tax_rates and tds_types confirmed_by and confirmed_at; TDS indexes on expenses, supplier_payments and tax_payments. Run before deploy.sh.
+- None.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.

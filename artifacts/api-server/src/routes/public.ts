@@ -11,6 +11,7 @@ import { loyaltyCustomersTable as qrCustomersTable } from "@workspace/db";
 import { promoteGuest } from "./loyalty";
 import { expandRecipeLines } from "../lib/ingredientUsage";
 import { Resend } from "resend";
+import { signQrLoyalty, verifyQrLoyalty } from "../lib/auth";
 import type { Request, Response, NextFunction } from "express";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -73,6 +74,16 @@ function requireCafeWifi(req: Request, res: Response, next: NextFunction): void 
 }
 
 const SESSION_IDLE_MINUTES = 30;
+
+const loyaltyView = (c: typeof loyaltyCustomersTable.$inferSelect) => ({ id: c.id, name: c.name, phone: c.phone, totalPoints: c.totalPoints, loopNumber: c.loopNumber ?? 1 });
+// The member a QR loyalty sign-in stands for, if it was made at this table under the same opening and they are still a member
+async function signedInMember(token: unknown, session: { tableId: number; tableOpenedAt: string | null }) {
+  const p = verifyQrLoyalty(token);
+  if (!p || p.tid !== session.tableId || (p.op ?? null) !== (session.tableOpenedAt ?? null)) return null;
+  const [c] = await db.select().from(loyaltyCustomersTable)
+    .where(and(eq(loyaltyCustomersTable.id, p.cid), eq(loyaltyCustomersTable.kind, "member"), eq(loyaltyCustomersTable.archived, false))).limit(1);
+  return c ?? null;
+}
 const BESTSELLER_CACHE_DAYS = 30;
 
 async function resolveSession(sessionToken: string) {
@@ -182,8 +193,18 @@ router.get("/session/validate", requireCafeWifi, publicOrderRateLimiter, async (
   const { sessionToken } = req.query as { sessionToken: string };
   if (!sessionToken) { res.status(400).json({ valid: false }); return; }
 
+  const [row] = await db.select().from(tableSessionsTable).where(eq(tableSessionsTable.sessionToken, String(sessionToken))).limit(1);
   const session = await resolveSession(sessionToken);
-  if (!session) { res.status(401).json({ valid: false, reason: "expired" }); return; }
+  if (!session) {
+    // "idle": the table is still open under the same opening, so the page may simply start again (as a new scan would);
+    // "ended": the table was closed or reopened for new guests, and the old page stays closed
+    let reason = "ended";
+    if (row) {
+      const [t] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, row.tableId)).limit(1);
+      if (t?.isOccupied && t.openedAt === row.tableOpenedAt) reason = "idle";
+    }
+    res.status(401).json({ valid: false, reason }); return;
+  }
 
   const [table] = await db.select().from(cafeTablesTable).where(eq(cafeTablesTable.id, session.tableId)).limit(1);
   res.json({ valid: true, tableNumber: table?.tableNumber, tableName: table?.name });
@@ -468,6 +489,8 @@ router.post("/loyalty/request-otp", requireCafeWifi, publicOrderRateLimiter, asy
     }
 
     const RESET_WINDOW_MS = 60 * 60 * 1000; // 1 hour — if last request was over 1hr ago, reset count
+    const RESEND_GAP_MS = 60 * 1000;
+    const FREE_CODES_PER_HOUR = 3;
 
     // Find existing record for this phone+email pair (verified or not)
     const [existing] = await db
@@ -484,20 +507,18 @@ router.post("/loyalty/request-otp", requireCafeWifi, publicOrderRateLimiter, asy
     if (existing) {
       const timeSinceLastRequest = Date.now() - new Date(existing.lastRequestedAt).getTime();
 
-      if (timeSinceLastRequest < RESET_WINDOW_MS) {
-        // Within the 1-hour window — check cooldown
-        // If previous OTP is still unexpired and unverified, enforce cooldown
-        if (!existing.verified && new Date() < existing.expiresAt) {
-          const minutesLeft = Math.ceil((existing.expiresAt.getTime() - Date.now()) / 60000);
-          res.status(429).json({
-            error: `A verification code was already sent. Please wait ${minutesLeft} minute${minutesLeft === 1 ? "" : "s"} before requesting a new one.`
-          });
+      // A member who signed in successfully is not abusing the codes: their count starts again (owner, 2026-11-28).
+      if (timeSinceLastRequest < RESET_WINDOW_MS && !existing.verified) {
+        // A new code may be asked for 1 minute after the last one (it replaces the old code)
+        if (timeSinceLastRequest < RESEND_GAP_MS) {
+          const secondsLeft = Math.ceil((RESEND_GAP_MS - timeSinceLastRequest) / 1000);
+          res.status(429).json({ error: `A code was just sent. Check your email, or ask for a new code in ${secondsLeft} seconds.` });
           return;
         }
 
-        // Previous OTP expired or was verified — apply escalating cooldown based on request count
+        // The first 3 codes in an hour need only that minute; then 10, 20, 30... minutes after the last one
         requestCount = existing.requestCount + 1;
-        const cooldownMinutes = (requestCount - 1) * 10; // 0, 10, 20, 30... minutes
+        const cooldownMinutes = Math.max(0, requestCount - FREE_CODES_PER_HOUR) * 10;
 
         if (cooldownMinutes > 0) {
           const cooldownEndsAt = new Date(existing.lastRequestedAt).getTime() + cooldownMinutes * 60 * 1000;
@@ -570,7 +591,7 @@ router.get("/loyalty/account", requireCafeWifi, publicOrderRateLimiter, async (_
 
 router.post("/loyalty/verify-otp", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
   try {
-    const { phone, email, otp } = req.body;
+    const { phone, email, otp, sessionToken } = req.body;
     if (!phone || !email || !otp) { res.status(400).json({ error: "Phone, email and OTP are required" }); return; }
 
     const [verification] = await db
@@ -616,20 +637,25 @@ router.post("/loyalty/verify-otp", requireCafeWifi, publicOrderRateLimiter, asyn
       return;
     }
 
-    res.json({
-      success: true,
-      customer: {
-        id: customer.id,
-        name: customer.name,
-        phone: customer.phone,
-        totalPoints: customer.totalPoints,
-        loopNumber: customer.loopNumber ?? 1,
-      }
-    });
+    // the phone stays signed in for this table opening (GET /loyalty/me), so leaving the browser does not sign them out
+    const session = sessionToken ? await resolveSession(String(sessionToken)) : null;
+    const loyaltyToken = session ? signQrLoyalty({ cid: customer.id, tid: session.tableId, op: session.tableOpenedAt ?? null }) : null;
+    res.json({ success: true, customer: loyaltyView(customer), loyaltyToken });
   } catch (err) {
     console.error("OTP verify error:", err);
     res.status(500).json({ error: "Verification failed. Please try again." });
   }
+});
+
+// GET /api/public/loyalty/me?sessionToken=..&loyaltyToken=..: the member signed in on this phone, while the table
+// opening that signed them in lasts. 401 when it has ended (the page then shows the sign-in form again).
+router.get("/loyalty/me", requireCafeWifi, publicOrderRateLimiter, async (req, res): Promise<void> => {
+  res.set("Cache-Control", "no-store");
+  const { sessionToken, loyaltyToken } = req.query as { sessionToken?: string; loyaltyToken?: string };
+  const session = sessionToken ? await resolveSession(String(sessionToken)) : null;
+  const customer = session ? await signedInMember(loyaltyToken, session) : null;
+  if (!customer) { res.status(401).json({ error: "Please verify your loyalty account again." }); return; }
+  res.json({ customer: loyaltyView(customer) });
 });
 
 // POST /api/public/loyalty/register
@@ -703,13 +729,12 @@ router.post("/loyalty/redeem", requireCafeWifi, publicOrderRateLimiter, async (r
     const tier = LOYALTY_TIERS.find(t => t.level === level);
     if (!tier) { res.status(400).json({ error: "Invalid reward level" }); return; }
 
-    const [customer] = await db
-      .select()
-      .from(loyaltyCustomersTable)
-      .where(eq(loyaltyCustomersTable.id, loyaltyCustomerId))
-      .limit(1);
-
-    if (!customer) { res.status(404).json({ error: "Loyalty customer not found" }); return; }
+    // the points belong to the member who verified the email code on this phone (not any customer id sent in)
+    const customer = await signedInMember(req.body.loyaltyToken, session);
+    if (!customer || customer.id !== Number(loyaltyCustomerId)) {
+      res.status(401).json({ error: "Please verify your loyalty account again before redeeming." });
+      return;
+    }
 
     // Check customer has enough points for this tier
     if (customer.totalPoints < tier.pointsRequired) {
