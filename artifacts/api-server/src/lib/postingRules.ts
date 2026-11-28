@@ -101,13 +101,20 @@ export function creditNoteEntry(n: NoteSource): Built {
   return { entry: { ...base, narration: `${n.noteNo}: credit note on ${n.invoiceNumber ?? ""}`, lines }, problems: [] };
 }
 
-export type ReceiptSource = { receiptId: number; voucherNo: string; day: string; mode: string; amount: number; bankAccount: string | null; customerId: number };
+export type ReceiptSource = { receiptId: number; voucherNo: string; day: string; mode: string; amount: number; bankAccount: string | null; customerId: number; tdsAmount?: number };
+export const TDS_RECEIVABLE = "1460";
 
 export function receiptEntry(r: ReceiptSource): Built {
   const acct = r.mode === "bank" ? BANK_ACCOUNT[r.bankAccount ?? ""] : MODE_ACCOUNT[r.mode];
   if (!acct || acct === RECEIVABLE) return { entry: null, problems: [{ level: "fix", code: r.mode === "bank" ? "receipt_bank" : "payment_mode", message: r.mode === "bank" ? `${r.voucherNo}: a receipt by bank with no bank recorded.` : `${r.voucherNo}: receipt mode "${r.mode}" has no account.`, ref: r.voucherNo }] };
-  return { entry: { voucherType: "RJ", narration: `${r.voucherNo}: receipt`, sourceType: "receipt", sourceId: r.receiptId, sourceRef: r.voucherNo, date: r.day,
-    lines: [{ accountCode: acct, debit: round2(r.amount), credit: 0 }, { accountCode: RECEIVABLE, debit: 0, credit: round2(r.amount), customerId: r.customerId }] }, problems: [] };
+  // 5c: the TDS the customer withheld is an asset (1460), and the receipt settles the money plus the TDS
+  const tds = round2(r.tdsAmount ?? 0);
+  if (tds < 0) return { entry: null, problems: [{ level: "fix", code: "receipt_tds", message: `${r.voucherNo}: the TDS withheld is below zero.`, ref: r.voucherNo }] };
+  if (tds > 0 && r.mode !== "cash" && r.mode !== "bank") return { entry: null, problems: [{ level: "fix", code: "receipt_tds_mode", message: `${r.voucherNo}: TDS on a ${r.mode} receipt (only cash or bank receipts carry TDS). Void it and enter it again.`, ref: r.voucherNo }] };
+  return { entry: { voucherType: "RJ", narration: `${r.voucherNo}: receipt${tds > 0 ? ` (TDS withheld Rs. ${tds.toFixed(2)})` : ""}`, sourceType: "receipt", sourceId: r.receiptId, sourceRef: r.voucherNo, date: r.day,
+    lines: tidy([{ accountCode: acct, debit: round2(r.amount), credit: 0 },
+      ...(tds > 0 ? [{ accountCode: TDS_RECEIVABLE, debit: tds, credit: 0, customerId: r.customerId, memo: "TDS withheld by the customer" }] : []),
+      { accountCode: RECEIVABLE, debit: 0, credit: round2(r.amount + tds), customerId: r.customerId }]) }, problems: [] };
 }
 
 export type SettlementSource = { settlementId: number; machine: string; salesDay: string; day: string; gross: number; received: number; bankAccount: string; reference: string };

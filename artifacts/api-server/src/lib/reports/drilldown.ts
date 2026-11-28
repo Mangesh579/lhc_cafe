@@ -86,7 +86,7 @@ export async function sourceDocument(type: string, id: number): Promise<Doc | nu
     }
     case "receipt": {
       const r = await one(sql`SELECT r.*, c.name AS customer FROM customer_receipts r LEFT JOIN loyalty_customers c ON c.id = r.customer_id WHERE r.id = ${id}`);
-      return r ? { title: `Receipt ${r.voucher_no}`, fields: [["Date", dayOf(r.receipt_date)], ["Customer", r.customer], ["Mode", r.mode], ["Bank", r.bank_account], ["Reference", r.reference], ["Amount", rs(r.amount)], ["Status", r.status], ["Void reason", r.void_reason]] } : null;
+      return r ? { title: `Receipt ${r.voucher_no}`, fields: [["Date", dayOf(r.receipt_date)], ["Customer", r.customer], ["Mode", r.mode], ["Bank", r.bank_account], ["Reference", r.reference], ["Amount", rs(r.amount)], ...(Number(r.tds_amount) > 0 ? [["TDS withheld", rs(r.tds_amount)], ["Settles", rs(Number(r.amount) + Number(r.tds_amount))], ["TDS certificate", r.tds_reference ?? "waiting for certificate"]] as [string, string][] : []), ["Status", r.status], ["Void reason", r.void_reason]] } : null;
     }
     case "settlement": {
       const s = await one(sql`SELECT * FROM settlements WHERE id = ${id}`);

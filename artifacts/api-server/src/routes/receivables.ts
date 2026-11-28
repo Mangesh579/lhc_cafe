@@ -5,7 +5,8 @@ import { and, eq, gte, lte, desc, inArray, sql } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { isDay, nepalDay, isDrawerClosed } from "../lib/ledgerData";
 import { creditInvoices, customerBalances, creditDefaults, syncLoyaltyForOrder } from "../lib/receivables";
-import { validateAllocations, buildCreditNote, fullCreditNote, RECEIPT_MODES, RECEIPT_MODE_LABEL } from "../lib/receivableRules";
+import { validateAllocations, buildCreditNote, fullCreditNote, RECEIPT_MODES, RECEIPT_MODE_LABEL, receiptTdsError } from "../lib/receivableRules";
+import { bsYearMonthOf, bsMonthRange } from "../lib/fiscal";
 import { nextVoucherNumber, nextInvoiceNumber } from "../lib/fiscal";
 import { moveStockForSold, recipesFor, restoreSaleStock, reverseNoteStock } from "../lib/stockMoves";
 import { round2 } from "../lib/payments";
@@ -36,6 +37,7 @@ async function receiptsWithAllocations(where: any) {
     receiptDate: customerReceiptsTable.receiptDate, mode: customerReceiptsTable.mode, amount: customerReceiptsTable.amount, bankAccount: customerReceiptsTable.bankAccount,
     reference: customerReceiptsTable.reference, notes: customerReceiptsTable.notes, status: customerReceiptsTable.status,
     voidReason: customerReceiptsTable.voidReason, voidedBy: customerReceiptsTable.voidedBy, createdBy: customerReceiptsTable.createdBy, createdAt: customerReceiptsTable.createdAt,
+    tdsAmount: customerReceiptsTable.tdsAmount, tdsReference: customerReceiptsTable.tdsReference, tdsReferenceBy: customerReceiptsTable.tdsReferenceBy, tdsReferenceAt: customerReceiptsTable.tdsReferenceAt,
   }).from(customerReceiptsTable)
     .leftJoin(loyaltyCustomersTable, eq(customerReceiptsTable.customerId, loyaltyCustomersTable.id))
     .where(where)
@@ -49,9 +51,11 @@ async function receiptsWithAllocations(where: any) {
     .where(inArray(receiptAllocationsTable.receiptId, ids)).orderBy(receiptAllocationsTable.id) : [];
   return rows.map(r => {
     const mine = allocs.filter(a => a.receiptId === r.id).map(a => ({ ...a, amount: round2(num(a.amount)) }));
-    const amount = round2(num(r.amount));
+    const amount = round2(num(r.amount)), tdsAmount = round2(num(r.tdsAmount));
+    const settled = round2(amount + tdsAmount); // 5c: the money received plus the TDS the customer withheld
     const allocated = round2(mine.reduce((s, a) => s + a.amount, 0));
-    return { ...r, amount, modeLabel: RECEIPT_MODE_LABEL[r.mode] ?? r.mode, allocations: mine, allocated, unallocated: round2(amount - allocated) };
+    return { ...r, amount, tdsAmount, settled, waitingForCertificate: tdsAmount > 0 && !r.tdsReference,
+      modeLabel: RECEIPT_MODE_LABEL[r.mode] ?? r.mode, allocations: mine, allocated, unallocated: round2(settled - allocated) };
   });
 }
 
@@ -75,13 +79,18 @@ router.get("/receivables/customers/:id", authenticate, async (req: AuthRequest, 
     ...notes.filter(n => n.status === "active").map(n => ({ day: n.noteDate, t: new Date(n.createdAt).toISOString(), type: "credit_note", ref: n.noteNo, orderId: n.orderId,
       description: `Credit note on ${n.invoiceNumber ?? `order #${n.orderId}`}: ${n.reason}`, debit: 0, credit: n.total })),
     ...invoices.map(i => ({ day: i.day, t: i.at, type: "invoice", ref: i.invoiceNumber ?? `Order #${i.orderId}`, orderId: i.orderId, description: `${i.creditAmount < i.billTotal ? `Credit sale (part of a Rs. ${i.billTotal.toFixed(2)} bill)` : "Credit sale"}${i.stayText ? ` · ${i.stayText}` : ""}`, debit: i.creditAmount, credit: 0 })),
-    ...receipts.filter(r => r.status === "active").map(r => ({ day: r.receiptDate, t: new Date(r.createdAt).toISOString(), type: "receipt", ref: r.voucherNo, orderId: null, description: `Receipt (${r.modeLabel})${r.reference ? ` · ${r.reference}` : ""}`, debit: 0, credit: r.amount })),
+    ...receipts.filter(r => r.status === "active").map(r => ({ day: r.receiptDate, t: new Date(r.createdAt).toISOString(), type: "receipt", ref: r.voucherNo, orderId: null, description: `Receipt (${r.modeLabel})${r.tdsAmount > 0 ? ` (TDS withheld Rs. ${r.tdsAmount.toFixed(2)})` : ""}${r.reference ? ` · ${r.reference}` : ""}`, debit: 0, credit: r.settled })),
   ].sort((a, b) => a.day.localeCompare(b.day) || a.t.localeCompare(b.t));
   let bal = 0;
   const ledger = items.map(it => { bal = round2(bal + it.debit - it.credit); return { ...it, balance: bal }; });
+  // 5c: TDS this customer withheld in this fiscal year (from Shrawan 1), and the certificates still missing
+  const t = bsYearMonthOf(nepalDay(new Date()));
+  const fyFrom = bsMonthRange(t.month >= 4 ? t.year : t.year - 1, 4).fromDay;
+  const fyTds = receipts.filter(r => r.status === "active" && r.tdsAmount > 0 && r.receiptDate >= fyFrom);
   res.json({
-    customer: { id: customer.id, name: customer.name, phone: customer.phone, creditLimit: customer.creditLimit != null ? num(customer.creditLimit) : null, creditDays: customer.creditDays },
+    customer: { id: customer.id, name: customer.name, phone: customer.phone, pan: customer.pan ?? null, kind: customer.kind, creditLimit: customer.creditLimit != null ? num(customer.creditLimit) : null, creditDays: customer.creditDays },
     balance: balance ?? null, invoices, receipts, notes, ledger, ...(await creditDefaults()),
+    tds: { fiscalYearFrom: fyFrom, withheld: round2(fyTds.reduce((s, r) => s + r.tdsAmount, 0)), receipts: fyTds.length, waitingForCertificate: fyTds.filter(r => r.waitingForCertificate).length },
   });
 });
 
@@ -203,16 +212,23 @@ router.post("/receipts", authenticate, async (req: AuthRequest, res: Response): 
   const bankAccount = mode === "bank" ? String(b.bankAccount ?? "") : null;
   if (mode === "bank" && !["nabil", "hbl"].includes(bankAccount!)) { res.status(400).json({ error: "Choose the bank the money reached: Nabil or HBL." }); return; }
   if (mode === "cash" && await isDrawerClosed(date)) { res.status(400).json({ error: "That day's cash drawer is already closed. Ask the admin to reopen it, or date the receipt today." }); return; }
+  // 5c: TDS the customer withheld (admin and accountant only); the receipt settles the money plus the TDS
+  const tds = b.tdsAmount === undefined || b.tdsAmount === null || b.tdsAmount === "" ? 0 : round2(num(b.tdsAmount));
+  if (tds !== 0 && !ADMIN_ROLES.includes(roleOf(req))) { res.status(403).json({ error: "Only the admin or the accountant can record TDS withheld by a customer." }); return; }
+  const tdsReference = tds > 0 ? clean(b.tdsReference, 80) : null;
   const user = req.user?.username ?? "user";
   try {
     const id = await db.transaction(async (tx) => {
       await lockCustomer(tx, customerId);
-      const v = validateAllocations(b.allocations, amount, customerId, await openInvoiceMap(tx, customerId));
+      const v = validateAllocations(b.allocations, round2(amount + Math.max(0, tds)), customerId, await openInvoiceMap(tx, customerId));
       if ("error" in v) throw new HttpError(400, v.error);
+      const tdsError = receiptTdsError(mode, tds, v.total);
+      if (tdsError) throw new HttpError(400, tdsError);
       const voucherNo = await nextVoucherNumber(tx, "RV");
       const [row] = await tx.insert(customerReceiptsTable).values({
         voucherNo, customerId, receiptDate: date, mode, amount: String(amount), bankAccount,
         reference: clean(b.reference, 80), notes: clean(b.notes, 300), createdBy: user,
+        tdsAmount: String(tds), tdsReference, ...(tdsReference ? { tdsReferenceBy: user, tdsReferenceAt: new Date() } : {}),
       }).returning();
       for (const a of v.allocations) await tx.insert(receiptAllocationsTable).values({ receiptId: row.id, orderId: a.orderId, amount: String(a.amount), createdBy: user });
       for (const a of v.allocations) await syncLoyaltyForOrder(tx, a.orderId, `Points for Rs. ${a.amount.toFixed(2)} paid by ${voucherNo}`, user);
@@ -238,7 +254,7 @@ router.post("/receipts/:id/allocate", authenticate, async (req: AuthRequest, res
       if (rc.status !== "active") throw new HttpError(400, "This receipt is void.");
       await lockCustomer(tx, rc.customerId);
       const [done] = await tx.select({ s: sql<string>`COALESCE(SUM(${receiptAllocationsTable.amount}), 0)` }).from(receiptAllocationsTable).where(eq(receiptAllocationsTable.receiptId, id));
-      const available = round2(num(rc.amount) - num(done?.s));
+      const available = round2(num(rc.amount) + num(rc.tdsAmount) - num(done?.s)); // 5c: money + TDS
       const v = validateAllocations(req.body?.allocations, available, rc.customerId, await openInvoiceMap(tx, rc.customerId));
       if ("error" in v) throw new HttpError(400, v.error);
       if (v.allocations.length === 0) throw new HttpError(400, "Enter an amount for at least one invoice.");
@@ -274,6 +290,21 @@ router.post("/receipts/:id/void", authenticate, async (req: AuthRequest, res: Re
     for (const orderId of new Set(allocs.map(a => a.orderId))) await syncLoyaltyForOrder(tx, orderId, `Points taken back: ${rc.voucherNo} voided`, user);
   });
   res.json({ success: true });
+});
+
+// 5c: the customer's TDS certificate (e-TDS) reference, entered when it arrives. It changes no posting, so a posted or
+// locked day does not stop it; the TDS amount itself is never edited (void the receipt and enter it again).
+router.patch("/receivables/receipts/:id/tds-reference", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, ADMIN_ROLES, "Only the admin or the accountant can enter a TDS certificate.")) return;
+  const id = idOf(req.params.id);
+  const [rc] = await db.select().from(customerReceiptsTable).where(eq(customerReceiptsTable.id, id));
+  if (!rc || rc.status !== "active") { res.status(404).json({ error: "Receipt not found" }); return; }
+  if (!(num(rc.tdsAmount) > 0)) { res.status(400).json({ error: "This receipt has no TDS withheld." }); return; }
+  const reference = clean(req.body?.tdsReference, 80);
+  const user = req.user?.username ?? "user";
+  await db.update(customerReceiptsTable).set({ tdsReference: reference, tdsReferenceBy: user, tdsReferenceAt: new Date() }).where(eq(customerReceiptsTable.id, id));
+  const [r] = await receiptsWithAllocations(eq(customerReceiptsTable.id, id));
+  res.json(r);
 });
 
 // ── Customer credit notes (CN): item-wise, against credit invoices ──

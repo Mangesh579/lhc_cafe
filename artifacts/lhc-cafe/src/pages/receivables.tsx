@@ -42,6 +42,8 @@ function printVoucher(r: any) {
         ${r.unallocated > 0 && rows ? `<div style="display:flex;justify-content:space-between;"><span>Not yet allocated</span><span>Rs. ${Number(r.unallocated).toFixed(2)}</span></div>` : ""}
       </div>
       <div style="display:flex;justify-content:space-between;font-weight:bold;font-size:14px;"><span>AMOUNT RECEIVED</span><span>Rs. ${Number(r.amount).toFixed(2)}</span></div>
+      ${Number(r.tdsAmount) > 0 ? `<div style="display:flex;justify-content:space-between;"><span>TDS withheld by the customer${r.tdsReference ? ` (certificate ${esc(r.tdsReference)})` : ""}</span><span>Rs. ${Number(r.tdsAmount).toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-weight:bold;"><span>SETTLED</span><span>Rs. ${Number(r.settled).toFixed(2)}</span></div>` : ""}
       ${r.notes ? `<p style="margin-top:6px;font-size:11px;">Note: ${esc(r.notes)}</p>` : ""}
       <div style="margin-top:28px;display:flex;justify-content:space-between;font-size:11px;">
         <div style="width:45%;"><div style="border-bottom:1px solid #1a1a1a;height:24px;"></div><p>Received by (${esc(r.createdBy)})</p></div>
@@ -84,6 +86,10 @@ export default function Receivables() {
   const [rvBank, setRvBank] = useState("");
   const [rvAmount, setRvAmount] = useState("");
   const [rvRef, setRvRef] = useState("");
+  // 5c: TDS the customer withheld (admin and accountant; cash or bank only) and its certificate
+  const [rvTds, setRvTds] = useState("");
+  const [rvTdsRef, setRvTdsRef] = useState("");
+  const [tdsHintRate, setTdsHintRate] = useState<number | null>(null);
   const [rvNotes, setRvNotes] = useState("");
   const [rvInvoices, setRvInvoices] = useState<any[]>([]);
   const [rvAlloc, setRvAlloc] = useState<Record<number, string>>({});
@@ -102,6 +108,8 @@ export default function Receivables() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { if (canView) load(); }, [canView, load]);
+  // the hint only (the customer's certificate decides the amount): the rate of a service with a VAT bill
+  useEffect(() => { if (canAdmin) apiJson("/gl/tds-types").then((t: any[]) => { const r = t.find(x => x.code === "service_vat"); setTdsHintRate(r ? Number(r.rate) : null); }).catch(() => {}); }, [canAdmin]);
 
   const openDetail = async (id: number) => {
     try { setDetail(await apiJson(`/receivables/customers/${id}`)); } catch (e: any) { fail(e, "Failed to load the customer"); }
@@ -119,7 +127,7 @@ export default function Receivables() {
   const openNewReceipt = (cust?: { id: number; name: string }) => {
     setRvTarget(null);
     setRvCustomer(cust ?? null); setRvQuery(""); setRvResults([]); setRvDate(nepalToday()); setRvMode("cash");
-    setRvAmount(""); setRvRef(""); setRvNotes(""); setRvInvoices([]); setRvAlloc({});
+    setRvAmount(""); setRvRef(""); setRvNotes(""); setRvInvoices([]); setRvAlloc({}); setRvTds(""); setRvTdsRef("");
     if (cust) loadInvoices(cust.id); else searchCustomers("");
     setRvOpen(true);
   };
@@ -127,15 +135,18 @@ export default function Receivables() {
   const openAllocate = (r: any) => {
     setRvTarget(r);
     setRvCustomer({ id: r.customerId, name: r.customerName });
-    setRvAmount(String(r.unallocated));
+    setRvAmount(String(r.unallocated)); setRvTds(""); setRvTdsRef("");
     loadInvoices(r.customerId);
     setRvOpen(true);
   };
 
   const amountNum = round2(parseFloat(rvAmount) || 0);
+  const tdsOk = canAdmin && !rvTarget && (rvMode === "cash" || rvMode === "bank");
+  const tdsNum = tdsOk ? round2(parseFloat(rvTds) || 0) : 0;
+  const settledNum = round2(amountNum + tdsNum); // the receipt settles the money plus the TDS
   const allocTotal = round2(Object.values(rvAlloc).reduce((s, v) => s + (parseFloat(v) || 0), 0));
   const autoFill = () => {
-    let left = amountNum;
+    let left = settledNum;
     const next: Record<number, string> = {};
     for (const inv of rvInvoices) {
       if (left <= 0) break;
@@ -152,7 +163,8 @@ export default function Receivables() {
     try {
       let r: any;
       if (rvTarget) r = await apiJson(`/receipts/${rvTarget.id}/allocate`, "POST", { allocations });
-      else r = await apiJson("/receipts", "POST", { customerId: rvCustomer.id, date: rvDate, mode: rvMode, bankAccount: rvMode === "bank" ? rvBank : undefined, amount: amountNum, reference: rvRef, notes: rvNotes, allocations });
+      else r = await apiJson("/receipts", "POST", { customerId: rvCustomer.id, date: rvDate, mode: rvMode, bankAccount: rvMode === "bank" ? rvBank : undefined, amount: amountNum, reference: rvRef, notes: rvNotes, allocations,
+        ...(tdsNum > 0 ? { tdsAmount: tdsNum, tdsReference: rvTdsRef } : {}) });
       toast({ title: rvTarget ? "Allocated" : `Receipt ${r.voucherNo} recorded`, description: r.unallocated > 0 ? `${rs(r.unallocated)} is not yet allocated to an invoice.` : undefined });
       setRvOpen(false);
       if (!rvTarget && confirm("Print the receipt voucher?")) printVoucher(r);
@@ -160,6 +172,18 @@ export default function Receivables() {
       if (detail?.customer?.id === rvCustomer.id) openDetail(rvCustomer.id);
     } catch (e: any) { fail(e, "Couldn't save the receipt"); }
     finally { setBusy(false); }
+  };
+
+  // 5c: the customer's TDS certificate, entered when it arrives (no posting changes)
+  const setCertificate = async (r: any) => {
+    const v = window.prompt(`TDS certificate or e-TDS reference for ${r.voucherNo} (Rs. ${Number(r.tdsAmount).toFixed(2)} withheld):`, r.tdsReference ?? "");
+    if (v === null) return;
+    try {
+      await apiJson(`/receivables/receipts/${r.id}/tds-reference`, "PATCH", { tdsReference: v });
+      toast({ title: v.trim() ? "Certificate saved" : "Certificate removed" });
+      await load();
+      if (detail?.customer?.id === r.customerId) openDetail(r.customerId);
+    } catch (e: any) { fail(e, "Certificate not saved"); }
   };
 
   const voidReceipt = async (r: any) => {
@@ -217,7 +241,12 @@ export default function Receivables() {
             <td className="px-3 py-2 whitespace-nowrap">{r.receiptDate}</td>
             <td className="px-3 py-2">{r.customerName}</td>
             <td className="px-3 py-2">{modeLabel(r.mode)}{r.reference ? <span className="text-xs text-muted-foreground"> · {r.reference}</span> : null}</td>
-            <td className="px-3 py-2 text-right">{rs(r.amount)}</td>
+            <td className="px-3 py-2 text-right">{rs(r.amount)}
+              {r.tdsAmount > 0 && <div className="text-xs text-muted-foreground no-underline">+ TDS {rs(r.tdsAmount)} = {rs(r.settled)}</div>}
+              {r.tdsAmount > 0 && r.status === "active" && (r.tdsReference
+                ? <div className="text-xs text-muted-foreground">Cert. {r.tdsReference}{canAdmin && <button type="button" className="ml-1 underline text-primary" onClick={() => setCertificate(r)}>change</button>}</div>
+                : <div className="text-xs text-amber-700">Waiting for certificate{canAdmin && <button type="button" className="ml-1 underline text-primary" onClick={() => setCertificate(r)}>add</button>}</div>)}
+            </td>
             <td className="px-3 py-2 text-xs">
               {r.allocations.map((a: any) => <div key={a.id}>{a.invoiceNumber ?? `#${a.orderId}`}: {rs(a.amount)}</div>)}
               {r.status === "active" && r.unallocated > 0 && <div className="text-amber-700">{rs(r.unallocated)} not allocated</div>}
@@ -276,6 +305,8 @@ export default function Receivables() {
             <div><p className="text-xs text-muted-foreground">Credit days</p><p className="font-semibold">{detail.customer.creditDays ?? `${detail.defaultCreditDays} (default)`}</p></div>
             <div><p className="text-xs text-muted-foreground">Overdue</p><p className={`font-semibold ${(detail.balance?.overdue ?? 0) > 0 ? "text-red-600" : ""}`}>{rs(detail.balance?.overdue ?? 0)}</p></div>
             {(detail.balance?.unallocated ?? 0) > 0 && <div><p className="text-xs text-muted-foreground">Paid in advance (not allocated)</p><p className="font-semibold">{rs(detail.balance.unallocated)}</p></div>}
+            {(detail.tds?.receipts ?? 0) > 0 && <div><p className="text-xs text-muted-foreground">TDS withheld this fiscal year</p><p className="font-semibold">{rs(detail.tds.withheld)}
+              {detail.tds.waitingForCertificate > 0 ? <span className="ml-1 text-xs font-normal text-amber-700">{detail.tds.waitingForCertificate} certificate(s) missing</span> : <span className="ml-1 text-xs font-normal text-muted-foreground">all certificates in</span>}</p></div>}
           </CardContent></Card>
 
           <Card><CardContent className="p-0">
@@ -451,6 +482,12 @@ export default function Receivables() {
                 <div className="space-y-1"><Label>Amount (Rs.)</Label><Input type="number" min="0" step="0.01" value={rvAmount} onChange={e => setRvAmount(e.target.value)} /></div>
                 <div className="space-y-1"><Label>Reference</Label><Input placeholder={rvMode === "bank" ? "Cheque / transfer no." : rvMode === "nabil_qr" ? "QR transaction no." : "Optional"} value={rvRef} onChange={e => setRvRef(e.target.value)} /></div>
                 <div className="space-y-1 col-span-2"><Label>Note</Label><Input value={rvNotes} onChange={e => setRvNotes(e.target.value)} /></div>
+                {tdsOk && <>
+                  <div className="space-y-1"><Label>Tax withheld by the customer (TDS)</Label><Input type="number" min="0" step="0.01" placeholder="0" value={rvTds} onChange={e => setRvTds(e.target.value)} /></div>
+                  <div className="space-y-1"><Label>Certificate / e-TDS ref.</Label><Input placeholder="Can be added later" value={rvTdsRef} onChange={e => setRvTdsRef(e.target.value)} /></div>
+                  {tdsHintRate != null && allocTotal > 0 && <p className="col-span-2 text-xs text-muted-foreground">A hint only: {tdsHintRate}% of the taxable amount ({rs(allocTotal)} of invoices) would be {rs(round2(allocTotal * tdsHintRate / 100))}. Enter what the customer's certificate says.</p>}
+                  {tdsNum > 0 && <p className="col-span-2 text-xs">Money {rs(amountNum)} + TDS {rs(tdsNum)} = settles {rs(settledNum)}. The TDS can only be on invoices this receipt settles.</p>}
+                </>}
               </div>
             )}
             {rvMode === "cash" && !rvTarget && <p className="text-xs text-muted-foreground">Cash receipts go into that day's cash drawer.</p>}
@@ -459,7 +496,7 @@ export default function Receivables() {
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <Label>Set against invoices</Label>
-                  {rvInvoices.length > 0 && amountNum > 0 && <button type="button" className="text-xs text-primary underline" onClick={autoFill}>Oldest first</button>}
+                  {rvInvoices.length > 0 && settledNum > 0 && <button type="button" className="text-xs text-primary underline" onClick={autoFill}>Oldest first</button>}
                 </div>
                 <div className="border rounded-md divide-y max-h-56 overflow-y-auto">
                   {rvInvoices.length === 0 && <p className="p-2 text-sm text-muted-foreground">No open credit invoices. The receipt will be kept as an advance.</p>}
@@ -474,15 +511,15 @@ export default function Receivables() {
                     </div>
                   ))}
                 </div>
-                <p className={`text-xs ${allocTotal > amountNum + 0.004 ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
-                  Allocated {rs(allocTotal)} of {rs(amountNum)}{amountNum - allocTotal > 0.004 ? ` · ${rs(amountNum - allocTotal)} kept as an advance` : ""}
+                <p className={`text-xs ${allocTotal > settledNum + 0.004 ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
+                  Allocated {rs(allocTotal)} of {rs(settledNum)}{settledNum - allocTotal > 0.004 ? ` · ${rs(settledNum - allocTotal)} kept as an advance` : ""}
                 </p>
               </div>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRvOpen(false)}>Cancel</Button>
-            <Button disabled={busy || !rvCustomer || !(amountNum > 0) || allocTotal > amountNum + 0.004 || (!!rvTarget && allocTotal <= 0)} onClick={saveReceipt}>
+            <Button disabled={busy || !rvCustomer || !(amountNum > 0) || allocTotal > settledNum + 0.004 || tdsNum > allocTotal + 0.004 || (!!rvTarget && allocTotal <= 0)} onClick={saveReceipt}>
               {busy ? "Saving…" : rvTarget ? "Allocate" : "Record receipt"}
             </Button>
           </DialogFooter>
