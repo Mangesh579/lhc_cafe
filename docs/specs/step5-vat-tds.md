@@ -371,3 +371,116 @@ Official sources found, but their text could not be read by the tools used (the 
   - It shows "Default X% - change in Settings".
   - A soft warning appears when the figure is above the default rate and more than Rs 1,000 above the pre-fill.
   - Only the amount typed is stored; posting is unchanged. This replaces the 5c hint line, which used the service_vat rate.
+
+## 17. Part 5e plan: output VAT on sales (approved as recommended 2026-11-28; built, see 17.11)
+Migration 025. Nothing changes until the admin switches VAT on; every existing figure and test stays as it is.
+
+### 17.1 What exists today (read 2026-11-28)
+- **Who works out VAT:** the payment step sends vatAmount, billType and finalTotal from the screen. PATCH /orders/:id/payment refuses any VAT while vat_enabled is off ("VAT bills are stopped").
+- **Invoice numbers:** one series per fiscal year (2083/84-00001), taken inside the payment transaction from the invoice_sequences counter row. A failed payment rolls the counter back, so the series has no gaps. NC bills also take a number when they are made.
+- **Posting:** saleEntry already posts total = net + VAT (Cr 4000/4010/4020 net, Cr 2200 VAT, Dr money or 1300 the total, Dr 4950 discounts).
+- **Credit notes:** they take the invoice's own VAT ratio (vatAmount / netPreVat), so a credit note already follows its invoice.
+
+### 17.2 Prices and the VAT base
+- **Menu prices are VAT-exclusive.** VAT is added on top, once per invoice: VAT = round2(taxable x rate / 100), half away from zero, to the paisa. Total = taxable + VAT.
+- **The rate:** the tax_rates VAT row in force on the invoice day (13%).
+- **Taxable** = item subtotals less every discount on the bill (the POS discount, the staff %, the loyalty reward item). There is no service charge (accountant's decision) and nothing is non-taxable today (nonTaxableAmount stays 0).
+- **The server works out the VAT, never the screen.** The payment step shows the server's figures (a preview call), and the parts paid must add up to the total including VAT.
+- **NC (complimentary):** no VAT (no deemed supply, owner's answer 6), and no tax invoice.
+- **Breakfast to Sulimha Durbar:** Rs 800 x breakfasts is taxable, so Rs 800 + 13% = Rs 904 a person.
+- **Loyalty points:** they stay on the amount before VAT (loyaltyBasis already takes the VAT off).
+
+### 17.3 Switch-on rule and the frozen figures
+- **When VAT is charged:** only when vatActiveOn(invoice day) is true, where the invoice day is the payment day (or the backdated day of a backdated bill).
+- **What is frozen at payment:** orders.vat_amount, vat_rate, taxable_amount and tax_invoice_no, all stored when the order is paid. They are never recomputed from the settings.
+- **What stays as it is:** unpaid orders and orders paid earlier.
+- **A paid order is never edited** (already the rule). Corrections are credit notes, which follow their invoice's frozen VAT. So an order paid before the switch-on date and corrected after it carries no VAT on either side.
+- **A room-stay folio:** each extra is its own invoice, frozen on the day it is charged to the room (its payment as credit). The check-out payment is a receipt, which carries no VAT.
+- **A credit sale to Sulimha:** VAT on the invoice day. The receipt later carries none, and its TDS works as in 5c.
+- **Wrong customer (reissue):** the new invoice copies the original's frozen VAT, never a new rate. Because the reissue gets a new tax invoice number, the original stays in the list as cancelled.
+- **Refunds and voids:** a refund is a credit note (Dr 4900 net, Dr 2200 VAT, Cr 1300 total). Cancelling an invoice is a full credit note. Cash refunds are not modelled (accountant: avoid them).
+
+### 17.4 Posting (saleEntry, unchanged in shape; the figures come from the frozen order)
+- **Split payment** (latte 2 x 250 and sandwich 400 = 900, staff 10% off = 90; taxable 810, VAT 105.30, total 915.30; cash 500 + LHC Nabil POS 415.30):
+  - Dr 1100 500.00, Dr 1250 415.30, Dr 4950 90.00;
+  - Cr 4010 500.00, Cr 4000 400.00, Cr 2200 105.30.
+- **Credit sale to Sulimha** (10 breakfasts): Dr 1300 9,040 (Sulimha), Cr 4020 8,000, Cr 2200 1,040.
+- **A credit note on half of it:** Dr 4900 4,000, Dr 2200 520, Cr 1300 4,520.
+- **Late changes:** the usual reverse and repost. The "VAT bill while VAT is off" acknowledgement becomes a fix problem when an order's frozen VAT does not match its own rate and taxable amount.
+
+### 17.5 Tax invoices
+- **What the print shows** (receipt, invoice, guest bill and folio), from the switch-on date:
+  - the heading "TAX INVOICE";
+  - Legendary House Cafe & Barista Coffee School, Sulimha Durbar, Patan, PAN/VAT 194139113;
+  - the tax invoice number and the date in BS and AD;
+  - the buyer's name and PAN when known (Sulimha Durbar's PAN on its invoices; a walk-in buyer's name and PAN when typed at the payment step);
+  - each item with its net amount, then the taxable amount, VAT 13% and the total.
+- **Numbering:** see question 1. The number is taken inside the payment transaction, from a counter row like today's, so a failed payment leaves no gap.
+- **Cancelling keeps the number:** a cancelled or credited invoice keeps its number and stays in the list, marked cancelled (or credited, with the note number).
+- **The list:** Reports > Tax invoices (one BS month) lists every number in order, with the gap check (first, last, count, missing numbers). The VAT return itself is 5f.
+
+### 17.6 Switching VAT on (and off)
+- **PATCH /gl/settings with vatEnabled = true** is accepted only from the admin, and only when all of these hold:
+  1. the VAT number (9 digits) is set;
+  2. the VAT start date is set and is today or later;
+  3. a VAT rate is in force on the start date (13%), confirmed by the accountant (question 2);
+  4. the admin types the warning words exactly ("SWITCH ON VAT").
+- **What the screen shows:** the checklist with a tick or a cross for each, what changes from the start date (prices + 13% on every bill, tax invoices, input VAT on VAT bills from 5d), and the typed box.
+- **Switching off** (admin, typed "SWITCH OFF VAT"): only documents paid after it carry no VAT. Everything already paid keeps its frozen VAT and tax invoice number. Switching on again needs a start date of today or later.
+
+### 17.7 Reports
+- **Balance Sheet:** 2200 is already a line.
+- **P&L:** it uses the net sales (4000/4010/4020 are credited before VAT).
+- **Statements:** the receivables statements and Receivables use the total (1300 is debited with the total).
+- **Collections:** the cash drawer, Collections and Settlements already count the money, VAT included.
+- **The posting day's "Sales before VAT" check** already compares the net.
+
+### 17.8 Migration 025 (idempotent)
+- orders: + vat_rate numeric(5,2), taxable_amount numeric(12,2), tax_invoice_no text (unique when set), tax_invoice_at timestamptz.
+- The tax invoice counter uses invoice_sequences with its own key per fiscal year (no new table).
+- Existing rows stay empty.
+
+### 17.9 Tests
+- **A sale after the switch-on date:** breakfast 800 becomes 904, with the entry and the frozen figures. **The same sale dated before:** no VAT, no tax invoice number.
+- **The split payment and the credit sale to Sulimha,** with the exact lines in 17.4.
+- **A void (cancel) and a refund (credit note)** reverse the VAT by the invoice's own figures.
+- **Changing vat_start_date** (or switching VAT off) after payment changes nothing paid.
+- **Tax invoice numbers** are gap-free and unique under concurrent payments, and a failed payment leaves no gap. A cancelled invoice stays in the list.
+- **Switching on** is refused for each missing check and accepted when all pass. Staff, supervisor and accountant get 403 on switching.
+- **The server's VAT** ignores the screen's figures; NC and Rs 0 bills follow question 3.
+- **Statements:** the Trial Balance, P&L and Balance Sheet agree, and the customer statements equal Receivables.
+- **Every existing test passes unchanged while VAT is off.**
+
+### 17.10 Questions (recommended answers first)
+1. **Tax invoice number:** (a, recommended) a separate tax invoice series from the switch-on date, per fiscal year (e.g. TI-2083/84-00001), printed as the invoice number; the internal invoice_number stays. (b) The existing series continues and becomes the tax invoice number.
+2. **Must the VAT rate be confirmed by the accountant before switching on?** Recommended: yes.
+3. **A Rs 0 bill** (100% discount or a full loyalty reward) after the switch-on date: recommended, a tax invoice with Rs 0 VAT, so every sale is in the series. NC never gets one.
+4. **The buyer's PAN on walk-in bills:** recommended, optional at the payment step (name and PAN print when typed), as decided in section 11.
+
+### 17.11 As built (2026-11-28)
+- **The owner's answers:** approved as recommended. A separate tax invoice series TI-<FY>-00001; the rate must be confirmed by the accountant before switching on; a Rs 0 bill gets a tax invoice with Rs 0 VAT; the walk-in buyer's PAN is optional.
+- **lib/salesVat.ts:**
+  - saleVat(taxable, rate): once per invoice, to the paisa, half away from zero;
+  - saleVatOn(day): vatActiveOn plus the rate in force; a missing rate refuses the payment;
+  - nextTaxInvoiceNumber: the counter row 'TI <FY>' in invoice_sequences, inside the payment's transaction.
+- **The invoice day is the payment day.** Posting already dates a sale on its payment, and a backdated bill is posted on the day it is paid, so its VAT follows that same day. This narrows 17.3, which said "or the backdated day".
+- **The payment** (PATCH /orders/:id/payment):
+  - while VAT is in force the server ignores the screen's billType, vatAmount, finalTotal and non-taxable amount;
+  - it takes the order's own total after discounts as the taxable amount and adds the VAT;
+  - it stores vat_amount, vat_rate, taxable_amount, tax_invoice_no and tax_invoice_at;
+  - the parts paid must add up to the total including VAT.
+  - Room charges (an extra, or the breakfast to Sulimha) follow the same rule. NC carries none.
+- **Before the switch-on date:** a VAT bill is refused as before. While VAT is on but before its start date, the message is "VAT starts on <date>".
+- **GET /orders/:id/vat-preview:** whether VAT is in force today, and the rate. The payment dialog and the POS use it.
+- **Wrong customer:** the new invoice copies the frozen VAT and takes a new tax invoice number. The original stays in the list, cancelled.
+- **Posting:** saleEntry gets the frozen rate and taxable amount. A mismatch is the fix problem sale_vat. The entry's reference is the tax invoice number when there is one.
+- **Switching on** (PATCH /gl/settings vatEnabled true): admin only. It needs the VAT number, a start date today or later, a VAT rate in force on it confirmed by the accountant, and confirmText "SWITCH ON VAT". The refusal starts "VAT cannot be switched on yet:" and lists what is missing.
+  - Switching off needs "SWITCH OFF VAT".
+  - While VAT is on, the start date cannot be cleared.
+  - GET /gl/settings returns vatChecklist.
+- **Reports > Tax invoices** (GET /reports/tax-invoices?month=): the month's tax invoices in number order, with the buyer and PAN, taxable, VAT, total, the state (issued, credited, cancelled), and the gap check over the fiscal-year series.
+- **Prints:** after payment the dialog offers to print the tax invoice (lib/taxInvoice.ts), and the Order Log reprints a tax invoice as "TAX INVOICE (COPY)". The QR menu cart and the POS total say "+ VAT 13% extra" once VAT is in force.
+- **Not built in 5e** (small follow-ups if wanted):
+  - an Excel or PDF of the tax invoice list;
+  - the tax invoice number on the credit note print;
+  - VAT lines on the guest extras bill (each extra reprints as its own tax invoice from the Order Log).

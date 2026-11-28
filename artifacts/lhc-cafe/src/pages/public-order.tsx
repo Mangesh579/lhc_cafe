@@ -267,6 +267,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [tableName, setTableName] = useState<string|null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuLoading, setMenuLoading] = useState(false);
+  const [vatInfo, setVatInfo] = useState<{ active: boolean; rate?: number }>({ active: false }); // 5e: "VAT 13% extra"
 
   const [selectedItem, setSelectedItem] = useState<MenuItem|null>(null);
   const [cart, setCart] = useState<{id:number;name:string;price:number;quantity:number;itemNote?:string}[]>(() => {
@@ -363,6 +364,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
           .filter((c:Category)=>c.items.length>0)
           .sort((a: any, b: any) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || a.id - b.id);
         setCategories(cats);
+        setVatInfo(data.vat ?? { active: false });
         if (cats.length > 0) setActiveCatId(cats[0].id);
         if (!loyaltyWelcomeShown.current) {
           loyaltyWelcomeShown.current = true;
@@ -1261,7 +1263,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
                 {totalItems} item{totalItems === 1 ? "" : "s"} · tap to review
               </span>
             </button>
-            <span style={{ fontFamily:SERIF, fontSize:16, color:WARN, fontWeight:600, flexShrink:0 }}>Rs&nbsp;{subtotal.toFixed(0)}</span>
+            <span style={{ fontFamily:SERIF, fontSize:16, color:WARN, fontWeight:600, flexShrink:0, textAlign:"right" }}>Rs&nbsp;{subtotal.toFixed(0)}{vatInfo.active && <span style={{ display:"block", fontFamily:SANS, fontSize:9, fontWeight:400, color:"rgba(245,238,225,0.5)" }}>+ VAT {vatInfo.rate}% extra</span>}</span>
             <button onClick={placeOrder} disabled={isSubmitting} className="place-btn"
               style={{ background:WARN, border:"none", borderRadius:20, padding:"8px 14px", color:BG, fontFamily:SANS, fontSize:11, fontWeight:700, letterSpacing:"0.04em", textTransform:"uppercase", cursor:isSubmitting?"wait":"pointer", flexShrink:0 }}>
               {isSubmitting ? "…" : "Order"}

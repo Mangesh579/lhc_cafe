@@ -12,6 +12,8 @@ import { promoteGuest } from "./loyalty";
 import { expandRecipeLines } from "../lib/ingredientUsage";
 import { Resend } from "resend";
 import { signQrLoyalty, verifyQrLoyalty } from "../lib/auth";
+import { saleVatOn } from "../lib/salesVat";
+import { nepalDay } from "../lib/ledgerData";
 import type { Request, Response, NextFunction } from "express";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -275,7 +277,10 @@ router.get("/menu", requireCafeWifi, publicOrderRateLimiter, async (req, res): P
   const bestsellerIds = await getBestsellerIds();
   const itemsWithBadge = items.map(item => ({ ...item, isBestseller: bestsellerIds.has(item.id) }));
 
-  res.json({ categories, items: itemsWithBadge });
+  // 5e: prices are VAT-exclusive; once VAT is in force the menu says it is added on top
+  let vat: { active: boolean; rate?: number } = { active: false };
+  try { const v = await saleVatOn(nepalDay(new Date())); vat = v.active ? { active: true, rate: v.rate } : { active: false }; } catch { /* no rate yet: nothing to show */ }
+  res.json({ categories, items: itemsWithBadge, vat });
 });
 
 // GET /api/public/my-orders?sessionToken=xxx

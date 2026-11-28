@@ -92,6 +92,12 @@ export default function POS() {
 
   const { data: menuItems } = useListMenuItems({ available: true });
   const [openTables, setOpenTables] = useState<any[]>([]);
+  // 5e: menu prices are VAT-exclusive; once VAT is in force, VAT is added at payment
+  const [vatRate, setVatRate] = useState<number | null>(null);
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/orders/0/vat-preview`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } })
+      .then(r => r.ok ? r.json() : null).then(d => setVatRate(d?.active ? Number(d.rate) : null)).catch(() => {});
+  }, []);
   useEffect(() => {
     const API_BASE = import.meta.env.VITE_API_BASE ?? "";
     fetch(`${API_BASE}/api/tables`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } })
@@ -448,6 +454,7 @@ export default function POS() {
             <span className="font-bold text-lg">{isNc ? "Value (NC — Free)" : "Total"}</span>
             <span className={`font-bold text-2xl ${isNc ? "text-muted-foreground line-through" : "text-primary"}`}>Rs. {finalTotal.toFixed(0)}</span>
           </div>
+          {vatRate != null && !isNc && <p className="-mt-2 mb-2 text-right text-xs text-muted-foreground">+ VAT {vatRate}% extra, added at payment</p>}
           <Button className="w-full h-12 text-base font-bold" disabled={cart.length === 0 || createOrder.isPending || placing || (isNc && !ncPersonName.trim())} onClick={handlePlaceOrder}>
             {(createOrder.isPending || placing) ? "Placing order…" : isNc ? "Place NC Order" : "Place Order"}
           </Button>

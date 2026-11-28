@@ -36,7 +36,8 @@ async function saleSources(orders: any[], opts: { vatEnabled: boolean; reissued:
   const pay = await paymentRowsFor(ids);
   return orders.map(o => {
     const src: SaleSource = {
-      orderId: o.id, invoiceNumber: o.invoiceNumber, day: nepalDay(new Date(o.paidAt ?? o.backdatedAt ?? o.createdAt)), total: round2(num(o.totalAmount)), vat: round2(num(o.vatAmount)),
+      orderId: o.id, invoiceNumber: o.taxInvoiceNo ?? o.invoiceNumber, day: nepalDay(new Date(o.paidAt ?? o.backdatedAt ?? o.createdAt)), total: round2(num(o.totalAmount)), vat: round2(num(o.vatAmount)),
+      vatRate: o.vatRate != null ? num(o.vatRate) : null, taxable: o.taxableAmount != null ? round2(num(o.taxableAmount)) : null,
       breakfast: o.stayCharge === "breakfast", customerId: o.loyaltyCustomerId,
       items: items.filter(i => i.orderId === o.id).map(i => ({ name: i.name ?? "item", subtotal: round2(num(i.subtotal)), kind: i.kind, category: i.category })),
       parts: partsFor(o, pay.get(o.id)).map(p => ({ mode: p.mode, amount: p.amount })),

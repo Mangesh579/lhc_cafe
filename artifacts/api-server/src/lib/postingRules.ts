@@ -34,6 +34,7 @@ const balanced = (lines: Line[]) => Math.abs(lines.reduce((s, l) => s + l.debit 
 
 export type SaleSource = {
   orderId: number; invoiceNumber: string | null; day: string; total: number; vat: number; breakfast: boolean; customerId: number | null;
+  vatRate?: number | null; taxable?: number | null; // 5e: frozen at payment
   items: { name: string; subtotal: number; kind: string | null; category: string | null }[];
   parts: { mode: string; amount: number }[];
 };
@@ -61,6 +62,10 @@ export function saleEntry(s: SaleSource, opts: { vatEnabled: boolean }): Built {
       big.credit = round2(big.credit - discount);
       problems.push({ level: "ack", code: "items_total", message: `${ref}: items add up to Rs. ${gross.toFixed(2)} but the bill (before VAT) is Rs. ${preVat.toFixed(2)}.`, ref });
     }
+  }
+  if (s.vatRate != null && s.taxable != null) {
+    const want = Math.sign(s.taxable * s.vatRate) * Math.round(Math.abs(s.taxable * s.vatRate) + 1e-7) / 100;
+    if (Math.abs(want - s.vat) >= 0.005 || Math.abs(round2(s.taxable + s.vat) - s.total) >= 0.005) problems.push({ level: "fix", code: "sale_vat", message: `${ref}: its VAT (Rs. ${s.vat.toFixed(2)}) does not match ${s.vatRate}% of Rs. ${s.taxable.toFixed(2)}, or the total does not add up.`, ref });
   }
   if (s.vat > 0) {
     credits.push({ accountCode: OUTPUT_VAT, debit: 0, credit: round2(s.vat) });

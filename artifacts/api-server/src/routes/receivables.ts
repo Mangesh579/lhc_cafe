@@ -7,6 +7,7 @@ import { isDay, nepalDay, isDrawerClosed } from "../lib/ledgerData";
 import { creditInvoices, customerBalances, creditDefaults, syncLoyaltyForOrder } from "../lib/receivables";
 import { validateAllocations, buildCreditNote, fullCreditNote, RECEIPT_MODES, RECEIPT_MODE_LABEL, receiptTdsError } from "../lib/receivableRules";
 import { bsYearMonthOf, bsMonthRange } from "../lib/fiscal";
+import { nextTaxInvoiceNumber } from "../lib/salesVat";
 import { nextVoucherNumber, nextInvoiceNumber } from "../lib/fiscal";
 import { moveStockForSold, recipesFor, restoreSaleStock, reverseNoteStock } from "../lib/stockMoves";
 import { round2 } from "../lib/payments";
@@ -559,6 +560,7 @@ export async function reissueInvoice(tx: any, orderId: number, toId: number, rea
       const invoiceNumber = await nextInvoiceNumber(tx, visitAt);
       const [n] = await tx.insert(ordersTable).values({
         tableId: o.tableId, totalAmount: o.totalAmount, discountAmount: o.discountAmount, vatAmount: o.vatAmount, billType: o.billType,
+        vatRate: o.vatRate, taxableAmount: o.taxableAmount, ...(o.taxInvoiceNo ? { taxInvoiceNo: await nextTaxInvoiceNumber(tx, new Date()), taxInvoiceAt: new Date() } : {}),
         otherPartyName: o.otherPartyName, otherPartyPan: o.otherPartyPan, nonTaxableAmount: o.nonTaxableAmount,
         paymentMethod: "credit", paymentStatus: "paid", orderStatus: "completed", loyaltyCustomerId: toId,
         loyaltyPointsEarned: 0, loyaltyPaidBasis: "0", // points come when the customer pays

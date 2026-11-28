@@ -20,6 +20,8 @@ import { ledgerSettings } from "../lib/ledger";
 import { lockGuard, orderDay, PAID_ORDER_ALT } from "../lib/periodLock";
 import { creditNotesBetween, creditNoteEffect, reissuedOrderIds, nepalDay } from "../lib/ledgerData";
 import { hotelSettings } from "./stays";
+import { saleVat, saleVatOn, nextTaxInvoiceNumber, SaleVatError } from "../lib/salesVat";
+import { bsLabel } from "../lib/fiscal";
 
 const router = Router();
 router.use(hideCosts);
@@ -103,6 +105,8 @@ async function getOrderWithItems(orderId: number) {
       otherPartyPan: ordersTable.otherPartyPan,
       nonTaxableAmount: ordersTable.nonTaxableAmount,
       invoiceNumber: ordersTable.invoiceNumber,
+      vatRate: ordersTable.vatRate, taxableAmount: ordersTable.taxableAmount, taxInvoiceNo: ordersTable.taxInvoiceNo, taxInvoiceAt: ordersTable.taxInvoiceAt, // 5e
+      loyaltyCustomerPan: loyaltyCustomersTable.pan,
       isNc: ordersTable.isNc,
       accountBill: ordersTable.accountBill,
       ncPersonName: ordersTable.ncPersonName,
@@ -118,6 +122,8 @@ async function getOrderWithItems(orderId: number) {
     .leftJoin(cafeTablesTable, eq(ordersTable.tableId, cafeTablesTable.id))
     .leftJoin(loyaltyCustomersTable, eq(ordersTable.loyaltyCustomerId, loyaltyCustomersTable.id))
     .where(eq(ordersTable.id, orderId));
+  if (order?.taxInvoiceAt) (order as any).taxInvoiceDay = nepalDay(new Date(order.taxInvoiceAt));
+  if (order?.taxInvoiceAt) (order as any).taxInvoiceDayBs = bsLabel(nepalDay(new Date(order.taxInvoiceAt)));
 
   if (!order) return null;
 
@@ -184,6 +190,8 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
       otherPartyPan: ordersTable.otherPartyPan,
       nonTaxableAmount: ordersTable.nonTaxableAmount,
       invoiceNumber: ordersTable.invoiceNumber,
+      vatRate: ordersTable.vatRate, taxableAmount: ordersTable.taxableAmount, taxInvoiceNo: ordersTable.taxInvoiceNo, taxInvoiceAt: ordersTable.taxInvoiceAt, // 5e
+      loyaltyCustomerPan: loyaltyCustomersTable.pan,
       isNc: ordersTable.isNc,
       accountBill: ordersTable.accountBill,
       ncPersonName: ordersTable.ncPersonName,
@@ -201,6 +209,8 @@ router.get("/orders", authenticate, async (req, res): Promise<void> => {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(sql`COALESCE(${ordersTable.backdatedAt}, ${ordersTable.createdAt})`));
 
+  // 5e: the tax invoice's Nepal day, in AD and BS, for the reprint
+  for (const o of ordersList as any[]) if (o.taxInvoiceAt) { o.taxInvoiceDay = nepalDay(new Date(o.taxInvoiceAt)); o.taxInvoiceDayBs = bsLabel(o.taxInvoiceDay); }
   const payInfo = await paymentInfo(ordersList);
   const ordersWithItems = await Promise.all(
     ordersList.map(async (order) => {
@@ -387,6 +397,13 @@ router.patch("/orders/:id/status", authenticate, async (req, res): Promise<void>
 //   paymentMethod: one mode for the whole bill (older screens).
 // Modes: cash, nabil_qr (QR Payment), card_nabil, card_hbl (LHC POS), card_sulimha_nabil, card_sulimha_hbl (Sulimha POS), credit. Credit needs a loyalty customer;
 // the bill gets its invoice number now, leaves Active Orders and goes on the customer's receivable.
+// 5e: what the payment step shows: whether VAT is in force today and at what rate (the server works out the figures)
+router.get("/orders/:id/vat-preview", authenticate, async (req, res): Promise<void> => {
+  const day = nepalDay(new Date());
+  try { const v = await saleVatOn(day); res.json(v.active ? { active: true, rate: v.rate, day } : { active: false, day }); }
+  catch (e) { if (e instanceof SaleVatError) { res.json({ active: false, day, error: e.message }); return; } throw e; }
+});
+
 router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void> => {
   try {
   const id = parseId(req.params.id);
@@ -408,9 +425,16 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, id));
   if (!order) { res.status(404).json({ error: "Order not found" }); return; }
 
-  // Owner and accountant, 2026-11-27: VAT bills are stopped while LHC is not VAT registered (Chart of Accounts > settings)
-  if ((billType === "vat" || (vatAmount !== undefined && Number(vatAmount) > 0)) && !(await ledgerSettings(db)).vatEnabled) {
-    res.status(400).json({ error: "VAT bills are stopped until LHC is VAT registered. Print a PAN bill." }); return;
+  // 5e: while VAT is in force on the payment day, the server works out the VAT; the screen's VAT figures are ignored
+  const payDay = nepalDay(new Date());
+  let vatNow: Awaited<ReturnType<typeof saleVatOn>>;
+  try { vatNow = await saleVatOn(payDay); } catch (e) { if (e instanceof SaleVatError) { res.status(400).json({ error: e.message }); return; } throw e; }
+  if (vatNow.active) {
+    for (const k of ["billType", "vatAmount", "totalAmount", "nonTaxableAmount"]) delete updateData[k];
+  } else if (billType === "vat" || (vatAmount !== undefined && Number(vatAmount) > 0)) {
+    // Owner and accountant, 2026-11-27: VAT bills are stopped while LHC is not VAT registered (Chart of Accounts > settings)
+    const s = await ledgerSettings(db);
+    res.status(400).json({ error: (s as any).vatEnabled && (s as any).vatStartDate ? `VAT starts on ${(s as any).vatStartDate}. Until then print a PAN bill.` : "VAT bills are stopped until LHC is VAT registered. Print a PAN bill." }); return;
   }
 
   if (paymentStatus !== "paid") {
@@ -425,7 +449,7 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
   if (order.paymentStatus === "cancelled") { res.status(400).json({ error: "This order was cancelled." }); return; }
   if (order.paymentStatus === "converted") { res.status(400).json({ error: CONVERTED_MSG }); return; }
 
-  let billTotal = round2(parseFloat(String(finalTotal !== undefined ? finalTotal : order.totalAmount)));
+  let billTotal = round2(parseFloat(String(finalTotal !== undefined && !vatNow.active ? finalTotal : order.totalAmount)));
   let customerId: number | null = loyaltyCustomerId ? Number(loyaltyCustomerId) : order.loyaltyCustomerId;
   const nc = isNc !== undefined ? !!isNc : order.isNc;
 
@@ -482,6 +506,14 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
       paymentMethod: "nc", totalAmount: String(cost), discountAmount: "0", vatAmount: "0", billType: "pan", nonTaxableAmount: "0" });
   }
 
+  // 5e: VAT on top of the bill after every discount, frozen on the order (NC never carries VAT)
+  if (vatNow.active && !nc) {
+    const v = saleVat(billTotal, vatNow.rate);
+    billTotal = v.total;
+    Object.assign(updateData, { totalAmount: String(v.total), vatAmount: String(v.vat), vatRate: String(vatNow.rate), taxableAmount: String(v.taxable), billType: "vat", nonTaxableAmount: "0" });
+    if (roomCharge) payments = [{ mode: "credit", amount: billTotal }];
+  }
+
   // Work out the payment parts
   let parts: { mode: string; amount: number; reference?: string | null }[] = [];
   let writeRows = true;
@@ -528,6 +560,8 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
     if (creditPart > 0) set.orderStatus = "completed"; // a credit bill leaves Active Orders
     // Only assign an invoice number once — reprints/edits must never get a new one
     if (!order.invoiceNumber) set.invoiceNumber = await getNextInvoiceNumber(tx);
+    // 5e: the tax invoice number (its own series), only once, in this transaction so the series has no gaps
+    if (vatNow.active && !nc && !order.taxInvoiceNo) { set.taxInvoiceNo = await nextTaxInvoiceNumber(tx, paidAt); set.taxInvoiceAt = paidAt; }
 
     // Loyalty: the visit counts now; points and total spent follow the money paid (none on a credit part
     // until the customer pays it). See syncLoyaltyForOrder below.
