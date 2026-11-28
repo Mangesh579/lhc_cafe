@@ -2374,7 +2374,7 @@ Plan: docs/specs/step5-vat-tds.md section 17 (approved as recommended); as built
   - lhc-cafe: pages/orders.tsx, pages/order-log.tsx, pages/chart-of-accounts.tsx, pages/reports.tsx, pages/pos.tsx, pages/public-order.tsx.
 
 ### Migration
-- db/migrations/025_output_vat.sql. **Not yet run on the server.** Idempotent (run twice in the tests). Existing rows stay empty.
+- db/migrations/025_output_vat.sql. Run on the server by the owner (recorded 2026-11-28). Idempotent (run twice in the tests). Existing rows stay empty.
 
 ### Tests
 - Run on the dev machine:
@@ -2406,3 +2406,6 @@ Plan: docs/specs/step5-vat-tds.md section 17 (approved as recommended); as built
   - the tax invoice number on the credit note print;
   - VAT lines on the guest extras bill.
 - **Before switching VAT on:** the accountant must confirm the 13% rate on the Taxes tab, and the admin must set the start date (today or later) and the VAT number.
+
+## 2026-11-28 (u): Migration 025 recorded as run
+- The owner ran db/migrations/025_output_vat.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 5e entry above. Docs only; no code, no SQL, nothing to deploy. VAT stays off until the admin switches it on after registration.

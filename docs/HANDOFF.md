@@ -212,7 +212,7 @@
   - **Setting:** Chart of Accounts > Taxes has the rate (15%, UNVERIFIED) with Change and Confirm.
   - **Record receipt:** "TDS withheld by the customer" pre-fills rate x the invoices being settled. It can be typed over, and warns softly when much higher.
 
-43. Step 5e, output VAT on sales, 2026-11-28 (docs/specs/step5-vat-tds.md section 17). Migration 025 NOT yet run.
+43. Step 5e, output VAT on sales, 2026-11-28 (docs/specs/step5-vat-tds.md section 17). Migration 025 run (recorded 2026-11-28).
   - **Switching on:** Chart of Accounts > settings has "Switch VAT on". The checklist needs the VAT number, a start date today or later, and the rate confirmed by the accountant on the Taxes tab. The admin types SWITCH ON VAT.
   - **Every bill from the start date:** VAT 13% on top (the server works it out), a tax invoice number TI-2083/84-00001..., and a tax invoice print after payment. Order Log reprints it as a copy. NC has no VAT.
   - **Reports > Tax invoices:** the month's tax invoices with the gap check. A cancelled invoice keeps its number.
@@ -244,9 +244,10 @@
 - 022_tds_receivable.sql (recorded 2026-11-28, by the owner): customer_receipts.tds_reference_by and tds_reference_at; the TDS receivable register index.
 - 023_input_vat.sql (recorded 2026-11-28, by the owner): purchase_bills.input_vat_claimed and expenses.input_vat_claimed (default false).
 - 024_tds_receivable_rate.sql (recorded 2026-11-28, by the owner): ledger_settings.tds_receivable_rate (15.00) and its confirmation columns.
+- 025_output_vat.sql (recorded 2026-11-28, by the owner): orders.vat_rate, taxable_amount, tax_invoice_no (unique), tax_invoice_at.
 
 # Not yet applied on the server
-- 025_output_vat.sql: orders.vat_rate, taxable_amount, tax_invoice_no (unique), tax_invoice_at. Run before deploy.sh.
+- None.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
