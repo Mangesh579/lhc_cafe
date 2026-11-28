@@ -2324,3 +2324,13 @@ Plan: docs/specs/step5-vat-tds.md sections 3, 5, 8 and 11 (answers 2 and 9); as 
 
 ## 2026-11-28 (r): Migrations 023 and 024 recorded as run
 - The owner ran db/migrations/023_input_vat.sql and 024_tds_receivable_rate.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 5d and rate entries above. Docs only; no code, no SQL, nothing to deploy.
+
+## 2026-11-28 (s): 5d-fix, voiding a bill that claimed input VAT restores the last purchase
+- **The bug:** voidPurchaseBill (lib/purchasePosting.ts) restored the ingredient's last purchase price, qty, date and supplier only if the stored last price equalled the line total. A bill that claimed input VAT stores the amount before VAT as the last price, so the two never matched, and the last purchase was not restored on void.
+- **The fix:** the void compares with the amount before VAT when the bill claimed input VAT (bill.inputVatClaimed ? amount : line total). The stock log line of a purchase now shows the figure that was costed: "for Rs. 1000.00 before VAT" on a claimed bill, the line total otherwise.
+- **Files:** artifacts/api-server/src/lib/purchasePosting.ts; __tests__/inputVat5d.test.ts (one new test).
+- **No migration.** Nothing to run on the server. No bill has claimed input VAT yet (VAT is off), so no data needs correcting.
+- **Tests:**
+  - `pnpm test`: 57 files, 576 tests pass; typecheck clean.
+  - New: an ingredient bought on a PAN bill (Rs 500, 5 kg) and then on a claimed VAT bill (Rs 1,000 before VAT, 10 kg) on the same day. Voiding the VAT bill gives back the PAN bill's last price, qty, date and supplier; voiding the PAN bill gives back nothing (empty), as before. It also checks the two stock log lines.
+  - Run without the fix, the test fails.
