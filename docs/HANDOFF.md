@@ -159,6 +159,13 @@
     - check one P&L line by line against the screen;
     - check that the Excel cells add up with SUM and show lakh commas on the accountant's PC.
 
+36. Part 3f, hotel guests, the stay folio and the stay history, 2026-11-28 (docs/specs/stays-guests-3f.md). Needs migration 019 (not yet applied).
+  - **Guests:** hotel guests are kept apart from loyalty members (kind). Check-in needs only the name. The Loyalty lists and the QR page show members only. A guest can be made a member (Stays > Guests > Make member, or a QR sign-up) and keeps everything.
+  - **No delete:** customers are never deleted; an unbilled one can be archived, and a billed one cannot.
+  - **Points:** a guest earns on paid extras, nothing on an included breakfast; Sulimha never earns.
+  - **The folio page** (/stays/:id): the bills with who added and settled them, the history, Take payment, and Print bill (the guest's extras for that stay; reception may print it).
+  - **The history** (stay_events) is insert-only and written with each change.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -181,7 +188,7 @@
 - 018_report_settings.sql (recorded 2026-11-28, by the owner): report_settings (the highlight rule, 20% and Rs 1,000).
 
 # Not yet applied on the server
-- None.
+- 019_hotel_guests.sql (2026-11-28): loyalty_customers kind, archive and promotion columns, phone optional, member-only email rule; orders.paid_by; stay_events. Run the read-only check of docs/specs/stays-guests-3f.md section 4.2 first, then back up, then the migration, before deploy.sh.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.

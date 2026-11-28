@@ -301,7 +301,7 @@ export default function OrderLog() {
   const customerMatches = customerSearchText.length >= 2
     ? allCustomers.filter(c =>
         c.name.toLowerCase().includes(customerSearchText.toLowerCase()) ||
-        c.phone.includes(customerSearchText) ||
+        (c.phone ?? "").includes(customerSearchText) ||
         c.email?.toLowerCase().includes(customerSearchText.toLowerCase())
       ).slice(0, 6)
     : [];

@@ -12,6 +12,7 @@ import { nextInvoiceNumber } from "../lib/fiscal";
 import { MONTHLY_RETIRED_MSG } from "../lib/monthlyRetired";
 import { validateSplit, partsFor, summaryMethod, creditAmountOf, round2, billDiscount, PAYMENT_MODES, MODE_LABEL } from "../lib/payments";
 import { allocatedByOrder, customerBalances, creditNotesByOrder, syncLoyaltyForOrder } from "../lib/receivables";
+import { orderStayEvent, sulimhaId } from "../lib/stayEvents";
 import { creditLimitWarning, outstandingOf } from "../lib/receivableRules";
 import { breakfastBill, breakfastCost, allocateTotal, stayText, breakfastWarning, type StayInfo } from "../lib/stayRules";
 import { stayInfoByOrder } from "../lib/stayInfo";
@@ -521,7 +522,7 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
     const status = ((locked as any).rows ?? locked)[0]?.payment_status;
     if (status === "paid") { alreadyPaid = true; return; }
 
-    const set: Record<string, unknown> = { ...updateData, paymentStatus: "paid", paidAt };
+    const set: Record<string, unknown> = { ...updateData, paymentStatus: "paid", paidAt, paidBy: username };
     if (writeRows) set.paymentMethod = summaryMethod(parts);
     if (customerId) set.loyaltyCustomerId = customerId;
     if (creditPart > 0) set.orderStatus = "completed"; // a credit bill leaves Active Orders
@@ -530,7 +531,8 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
 
     // Loyalty: the visit counts now; points and total spent follow the money paid (none on a credit part
     // until the customer pays it). See syncLoyaltyForOrder below.
-    if (customerId) {
+    // 3f: an included breakfast (billed to Sulimha Durbar) is not a visit of anyone's, and Sulimha never collects visits
+    if (customerId && updateData.stayCharge !== "breakfast" && customerId !== (await sulimhaId(tx))) {
       await tx.update(loyaltyCustomersTable).set({ totalOrders: sql`${loyaltyCustomersTable.totalOrders} + 1` }).where(eq(loyaltyCustomersTable.id, customerId));
     }
 
@@ -545,6 +547,8 @@ router.patch("/orders/:id/payment", authenticate, async (req, res): Promise<void
       }
     }
     if (customerId && !nc) await syncLoyaltyForOrder(tx, id, "Points for the amount paid", username ?? "staff");
+    // 3f: the stay's history, in this transaction
+    if (updateData.roomStayId) await orderStayEvent(tx, id, "order_charged", { total: billTotal, breakfasts: updateData.breakfastCount ?? null, createdBy: order.createdBy ?? "not recorded", paidBy: username ?? "not recorded" }, username ?? "staff");
   });
 
   const result = await getOrderWithItems(id);

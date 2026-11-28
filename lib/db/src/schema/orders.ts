@@ -14,6 +14,7 @@ export const ordersTable = pgTable("orders", {
   notes: text("notes"),
   discountAmount: numeric("discount_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   createdBy: text("created_by"),
+  paidBy: text("paid_by"), // 3f (migration 019): who settled the bill; empty on older orders ("not recorded")
   backdatedAt: timestamp("backdated_at"),
   vatAmount: numeric("vat_amount", { precision: 10, scale: 2 }).default("0"),
   billType: text("bill_type"),

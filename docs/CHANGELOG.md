@@ -1781,3 +1781,109 @@ None.
   - with the books function made to throw on page 2, the response is aborted, not a complete 200 file (logged as {"kind":"aborted"});
   - the server keeps serving afterwards.
 - Not run: the screens in a browser; anything against production.
+
+## 2026-11-28 (g): Part 3f, hotel guests, the stay folio and the stay history
+
+### Summary
+- **The plan:** docs/specs/stays-guests-3f.md, approved by the owner with questions 1 to 6 as recommended and four added points (section 12).
+- **Hotel guests apart from loyalty members** (one customer table; loyalty_customers.kind):
+  - **Check-in** (POST /stays) needs only the name; phone and email are optional.
+    - A phone that matches a customer uses that customer: a member stays a member, and an archived guest is brought back (history 'guest_unarchived'), with no duplicate.
+    - No phone always makes a new hotel guest; never matched by name.
+    - A guest's email is not checked against members.
+  - **Lists:** GET /loyalty/customers (Loyalty, the POS, Order Log) lists members only, never archived and never Sulimha Durbar. The admin's ?scope=all lists everyone.
+    - The public QR page looks up and signs up members only.
+    - A QR sign-up with a guest's phone promotes the guest (promoted_by 'QR sign-up', promoted_at) and returns only id, name, phone, points and loop.
+  - **Promotion:**
+    - POST /stays/guests/:customerId/promote (admin, supervisor, reception) and POST /loyalty/customers/:id/promote (admin, supervisor).
+    - It needs a phone and an email (the email unique among members). The stays, invoices and points stay.
+  - **Archive instead of delete:** POST /loyalty/customers/:id/archive and /unarchive (admin, supervisor). DELETE /loyalty/customers/:id now archives under the same rule; nothing is physically deleted.
+    - Refused for anyone billed (an order, a receipt, a credit note or a journal line) with the reason, and for Sulimha Durbar.
+- **Points** (owner, 2026-11-28; replaces "no loyalty points on stay bills"):
+  - **Who earns:** a guest earns on the extras they pay for (as the money is paid); nothing on an included breakfast; Sulimha Durbar never earns.
+  - **What was found:** before this, no stay bill earned points, Sulimha included, but the payment step added to Sulimha's visit count (total_orders) for every breakfast bill. That has stopped too.
+  - **Not retroactive.**
+- **The Stays page:**
+  - check-in with "Phone (optional)";
+  - a new Guests tab: search by name, phone or room; one row per stay with the room, dates, adults and children and status; Folio; Make member; Archive (or "billed: cannot archive" with the reason); Bring back.
+- **The folio is a page** (/stays/:id):
+  - **The stay:** the guest (hotel guest or loyalty member), room, dates, adults and children, notes.
+  - **The bills:** every bill with who added it and when and who settled it ("not recorded" for older bills), and the totals by money role.
+  - **The history**, Take payment, and Print bill.
+  - **Print bill** (POST /stays/:id/bill) prints the guest's extras bill for that stay only: the invoices charged to the guest, with the invoice numbers, items, total, credited, paid and still to pay. It never includes the breakfast billed to Sulimha. It uses the receipts' style under "Legendary House Cafe & Barista Coffee School, Sulimha Durbar, Patan, PAN/VAT No: 194139113".
+  - **Reception** may print it for any stay (with amounts) and sees no other amounts.
+- **The stay history** (stay_events, insert-only by a database trigger), with GET /stays/:id/history and in the folio:
+  - **Who reads it:** the admin, accountant, reception and supervisors; others get 403.
+  - **The events:** opened, edited (field, old value, new value), closed (reason, and any extras moved to Sulimha), cancelled, order_charged (charge, total, added by, settled by), order_moved_out and order_moved_in (Move to another room, Wrong customer, unpaid extras moved to Sulimha), order_cancelled (Cancel invoice, with the reason), order_credited (an item-wise credit note and its void), bill_printed, guest_unarchived.
+  - **Same transaction:** every row is written in the same transaction as the change it records.
+- **orders.paid_by:** who settled the bill, from now on.
+- **"Hotel guest" labels:** on Receivables (list, receipt picker, customer) and on the Reports statements and the customer summary. No figure changes.
+- **Fixed on the way:** Receivables' customer search would have failed on a guest with no phone; the Loyalty, Order Log and POS searches are guarded the same way.
+
+### Files
+- New:
+  - db/migrations/019_hotel_guests.sql;
+  - api-server: src/lib/stayEvents.ts, src/__tests__/guests3f.test.ts;
+  - lhc-cafe: src/pages/stay-folio.tsx, src/lib/guestBill.ts;
+  - docs/specs/stays-guests-3f.md.
+- Changed:
+  - lib/db: src/schema/loyalty.ts (kind, archived and promoted columns, phone optional, the member-email index), src/schema/orders.ts (paid_by), src/schema/stays.ts (stayEventsTable);
+  - api-server lib: src/lib/stayRules.ts (phone optional), src/lib/receivables.ts (the points rule; kind on balances), src/lib/reports/statements.ts (kind on statements);
+  - api-server routes: src/routes/stays.ts, src/routes/loyalty.ts, src/routes/public.ts, src/routes/orders.ts (paid_by, order_charged, no visits for Sulimha or a breakfast), src/routes/receivables.ts (the history in Cancel invoice, credit notes, their void and re-issue);
+  - api-server tests: src/__tests__/stays.test.ts (a guest now earns 50 points on Rs 500 of extras);
+  - lhc-cafe: src/App.tsx, src/pages/stays.tsx, src/pages/receivables.tsx, src/components/reports/statements.tsx, src/pages/loyalty.tsx, src/pages/order-log.tsx, src/pages/pos.tsx;
+  - CLAUDE.md, docs/HANDOFF.md.
+
+### Tables
+- loyalty_customers:
+  - + kind ('member' / 'hotel_guest'), + archived, archived_by, archived_at, promoted_by, promoted_at;
+  - phone now optional (still unique when present);
+  - the table-wide email unique rule is replaced by loyalty_customers_member_email_idx (members only).
+- orders: + paid_by.
+- New: stay_events, with an insert-only trigger.
+- **Existing data:**
+  - customers who only ever stayed (a stay, no points or point or redemption logs, no orders outside stays, not Sulimha, never promoted) become 'hotel_guest';
+  - every stay gets a backfilled 'opened' row, and 'closed' or 'cancelled' where it ended.
+  - No journal, receivable or posted row changes.
+
+### Migration
+- db/migrations/019_hotel_guests.sql. NOT run on the server yet. Idempotent (run twice in the tests).
+- The owner's read-only check output did not reach me with the approval. The migration does not need the email constraint's name (it finds the unique rule on email by its definition), but please run the read-only check of plan section 4.2 before it, to see who becomes a hotel guest.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 51 files, 515 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- New, guests3f (27):
+  - **Check-in:** a name only (a hotel guest, no phone, an 'opened' row with room, adults and children); a member's phone (that member, still a member); two phone-less "Sita Rai" are two guests; a guest may share a member's email; a short phone is refused.
+  - **Lists:** Loyalty lists no guests and not Sulimha; the admin's scope=all lists them.
+  - **Points:**
+    - an extra paid by receipt earns 50 on Rs 500, and paid_by is recorded;
+    - a breakfast earns nothing, and Sulimha's points, visits and point logs stay unchanged;
+    - an unpaid extra moved to Sulimha at check-out earns nothing;
+    - the points stay on promotion.
+  - **Promotion:**
+    - refused without a phone, without an email, or with a member's email;
+    - staff refused; reception refused on the loyalty route (its login is kept to /stays);
+    - then a member with the stay kept, in the Loyalty list;
+    - a QR sign-up promotes with promoted_by 'QR sign-up' and returns no stay.
+  - **Archive:**
+    - an unbilled guest is archived and hidden (reception refused; the customer count unchanged);
+    - a billed guest is refused, through DELETE too, and the Guests view gives the reason;
+    - checking in with an archived guest's phone brings them back with no duplicate and a 'guest_unarchived' row.
+  - **History:**
+    - an edit writes adults 2 to 3, check-out 2026-11-28 to 2026-11-29 and notes empty to "late arrival", and nothing for the unchanged children;
+    - Cancel invoice writes order_cancelled; the credit note and its void write order_credited twice;
+    - a move writes order_moved_out and order_moved_in;
+    - UPDATE and DELETE on stay_events are refused;
+    - the history is readable by the admin, accountant, reception and supervisor; staff gets 403 (and no history on the folio); reception gets the history but no amounts;
+    - the folio shows "added by waiter1, settled by staff", and "not recorded" for an old order.
+  - **The bill:** reception prints it with amounts and the business header; the extra is on it, the breakfast is not; 'bill_printed' is recorded; staff gets 403.
+  - **Same transaction:**
+    - a payment whose payment row fails leaves the bill pending and no history row;
+    - an edit and a cancel whose history row fails are undone;
+    - a refused close writes no 'closed' row.
+  - **Nothing posted changes:** promotion, archive and running 019 twice change no order, receipt or journal figure, and a promoted guest stays a member.
+  - **Migration 019 on existing data:** stayed-only becomes a guest; points, orders outside stays, Sulimha, promoted and never-stayed customers stay members; opened 5, closed 3, cancelled 1, all backfilled once.
+- Not run: the screens in a browser; the public QR page on the cafe Wi-Fi; anything against production.

@@ -4,7 +4,7 @@ import { round2 } from "./payments";
 const clean = (v: unknown, max: number): string | null => { const s = String(v ?? "").trim().slice(0, max); return s || null; };
 const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
-export type CheckIn = { tableId: number; guestName: string; phone: string; email: string | null; adults: number; children: number; breakfastIncluded: boolean; checkIn: string; checkOut: string; notes: string | null };
+export type CheckIn = { tableId: number; guestName: string; phone: string | null; email: string | null; adults: number; children: number; breakfastIncluded: boolean; checkIn: string; checkOut: string; notes: string | null };
 
 export function validateCheckIn(b: any, today: string): CheckIn | { error: string } {
   const tableId = Number(b?.tableId);
@@ -13,7 +13,8 @@ export function validateCheckIn(b: any, today: string): CheckIn | { error: strin
   const adults = Number(b?.adults), children = Number(b?.children ?? 0);
   if (!Number.isInteger(tableId) || tableId <= 0) return { error: "Choose the room." };
   if (!guestName) return { error: "Enter the guest's name." };
-  if (!phone || phone.replace(/\D/g, "").length < 7) return { error: "Enter the guest's phone number." };
+  // 3f: only the name is required; a phone, when given, must look like one
+  if (phone && phone.replace(/\D/g, "").length < 7) return { error: "That phone number looks too short. Leave it empty if the guest has none." };
   if (!Number.isInteger(adults) || adults < 1 || adults > 20) return { error: "Enter the number of adults (at least 1)." };
   if (!Number.isInteger(children) || children < 0 || children > 20) return { error: "Enter the number of children (0 or more)." };
   if (!isDay(b?.checkIn) || !isDay(b?.checkOut)) return { error: "Enter the check-in and check-out dates." };

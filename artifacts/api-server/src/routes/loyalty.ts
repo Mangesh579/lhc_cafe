@@ -1,19 +1,23 @@
 import { Router, Response } from "express";
 import { db, loyaltyCustomersTable, ordersTable, orderItemsTable, menuItemsTable, loyaltyPointLogsTable, loyaltyRedemptionsTable } from "@workspace/db";
-import { eq, ilike, and, desc } from "drizzle-orm";
+import { eq, ilike, and, desc, ne } from "drizzle-orm";
+import { billedCounts, isBilled, sulimhaId } from "../lib/stayEvents";
 import { authenticate, AuthRequest, requireAdmin } from "../middlewares/auth";
 
 const router = Router();
 
-router.get("/loyalty/customers", authenticate, async (req, res): Promise<void> => {
+// 3f: members only, never an archived customer or Sulimha Durbar (hotel guests have their own list on the Stays page).
+// ?scope=all (admin) lists everyone, for the Stays settings picker that chooses Sulimha Durbar.
+router.get("/loyalty/customers", authenticate, async (req: AuthRequest, res): Promise<void> => {
   const { phone } = req.query;
-  if (phone) {
-    const customers = await db.select().from(loyaltyCustomersTable).where(ilike(loyaltyCustomersTable.phone, `%${phone}%`));
-    res.json(customers);
+  if (req.query.scope === "all" && (req.user?.role as string | undefined) === "admin") {
+    res.json(await db.select().from(loyaltyCustomersTable).orderBy(loyaltyCustomersTable.name));
     return;
   }
-  const customers = await db.select().from(loyaltyCustomersTable).orderBy(loyaltyCustomersTable.name);
-  res.json(customers);
+  const sid = await sulimhaId(db);
+  const conds = [eq(loyaltyCustomersTable.kind, "member"), eq(loyaltyCustomersTable.archived, false), ...(sid ? [ne(loyaltyCustomersTable.id, sid)] : []),
+    ...(phone ? [ilike(loyaltyCustomersTable.phone, `%${phone}%`)] : [])];
+  res.json(await db.select().from(loyaltyCustomersTable).where(and(...conds)).orderBy(loyaltyCustomersTable.name));
 });
 
 router.post("/loyalty/customers", authenticate, async (req, res): Promise<void> => {
@@ -21,10 +25,12 @@ router.post("/loyalty/customers", authenticate, async (req, res): Promise<void> 
   if (!name || !phone) { res.status(400).json({ error: "Name and phone required" }); return; }
 
   const [existingPhone] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.phone, phone));
+  if (existingPhone?.kind === "hotel_guest") { res.status(400).json({ error: `This phone belongs to hotel guest ${existingPhone.name}. Make them a member from Stays > Guests (Promote), so they keep their stays.` }); return; }
   if (existingPhone) { res.status(400).json({ error: "A loyalty account with this phone number already exists." }); return; }
 
   if (email) {
-    const [existingEmail] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.email, email));
+    // 3f: an email is unique among members only (a hotel guest may share one)
+    const [existingEmail] = await db.select().from(loyaltyCustomersTable).where(and(eq(loyaltyCustomersTable.email, email), eq(loyaltyCustomersTable.kind, "member")));
     if (existingEmail) { res.status(400).json({ error: "A loyalty account with this email already exists." }); return; }
   }
 
@@ -43,8 +49,9 @@ router.patch("/loyalty/customers/:id", authenticate, async (req, res): Promise<v
     }
   }
 
-  if (email) {
-    const [existingEmail] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.email, email));
+  const [self] = await db.select({ kind: loyaltyCustomersTable.kind }).from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, id));
+  if (email && self?.kind === "member") {
+    const [existingEmail] = await db.select().from(loyaltyCustomersTable).where(and(eq(loyaltyCustomersTable.email, email), eq(loyaltyCustomersTable.kind, "member")));
     if (existingEmail && existingEmail.id !== id) {
       res.status(400).json({ error: "A loyalty account with this email already exists." }); return;
     }
@@ -168,10 +175,64 @@ router.get("/loyalty/redemption-logs", authenticate, async (_req, res): Promise<
   res.json(logs);
 });
 
-router.delete("/loyalty/customers/:id", authenticate, requireAdmin, async (req, res): Promise<void> => {
+// 3f (owner, 2026-11-28): nothing is deleted. DELETE archives a customer who was never billed (hides them from every list)
+// and refuses a billed one, members included; the receivable, the journal and the statements need them.
+async function archiveCustomer(req: AuthRequest, res: Response) {
   const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  await db.delete(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, id));
-  res.sendStatus(204);
+  const [c] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, id));
+  if (!c) { res.status(404).json({ error: "Customer not found" }); return; }
+  if (id === (await sulimhaId(db))) { res.status(400).json({ error: "Sulimha Durbar is the hotel's account and cannot be archived." }); return; }
+  const b = await billedCounts(db, id);
+  if (isBilled(b)) {
+    const parts = [b.orders && `${b.orders} bill(s)`, b.receipts && `${b.receipts} receipt(s)`, b.creditNotes && `${b.creditNotes} credit note(s)`].filter(Boolean).join(", ") || "ledger entries";
+    res.status(400).json({ error: `${c.name} has ${parts}: a billed ${c.kind === "hotel_guest" ? "guest" : "customer"} cannot be archived or deleted.`, billed: b });
+    return;
+  }
+  const [row] = await db.update(loyaltyCustomersTable).set({ archived: true, archivedBy: req.user?.username ?? "user", archivedAt: new Date() }).where(eq(loyaltyCustomersTable.id, id)).returning();
+  res.json(row);
+}
+const ARCHIVE_ROLES = ["admin", "supervisor"];
+const PROMOTE_ROLES = ["admin", "supervisor", "reception"];
+const roleOk = (req: AuthRequest, res: Response, roles: string[], msg: string) => { if (roles.includes((req.user?.role as string | undefined) ?? "")) return true; res.status(403).json({ error: msg }); return false; };
+router.delete("/loyalty/customers/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!roleOk(req, res, ARCHIVE_ROLES, "Only the admin or a supervisor can archive a customer.")) return;
+  await archiveCustomer(req, res);
+});
+router.post("/loyalty/customers/:id/archive", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!roleOk(req, res, ARCHIVE_ROLES, "Only the admin or a supervisor can archive a customer.")) return;
+  await archiveCustomer(req, res);
+});
+router.post("/loyalty/customers/:id/unarchive", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!roleOk(req, res, ARCHIVE_ROLES, "Only the admin or a supervisor can bring back an archived customer.")) return;
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  const [row] = await db.update(loyaltyCustomersTable).set({ archived: false, archivedBy: null, archivedAt: null }).where(eq(loyaltyCustomersTable.id, id)).returning();
+  if (!row) { res.status(404).json({ error: "Customer not found" }); return; }
+  res.json(row);
+});
+
+// 3f: a hotel guest becomes a loyalty member. A member needs a phone and an email (the email unique among members).
+// The guest keeps their stays, invoices and points.
+export async function promoteGuest(ex: any, id: number, phone: string | null, email: string | null, name: string | null, by: string): Promise<{ error: string; status: number } | { customer: any }> {
+  const [c] = await ex.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, id));
+  if (!c) return { status: 404, error: "Customer not found" };
+  if (c.kind !== "hotel_guest") return { status: 400, error: `${c.name} is already a loyalty member.` };
+  const ph = (phone ?? c.phone ?? "").trim(), em = (email ?? c.email ?? "").trim().toLowerCase();
+  if (ph.replace(/\D/g, "").length < 7) return { status: 400, error: "A loyalty member needs a phone number." };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return { status: 400, error: "A loyalty member needs an email address." };
+  const [byPhone] = await ex.select({ id: loyaltyCustomersTable.id }).from(loyaltyCustomersTable).where(and(eq(loyaltyCustomersTable.phone, ph), ne(loyaltyCustomersTable.id, id)));
+  if (byPhone) return { status: 400, error: "That phone number belongs to another customer." };
+  const [byEmail] = await ex.select({ id: loyaltyCustomersTable.id }).from(loyaltyCustomersTable).where(and(eq(loyaltyCustomersTable.email, em), eq(loyaltyCustomersTable.kind, "member"), ne(loyaltyCustomersTable.id, id)));
+  if (byEmail) return { status: 400, error: "That email belongs to another loyalty member." };
+  const [row] = await ex.update(loyaltyCustomersTable).set({ kind: "member", phone: ph, email: em, ...(name ? { name } : {}), archived: false, archivedBy: null, archivedAt: null, promotedBy: by, promotedAt: new Date() })
+    .where(eq(loyaltyCustomersTable.id, id)).returning();
+  return { customer: row };
+}
+router.post("/loyalty/customers/:id/promote", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!roleOk(req, res, PROMOTE_ROLES, "Only the admin, a supervisor or reception can make a guest a loyalty member.")) return;
+  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+  const r = await promoteGuest(db, id, req.body?.phone ?? null, req.body?.email ?? null, null, req.user?.username ?? "user");
+  if ("error" in r) { res.status(r.status).json({ error: r.error }); return; }
+  res.json(r.customer);
 });
 
 export default router;

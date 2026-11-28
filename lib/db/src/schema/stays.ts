@@ -1,7 +1,7 @@
 // Hotel room stays (plan: docs/specs/room-stays.md, owner's answers 2026-11-26). Sulimha Durbar's reception opens a stay on a room
 // (a cafe table marked is_room). Included breakfasts are billed to Sulimha Durbar at a fixed price per breakfast; the guest's
 // extras are credit invoices on the guest, paid at check-out with one receipt.
-import { pgTable, serial, integer, text, boolean, date, timestamp, numeric, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, boolean, date, timestamp, numeric, uniqueIndex, jsonb, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const roomStaysTable = pgTable("room_stays", {
@@ -32,3 +32,17 @@ export const hotelSettingsTable = pgTable("hotel_settings", {
   updatedBy: text("updated_by"),
   updatedAt: timestamp("updated_at"),
 });
+
+// 3f (migration 019): the history of a stay. Insert-only: a trigger refuses UPDATE and DELETE. Each row is written in the
+// same transaction as the change it records.
+export const STAY_EVENTS = ["opened", "edited", "closed", "cancelled", "order_charged", "order_moved_out", "order_moved_in", "order_cancelled", "order_credited", "bill_printed", "guest_unarchived"] as const;
+export const stayEventsTable = pgTable("stay_events", {
+  id: serial("id").primaryKey(),
+  stayId: integer("stay_id").notNull(),
+  event: text("event").notNull(),
+  detail: jsonb("detail").notNull().default({}),
+  userName: text("user_name").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  byStay: index("stay_events_stay_idx").on(t.stayId, t.id),
+}));
