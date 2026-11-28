@@ -2261,7 +2261,7 @@ Plan: docs/specs/step5-vat-tds.md sections 3, 5, 8 and 11 (answers 2 and 9); as 
   - lhc-cafe: pages/suppliers.tsx, pages/expenses.tsx.
 
 ### Migration
-- db/migrations/023_input_vat.sql. **Not yet run on the server.** Idempotent; it ran twice in the tests and kept every flag.
+- db/migrations/023_input_vat.sql. Run on the server by the owner (recorded 2026-11-28). Idempotent; it ran twice in the tests and kept every flag.
 
 ### Tests
 - Run on the dev machine:
@@ -2311,7 +2311,7 @@ Plan: docs/specs/step5-vat-tds.md sections 3, 5, 8 and 11 (answers 2 and 9); as 
   - lhc-cafe: pages/receivables.tsx, components/TaxesTab.tsx.
 
 ### Migration
-- db/migrations/024_tds_receivable_rate.sql. **Not yet run on the server.** Idempotent; a second run keeps the value.
+- db/migrations/024_tds_receivable_rate.sql. Run on the server by the owner (recorded 2026-11-28). Idempotent; a second run keeps the value.
 
 ### Tests
 - New, tdsReceivableRate (5):
@@ -2321,3 +2321,6 @@ Plan: docs/specs/step5-vat-tds.md sections 3, 5, 8 and 11 (answers 2 and 9); as 
   - migration 024 runs twice;
   - the pre-fill equals rate x the settled amount (with and without VAT); typing over it is kept; the warning rule.
 - Existing receipts and every existing test are unchanged.
+
+## 2026-11-28 (r): Migrations 023 and 024 recorded as run
+- The owner ran db/migrations/023_input_vat.sql and 024_tds_receivable_rate.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 5d and rate entries above. Docs only; no code, no SQL, nothing to deploy.
