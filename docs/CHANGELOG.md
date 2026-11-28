@@ -2448,7 +2448,7 @@ Plan: docs/specs/step5-vat-tds.md section 18 (approved as recommended); as built
   - lhc-cafe: components/TaxPayments.tsx, pages/reports.tsx.
 
 ### Migration
-- db/migrations/026_vat_return.sql. **Not yet run on the server.** Idempotent (run twice in the tests).
+- db/migrations/026_vat_return.sql. Run on the server by the owner (recorded 2026-11-28). Idempotent (run twice in the tests).
 
 ### Tests
 - Run on the dev machine:
@@ -2474,3 +2474,6 @@ Plan: docs/specs/step5-vat-tds.md section 18 (approved as recommended); as built
 - **Narrower than the plan:** a reopened filed month that changes shows "Changed after filing" with the difference. That difference is not added to the next return automatically.
 - **A payment below the payable is allowed;** what is left stays on 2200.
 - **Step 5 is complete** apart from CBMS (roadmap 9). The VAT return's columns switch to the accountant's IRD layout when he gives it.
+
+## 2026-11-28 (x): Migration 026 recorded as run
+- The owner ran db/migrations/026_vat_return.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 5f entry above. Docs only; no code, no SQL, nothing to deploy. Step 5 is complete apart from CBMS.
