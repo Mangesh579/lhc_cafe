@@ -18,7 +18,7 @@ const PREFIX: Record<string, string> = { JV: "JV", OPEN: "OP" };
 
 export async function ledgerSettings(ex: Db) {
   const [s] = await ex.select().from(ledgerSettingsTable).where(eq(ledgerSettingsTable.id, 1));
-  return s ?? { id: 1, startDate: "2026-12-16", lockAfterDays: 3, openingStatus: "draft", openingEntryId: null, openingConfirmedBy: null, openingConfirmedAt: null };
+  return s ?? { id: 1, startDate: "2026-12-16", lockAfterDays: 3, openingStatus: "draft", openingEntryId: null, openingConfirmedBy: null, openingConfirmedAt: null, vatEnabled: false, vatStartDate: null, vatNumber: null };
 }
 
 export async function accountMap(ex: Db): Promise<Map<string, AccountInfo & { type: string }>> {

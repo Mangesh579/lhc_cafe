@@ -18,6 +18,8 @@ export const suppliersTable = pgTable("suppliers", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedBy: text("updated_by"),
   updatedAt: timestamp("updated_at", { withTimezone: true }),
+  vatRegistered: boolean("vat_registered").notNull().default(false), // 5a: issues VAT bills (input VAT; the TDS rate)
+  defaultTdsType: text("default_tds_type"),
 }, (t) => ({
   onePan: uniqueIndex("suppliers_pan_idx").on(t.pan),
 }));
@@ -66,6 +68,7 @@ export const purchaseBillsTable = pgTable("purchase_bills", {
   voidedAt: timestamp("voided_at", { withTimezone: true }),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  billType: text("bill_type").notNull().default("pan"), // 5a: pan | vat (a VAT bill's VAT goes to 1450 from the switch-on date, 5d)
 }, (t) => ({
   onePj: uniqueIndex("purchase_bills_pj_idx").on(t.pjNumber),
   noDuplicate: uniqueIndex("purchase_bills_no_duplicate_idx").on(t.supplierPan, t.billNumberKey).where(sql`status = 'active'`),
@@ -148,6 +151,9 @@ export const supplierPaymentsTable = pgTable("supplier_payments", {
   voidedAt: timestamp("voided_at", { withTimezone: true }),
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  tdsType: text("tds_type"), // 5a: TDS LHC withholds (used from 5b)
+  tdsRate: numeric("tds_rate", { precision: 6, scale: 3 }),
+  tdsAmount: numeric("tds_amount", { precision: 12, scale: 2 }).notNull().default("0"),
 }, (t) => ({
   oneVoucher: uniqueIndex("supplier_payments_voucher_idx").on(t.voucherNo),
   bySupplier: index("supplier_payments_supplier_idx").on(t.supplierId),

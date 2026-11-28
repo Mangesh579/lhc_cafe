@@ -1,0 +1,87 @@
+// Step 5a: the tax settings (Chart of Accounts > Taxes). The VAT rate and the TDS types are editable rows: the starting
+// values are researched (UNVERIFIED) and the accountant enters the confirmed ones (owner, 2026-11-28).
+import { useState, useEffect, useCallback } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { apiJson } from "@/lib/expenseApi";
+
+const PAYEE: Record<string, string> = { supplier: "Supplier", landlord: "Landlord", employee: "Employee", any: "Anyone" };
+const blankType = { code: "", label: "", rate: "", threshold: "", actSection: "", payeeKind: "supplier", active: true, note: "" };
+
+export function TaxesTab() {
+  const { toast } = useToast();
+  const [rates, setRates] = useState<any[]>([]);
+  const [types, setTypes] = useState<any[]>([]);
+  const [editRate, setEditRate] = useState<any | null>(null);
+  const [editType, setEditType] = useState<any | null>(null);
+  const load = useCallback(async () => {
+    try { setRates(await apiJson("/gl/tax-rates")); setTypes(await apiJson("/gl/tds-types")); }
+    catch (e: any) { toast({ title: "Could not load the tax settings", description: e?.error, variant: "destructive" }); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const fail = (e: any) => toast({ title: "Not saved", description: e?.error, variant: "destructive" });
+  const saveRate = async () => {
+    try {
+      const body = { rate: editRate.rate, effectiveFrom: editRate.effectiveFrom || null, effectiveTo: editRate.effectiveTo || null, note: editRate.note };
+      await apiJson(editRate.id ? `/gl/tax-rates/${editRate.id}` : "/gl/tax-rates", editRate.id ? "PATCH" : "POST", body);
+      toast({ title: "VAT rate saved" }); setEditRate(null); load();
+    } catch (e: any) { fail(e); }
+  };
+  const saveType = async () => {
+    try {
+      const body = { ...editType, threshold: editType.threshold === "" ? null : editType.threshold, effectiveFrom: editType.effectiveFrom || null, effectiveTo: editType.effectiveTo || null };
+      await apiJson(editType.id ? `/gl/tds-types/${editType.id}` : "/gl/tds-types", editType.id ? "PATCH" : "POST", body);
+      toast({ title: "TDS type saved" }); setEditType(null); load();
+    } catch (e: any) { fail(e); }
+  };
+  const field = (o: any, set: (x: any) => void, k: string, label: string, props: any = {}) => (
+    <label className="text-xs space-y-0.5"><span className="block text-muted-foreground">{label}</span><Input className="h-8" value={o[k] ?? ""} onChange={e => set({ ...o, [k]: e.target.value })} {...props} /></label>
+  );
+  return (
+    <div className="space-y-4 mt-3">
+      <p className="text-sm bg-amber-50 text-amber-900 border border-amber-200 rounded-md px-3 py-2">These rates are the researched starting values (UNVERIFIED). Enter the rates the accountant confirms with IRD. A rate applies to documents dated in its effective dates (empty means always).</p>
+
+      <Card><CardContent className="p-0 overflow-x-auto">
+        <div className="flex items-center justify-between px-3 py-2 bg-muted/40"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">VAT rate</p>
+          <Button size="sm" variant="outline" className="h-7" onClick={() => setEditRate({ rate: "13", effectiveFrom: "", effectiveTo: "", note: "" })}>Add a rate</Button></div>
+        <table className="w-full text-sm min-w-[480px]"><thead className="text-xs text-muted-foreground"><tr><th className="px-3 py-1.5 text-left">Rate</th><th className="px-3 py-1.5 text-left">From</th><th className="px-3 py-1.5 text-left">To</th><th className="px-3 py-1.5 text-left">Note</th><th /></tr></thead>
+          <tbody className="divide-y">{rates.map(r => (
+            <tr key={r.id}><td className="px-3 py-1.5 font-medium">{Number(r.rate)}%</td><td className="px-3 py-1.5">{r.effectiveFrom ?? "always"}</td><td className="px-3 py-1.5">{r.effectiveTo ?? "—"}</td><td className="px-3 py-1.5 text-xs text-muted-foreground">{r.note}</td>
+              <td className="px-3 py-1.5 text-right"><Button size="sm" variant="ghost" className="h-7" onClick={() => setEditRate({ ...r, rate: String(Number(r.rate)) })}>Change</Button></td></tr>))}</tbody></table>
+        {editRate && <div className="p-3 border-t grid sm:grid-cols-4 gap-2 items-end">
+          {field(editRate, setEditRate, "rate", "Rate %", { type: "number", step: "0.001" })}
+          {field(editRate, setEditRate, "effectiveFrom", "From (optional)", { type: "date" })}
+          {field(editRate, setEditRate, "effectiveTo", "To (optional)", { type: "date" })}
+          {field(editRate, setEditRate, "note", "Note")}
+          <div className="sm:col-span-4 flex gap-2"><Button size="sm" onClick={saveRate}>Save</Button><Button size="sm" variant="outline" onClick={() => setEditRate(null)}>Cancel</Button></div>
+        </div>}
+      </CardContent></Card>
+
+      <Card><CardContent className="p-0 overflow-x-auto">
+        <div className="flex items-center justify-between px-3 py-2 bg-muted/40"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">TDS types (tax LHC withholds when it pays)</p>
+          <Button size="sm" variant="outline" className="h-7" onClick={() => setEditType({ ...blankType })}>Add a type</Button></div>
+        <table className="w-full text-sm min-w-[720px]"><thead className="text-xs text-muted-foreground"><tr><th className="px-3 py-1.5 text-left">Type</th><th className="px-3 py-1.5 text-left">Rate</th><th className="px-3 py-1.5 text-left">Threshold</th><th className="px-3 py-1.5 text-left">Section</th><th className="px-3 py-1.5 text-left">For</th><th className="px-3 py-1.5 text-left">Status</th><th /></tr></thead>
+          <tbody className="divide-y">{types.map(t => (
+            <tr key={t.id} className={t.active ? "" : "opacity-60"}><td className="px-3 py-1.5">{t.label}<span className="block text-xs text-muted-foreground">{t.code}{t.note ? ` · ${t.note}` : ""}</span></td>
+              <td className="px-3 py-1.5 font-medium">{Number(t.rate)}%</td><td className="px-3 py-1.5">{t.threshold != null ? `above Rs ${Number(t.threshold).toLocaleString("en-IN")}` : "—"}</td>
+              <td className="px-3 py-1.5">{t.actSection ?? "—"}</td><td className="px-3 py-1.5">{PAYEE[t.payeeKind] ?? t.payeeKind}</td><td className="px-3 py-1.5">{t.active ? "in use" : "not in use"}</td>
+              <td className="px-3 py-1.5 text-right"><Button size="sm" variant="ghost" className="h-7" onClick={() => setEditType({ ...t, rate: String(Number(t.rate)), threshold: t.threshold != null ? String(Number(t.threshold)) : "" })}>Change</Button></td></tr>))}</tbody></table>
+        {editType && <div className="p-3 border-t grid sm:grid-cols-4 gap-2 items-end">
+          {!editType.id && field(editType, setEditType, "code", "Code (e.g. audit_fee)")}
+          {field(editType, setEditType, "label", "What it is for")}
+          {field(editType, setEditType, "rate", "Rate %", { type: "number", step: "0.001" })}
+          {field(editType, setEditType, "threshold", "Threshold Rs (optional)", { type: "number" })}
+          {field(editType, setEditType, "actSection", "Act section")}
+          <label className="text-xs space-y-0.5"><span className="block text-muted-foreground">For</span><select className="h-8 rounded-md border border-input bg-background px-2 text-sm w-full" value={editType.payeeKind} onChange={e => setEditType({ ...editType, payeeKind: e.target.value })}>{Object.entries(PAYEE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+          {field(editType, setEditType, "effectiveFrom", "From (optional)", { type: "date" })}
+          {field(editType, setEditType, "effectiveTo", "To (optional)", { type: "date" })}
+          {field(editType, setEditType, "note", "Note")}
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!editType.active} onChange={e => setEditType({ ...editType, active: e.target.checked })} /> In use</label>
+          <div className="sm:col-span-4 flex gap-2"><Button size="sm" onClick={saveType}>Save</Button><Button size="sm" variant="outline" onClick={() => setEditType(null)}>Cancel</Button></div>
+        </div>}
+      </CardContent></Card>
+    </div>
+  );
+}

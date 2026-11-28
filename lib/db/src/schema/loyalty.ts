@@ -26,6 +26,7 @@ export const loyaltyCustomersTable = pgTable("loyalty_customers", {
   // Credit sales: optional limit (warning only) and optional credit days (for the overdue list)
   creditLimit: numeric("credit_limit", { precision: 12, scale: 2 }),
   creditDays: integer("credit_days"),
+  pan: text("pan"), // 5a: a business customer's PAN (Sulimha Durbar), printed on its tax invoices
 }, (t) => ({
   memberEmail: uniqueIndex("loyalty_customers_member_email_idx").on(t.email).where(sql`kind = 'member' AND email IS NOT NULL`),
 }));

@@ -77,6 +77,10 @@ export const ledgerSettingsTable = pgTable("ledger_settings", {
   openingEntryId: integer("opening_entry_id"),
   openingConfirmedBy: text("opening_confirmed_by"),
   openingConfirmedAt: timestamp("opening_confirmed_at"),
+  // migration 014 added vat_enabled; 5a (migration 020) puts it in the schema with the switch-on date and the VAT number
+  vatEnabled: boolean("vat_enabled").notNull().default(false),
+  vatStartDate: date("vat_start_date"),
+  vatNumber: text("vat_number"),
   updatedBy: text("updated_by"),
   updatedAt: timestamp("updated_at"),
 });
@@ -152,4 +156,52 @@ export const reportSettingsTable = pgTable("report_settings", {
   highlightMin: numeric("highlight_min", { precision: 14, scale: 2 }).notNull().default("1000"),
   updatedBy: text("updated_by").notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Step 5a (migration 020): the VAT rate and the TDS types, as editable rows (owner, 2026-11-28: researched values to start,
+// the accountant enters the confirmed ones); the tax payment vouchers (VAT payment, TDS deposit)
+export const taxRatesTable = pgTable("tax_rates", {
+  id: serial("id").primaryKey(),
+  tax: text("tax").notNull(),
+  rate: numeric("rate", { precision: 6, scale: 3 }).notNull(),
+  effectiveFrom: date("effective_from"),
+  effectiveTo: date("effective_to"),
+  note: text("note"),
+  setBy: text("set_by").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export const tdsTypesTable = pgTable("tds_types", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  label: text("label").notNull(),
+  rate: numeric("rate", { precision: 6, scale: 3 }).notNull(),
+  threshold: numeric("threshold", { precision: 14, scale: 2 }),
+  actSection: text("act_section"),
+  payeeKind: text("payee_kind").notNull().default("supplier"),
+  effectiveFrom: date("effective_from"),
+  effectiveTo: date("effective_to"),
+  active: boolean("active").notNull().default(true),
+  note: text("note"),
+  setBy: text("set_by").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export const taxPaymentsTable = pgTable("tax_payments", {
+  id: serial("id").primaryKey(),
+  voucherNo: text("voucher_no").notNull().unique(),
+  kind: text("kind").notNull(), // vat_payment | tds_deposit
+  bsYear: integer("bs_year").notNull(),
+  bsMonth: integer("bs_month").notNull(),
+  paymentDate: date("payment_date").notNull(),
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+  vatOutput: numeric("vat_output", { precision: 14, scale: 2 }),
+  vatInput: numeric("vat_input", { precision: 14, scale: 2 }),
+  bankAccount: text("bank_account").notNull(),
+  reference: text("reference"),
+  notes: text("notes"),
+  status: text("status").notNull().default("active"),
+  voidReason: text("void_reason"),
+  voidedBy: text("voided_by"),
+  voidedAt: timestamp("voided_at"),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });

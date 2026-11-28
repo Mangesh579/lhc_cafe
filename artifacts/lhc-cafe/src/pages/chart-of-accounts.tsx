@@ -16,6 +16,7 @@ import { rs } from "@/lib/payments";
 import * as XLSX from "xlsx";
 import { PostDayTab, MenuCategoriesTab } from "@/components/PostDay";
 import { MonthCloseTab } from "@/components/MonthClose";
+import { TaxesTab } from "@/components/TaxesTab";
 
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
 const TYPE_LABEL: Record<string, string> = { asset: "Asset", liability: "Liability", equity: "Equity", income: "Income", expense: "Expense" };
@@ -74,10 +75,12 @@ export default function ChartOfAccounts() {
           <TabsTrigger value="tb">Trial balance</TabsTrigger>
           <TabsTrigger value="opening">Opening balances</TabsTrigger>
           <TabsTrigger value="categories">Menu categories</TabsTrigger>
+          <TabsTrigger value="taxes">Taxes</TabsTrigger>
         </TabsList>
         <TabsContent value="post"><PostDayTab /></TabsContent>
         <TabsContent value="month"><MonthCloseTab /></TabsContent>
         <TabsContent value="categories"><MenuCategoriesTab /></TabsContent>
+        <TabsContent value="taxes"><TaxesTab /></TabsContent>
         <TabsContent value="accounts"><AccountsTab accounts={accounts} onChanged={load} /></TabsContent>
         <TabsContent value="map"><MapTab map={map} postable={postable} onChanged={load} /></TabsContent>
         <TabsContent value="journals"><JournalsTab postable={postable} settings={settings} /></TabsContent>
@@ -93,9 +96,12 @@ function SettingsCard({ settings, isAdmin, onSaved }: { settings: any; isAdmin: 
   const [edit, setEdit] = useState(false);
   const [start, setStart] = useState(settings.startDate);
   const [lock, setLock] = useState(String(settings.lockAfterDays));
+  const [vatDate, setVatDate] = useState(settings.vatStartDate ?? "");
+  const [vatNo, setVatNo] = useState(settings.vatNumber ?? "");
   const save = async () => {
     try {
-      await apiJson("/gl/settings", "PATCH", { lockAfterDays: Number(lock), ...(isAdmin && start !== settings.startDate ? { startDate: start } : {}) });
+      const vat = isAdmin ? { ...(vatDate !== (settings.vatStartDate ?? "") ? { vatStartDate: vatDate || null } : {}), ...(vatNo !== (settings.vatNumber ?? "") ? { vatNumber: vatNo } : {}) } : {};
+      await apiJson("/gl/settings", "PATCH", { lockAfterDays: Number(lock), ...(isAdmin && start !== settings.startDate ? { startDate: start } : {}), ...vat });
       toast({ title: "Ledger settings saved" }); setEdit(false); onSaved();
     } catch (e: any) { toast({ title: "Not saved", description: e?.error, variant: "destructive" }); }
   };
@@ -105,14 +111,16 @@ function SettingsCard({ settings, isAdmin, onSaved }: { settings: any; isAdmin: 
       <p className="text-lg font-bold">{settings.startDateBs} <span className="text-sm font-normal text-muted-foreground">({settings.startDate})</span></p>
       <p className="text-xs text-muted-foreground">Nothing before it is posted. A posted day locks after {settings.lockAfterDays} days. Today: {settings.todayBs}.</p>
       <p className="text-xs">VAT: {settings.vatEnabled ? <strong className="text-green-700">on</strong> : <strong>off (VAT bills are refused until LHC is VAT registered)</strong>}
-        {isAdmin && <button type="button" className="ml-2 underline text-primary" onClick={async () => {
-          if (!confirm(settings.vatEnabled ? "Switch VAT off? VAT bills will be refused again." : "Switch VAT on? Only after LHC is VAT registered.")) return;
-          try { await apiJson("/gl/settings", "PATCH", { vatEnabled: !settings.vatEnabled }); onSaved(); } catch (e: any) { toast({ title: "Not saved", description: e?.error, variant: "destructive" }); }
-        }}>{settings.vatEnabled ? "Switch off" : "Switch on"}</button>}</p>
+        {settings.vatStartDate && <span className="text-muted-foreground"> · registered from {settings.vatStartDate}</span>}{settings.vatNumber && <span className="text-muted-foreground"> · VAT no. {settings.vatNumber}</span>}
+        <span className="block text-muted-foreground">Rates: Taxes tab. VAT is switched on after step 5e (output VAT) is built.</span></p>
       {!edit ? <button type="button" className="text-xs underline text-primary" onClick={() => setEdit(true)}>Change</button> : (
         <div className="space-y-2 pt-1">
           {isAdmin && <div className="space-y-1"><Label className="text-xs">Start date (AD)</Label><Input type="date" value={start} disabled={settings.entries > 0} onChange={e => setStart(e.target.value)} className="h-8" />
             {settings.entries > 0 && <p className="text-xs text-muted-foreground">Fixed: entries are already posted.</p>}</div>}
+          {isAdmin && <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1"><Label className="text-xs">VAT registered from</Label><Input type="date" className="h-8" value={vatDate} min={settings.today} onChange={e => setVatDate(e.target.value)} /></div>
+            <div className="space-y-1"><Label className="text-xs">VAT number (the PAN)</Label><Input className="h-8" value={vatNo} placeholder="194139113" onChange={e => setVatNo(e.target.value)} /></div>
+          </div>}
           <div className="space-y-1"><Label className="text-xs">Lock a posted day after</Label>
             <select className={SELECT} value={lock} onChange={e => setLock(e.target.value)}><option value="3">3 days</option><option value="2">2 days</option></select></div>
           <div className="flex gap-2"><Button size="sm" onClick={save}>Save</Button><Button size="sm" variant="outline" onClick={() => setEdit(false)}>Cancel</Button></div>

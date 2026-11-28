@@ -55,7 +55,7 @@ export async function createPurchaseBill(dbx: Db, input: BillInput, opts: { user
       billNumber: input.billNumber, billNumberKey: input.billNumberKey, billDate: input.billDate,
       terms: input.terms, paidVia: input.paidVia, paymentReference: input.paymentReference, paidFromAccount: input.paidFromAccount,
       creditDays: input.creditDays, dueDate: input.dueDate, costMethod: input.costMethod,
-      subtotal: String(input.subtotal), vatAmount: String(input.vatAmount), total: String(input.total),
+      subtotal: String(input.subtotal), vatAmount: String(input.vatAmount), total: String(input.total), billType: input.billType ?? "pan",
       notes: input.notes, createdBy: opts.user,
     }).returning();
 

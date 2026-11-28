@@ -30,6 +30,12 @@ export const expensesTable = pgTable("expenses", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedBy: text("updated_by"),
   updatedAt: timestamp("updated_at"),
+  billType: text("bill_type"), // 5a: pan | vat | null (no bill)
+  vatAmount: numeric("vat_amount", { precision: 12, scale: 2 }).notNull().default("0"), // part of the amount; 1450 from the switch-on date (5d)
+  supplierPan: text("supplier_pan"),
+  tdsType: text("tds_type"), // TDS LHC withholds (used from 5b)
+  tdsRate: numeric("tds_rate", { precision: 6, scale: 3 }),
+  tdsAmount: numeric("tds_amount", { precision: 12, scale: 2 }).notNull().default("0"),
 }, (t) => ({
   oneVoucher: uniqueIndex("expenses_voucher_no_idx").on(t.voucherNo),
 }));

@@ -141,13 +141,30 @@ Step 4 decisions (owner, 2026-11-27, docs/specs/step4-reports.md section 9; all 
   - No carried-forward totals at the foot of each PDF page: the column headings repeat on every page and the totals are on the last page.
   - A PDF over 3,000 rows drawn (lines plus heading and total rows) is refused, because the PDF is laid out on the server's main thread; Excel has no limit (4c-fix, 2026-11-28).
 
+Step 5 decisions (owner, 2026-11-28, docs/specs/step5-vat-tds.md section 11; VAT and TDS plan)
+- **Rates:** every rate and threshold is an editable table row (tax_rates, tds_types), edited by the admin and accountant. The researched starting values are UNVERIFIED and are replaced by the accountant's confirmed figures:
+  - VAT 13%;
+  - TDS on a service with a VAT bill 1.5%, with a PAN bill 15%;
+  - TDS on a contract 1.5% above NPR 50,000;
+  - TDS on salary 1%.
+
+  Rent TDS (10%) stays inactive until the accountant decides between TDS and the local rent tax.
+- **The switch-on date:** VAT is switched on from a date that is today or later (never a past date). Each document gets VAT by its own date; documents before the date never do; a credit note follows its invoice.
+- **Sales:** VAT 13% on top of menu prices, once per bill, rounded to the paisa. Every bill is a full tax invoice; the buyer's name and PAN print when given. Complimentary (NC) carries no VAT (no deemed supply).
+- **Breakfast:** the included breakfast to Sulimha Durbar is Rs 800 + 13% = Rs 904 a person, with Sulimha's PAN on the invoice.
+- **Input VAT** is claimed only on VAT bills dated on or after the switch-on date; earlier VAT stays in cost.
+- **TDS LHC withholds** (2250) is recorded by the admin and accountant only, needs the payee's PAN, and is deposited with a tax payment voucher.
+- **TDS a customer withholds from LHC** goes to 1460 TDS receivable (advance tax), with the certificate number. Sulimha Durbar does withhold TDS on its payments. 2270 Income tax payable is added inactive for the year-end set-off.
+- **The VAT return:** it follows the accountant's IRD columns when he gives them. Deadlines (the 25th of the next BS month) are shown as reminders only.
+- **CBMS** stays last on the roadmap; the owner says when LHC applies to IRD.
+
 ## Roadmap, in order
 Done so far: cash drawer and payment-mode ledgers; payment modes, split payment, credit sales, receipt vouchers, credit rules and credit notes (migrations 001, 002); card and QR settlements (003); monthly-account conversion (004). See docs/CHANGELOG.md.
 1. Monthly accounts retired (2026-11-24): all open monthly bills converted into credit invoices; "Make monthly account", the Add-customer merge into an account bill and the QR "charge to my account" option removed (the API answers with a clear error); the Monthly Accounts page replaced by Receivables (conversion history under Receivables > Converted monthly bills). No migration. Old data stays readable.
 2. Suppliers, purchases, payables, supplier ledger, payments (PV), returns with debit notes, supplier on each ingredient, price history. Plan: docs/specs/step2-suppliers.md. Part A (suppliers, ingredient links, purchase bills, supplier ledger, price history) built 2026-11-24, migration 005 run on the server 2026-11-24. Bank account on cheque/online bills built 2026-11-24 (migration 006 run on the server 2026-11-24). Part B (supplier payments CV/PV with allocation and advances, opening supplier balances, aging) built 2026-11-24, migration 007 run on the server 2026-11-24. Part C (purchase returns with item-wise debit notes, DN) built 2026-11-24, migration 008 run on the server 2026-11-25. Step 2 is complete.
 3. Chart of accounts, vouchers RV/CV/JV/PV, double-entry posting, next-day posting, period lock. Plan: docs/specs/step3-ledger.md (approved 2026-11-27 with the Step 3 answers). Part 3a (accounts, expense map, journal engine, accountant JV, trial balance, opening balances draft) built 2026-11-27, migration 013 run (recorded 2026-11-27). Part 3b (posting of sales, credit notes, receipts and settlements; the Post a day review; Food/Beverage on menu categories; VAT bills stopped; bank fields) built 2026-11-27, migration 014 run (recorded 2026-11-27). Part 3c (purchases, supplier payments, debit notes, expenses and petty cash, drawer movements and short/over, daily consumption, NC and waste; cash, payables and stock checks) built 2026-11-27, no migration. Part 3d (period lock, admin reopen of a day, Nepali month close with its trial balance) built 2026-11-27, migration 015 run (recorded 2026-11-27). Part 3e (stock changed by hand posts to 5150, voucher SA) built 2026-11-27, migration 016 run (recorded 2026-11-28). Part 3f (hotel guests apart from loyalty, the stay folio page and bill, the stay history) built 2026-11-28, migration 019 run (recorded 2026-11-28).
 4. Day Book, Trial Balance, Balance Sheet, ledger P&L, aging. Plan: docs/specs/step4-reports.md (approved 2026-11-27: the owner accepted all 15 recommended answers in section 9, including the comparison layout for question 8). Parts: 4a books, 4b statements, 4c exports. 3e (stock adjustments to 5150) comes before 4a. Part 4a (Reports page: Day Book, General Ledger, Cash and Bank Books, Trial Balance by period, drill-down) built 2026-11-28, migration 017 run (recorded 2026-11-28). Part 4b (Profit and Loss, Balance Sheet, customer and supplier statements, comparison) built 2026-11-28, migration 018 run (recorded 2026-11-28). Part 4c (Excel and PDF of every report, plus three 4b fixes) built 2026-11-28, no migration. Step 4 is complete.
-5. VAT (off until registration) and TDS.
+5. VAT (off until registration) and TDS. Plan: docs/specs/step5-vat-tds.md (questions answered 2026-11-28, Step 5 decisions above). Parts: 5a settings and VAT-ready fields (migration 020), 5b TDS payable, 5c TDS receivable, 5d input VAT, 5e output VAT, 5f VAT return and payment. CBMS (9) stays last. Part 5a built 2026-11-28, migration 020 not yet run.
 6. Course fees.
 7. Payroll (check whether staff clock-in exists). Checked 2026-11-24: it does; attendance punches and shifts in routes/staff.ts (POST /staff/punch, attendance_punches, staff_shifts).
 8. Owner's live view.

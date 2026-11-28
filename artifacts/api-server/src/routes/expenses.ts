@@ -9,6 +9,7 @@ import { authenticate, requireAdminOrAccountant, type AuthRequest } from "../mid
 import { isDrawerClosed } from "../lib/ledgerData";
 import { nextVoucherNumber } from "../lib/fiscal";
 import { lockGuard } from "../lib/periodLock";
+import { expenseTaxFields } from "../lib/taxes";
 
 const router = Router();
 const PURCHASE_BILL_MSG = "This expense was booked by a purchase bill. Open the bill under Suppliers and void it there instead.";
@@ -169,6 +170,8 @@ router.post("/expenses", authenticate, requireAdminOrAccountant, async (req: Aut
   if (bankAccount === false) { res.status(400).json({ error: "Choose the bank it was paid from: Nabil or HBL." }); return; }
   const methodError = methodRule(b.paymentMethod, !!b.paidFromDrawer);
   if (methodError) { res.status(400).json({ error: methodError }); return; }
+  const tax = expenseTaxFields(b, round2(amount));
+  if ("error" in tax) { res.status(400).json({ error: tax.error }); return; }
   const user = req.user?.username ?? "user";
   const fromDrawer = b.paymentMethod === "cash" && !!b.paidFromDrawer;
   // Cash out of the drawer is petty cash: it gets a CV number, like a payout on the Cash Drawer page
@@ -179,6 +182,7 @@ router.post("/expenses", authenticate, requireAdminOrAccountant, async (req: Aut
       description: clean(b.description, 500), vendor: clean(b.vendor, 120), amount: String(round2(amount)),
       paymentMethod: METHODS.includes(b.paymentMethod) ? b.paymentMethod : "cash",
       paidFromDrawer: fromDrawer, billNumber: clean(b.billNumber, 60), voucherNo, bankAccount,
+      billType: tax.billType, vatAmount: String(tax.vatAmount), supplierPan: tax.supplierPan,
       isRecurring: !!b.isRecurring, frequency: b.isRecurring ? (FREQUENCIES.includes(b.frequency) ? b.frequency : "monthly") : null,
       createdBy: user,
     }).returning();
@@ -230,6 +234,15 @@ router.patch("/expenses/:id", authenticate, requireAdminOrAccountant, async (req
     if (b.amount !== undefined) {
       if (!(amt > 0)) { res.status(400).json({ error: "Enter an amount above 0." }); return; }
       track("amount", parseFloat(String(ex.amount)), round2(amt)); set.amount = String(round2(amt));
+    }
+    // 5a: the bill type, the VAT inside the amount and the supplier's PAN
+    if (b.billType !== undefined || b.vatAmount !== undefined || b.supplierPan !== undefined || b.amount !== undefined) {
+      const merged = { billType: b.billType !== undefined ? b.billType : (ex as any).billType, vatAmount: b.vatAmount !== undefined ? b.vatAmount : (ex as any).vatAmount, supplierPan: b.supplierPan !== undefined ? b.supplierPan : (ex as any).supplierPan };
+      const tax = expenseTaxFields(merged, round2(b.amount !== undefined ? amt : parseFloat(String(ex.amount))));
+      if ("error" in tax) { res.status(400).json({ error: tax.error }); return; }
+      if (tax.billType !== ((ex as any).billType ?? null)) { track("bill type", (ex as any).billType ?? "none", tax.billType ?? "none"); set.billType = tax.billType; }
+      if (tax.vatAmount !== round2(parseFloat(String((ex as any).vatAmount ?? 0)))) { track("VAT", parseFloat(String((ex as any).vatAmount ?? 0)), tax.vatAmount); set.vatAmount = String(tax.vatAmount); }
+      if (tax.supplierPan !== ((ex as any).supplierPan ?? null)) { track("supplier PAN", (ex as any).supplierPan ?? "none", tax.supplierPan ?? "none"); set.supplierPan = tax.supplierPan; }
     }
     if (b.isRecurring !== undefined) {
       track("recurring", ex.isRecurring, !!b.isRecurring);
