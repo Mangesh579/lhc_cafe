@@ -78,6 +78,11 @@ router.patch("/gl/settings", authenticate, async (req: AuthRequest, res: Respons
     if (n && !/^\d{9}$/.test(n)) { res.status(400).json({ error: "The VAT number is the 9-digit PAN." }); return; }
     set.vatNumber = n || null;
   }
+  // 5b: the TDS base (the accountant confirms): the amount before VAT (default) or the whole amount
+  if (b.tdsBase !== undefined) {
+    if (b.tdsBase !== "excl_vat" && b.tdsBase !== "incl_vat") { res.status(400).json({ error: "The TDS base is the amount before VAT (excl_vat) or the whole amount (incl_vat)." }); return; }
+    set.tdsBase = b.tdsBase;
+  }
   if (b.lockAfterDays !== undefined) {
     const n = Number(b.lockAfterDays);
     if (n !== 2 && n !== 3) { res.status(400).json({ error: "A posted day locks after 2 or 3 days (accountant's rule)." }); return; }
@@ -242,7 +247,10 @@ router.patch("/gl/tax-rates/:id", authenticate, async (req: AuthRequest, res: Re
   if (!can(req, res)) return;
   const v = validateTaxRate(req.body);
   if ("error" in v) { res.status(400).json({ error: v.error }); return; }
-  const [row] = await db.update(taxRatesTable).set({ rate: String(v.rate), effectiveFrom: v.effectiveFrom, effectiveTo: v.effectiveTo, note: v.note, setBy: userOf(req), updatedAt: new Date() })
+  const [old] = await db.select().from(taxRatesTable).where(eq(taxRatesTable.id, idOf(req.params.id)));
+  // 5b: a changed rate or date needs confirming again
+  const changed = !old || Number(old.rate) !== v.rate || (old.effectiveFrom ?? null) !== v.effectiveFrom || (old.effectiveTo ?? null) !== v.effectiveTo;
+  const [row] = await db.update(taxRatesTable).set({ rate: String(v.rate), effectiveFrom: v.effectiveFrom, effectiveTo: v.effectiveTo, note: v.note, setBy: userOf(req), updatedAt: new Date(), ...(changed ? { confirmedBy: null, confirmedAt: null } : {}) })
     .where(eq(taxRatesTable.id, idOf(req.params.id))).returning();
   if (!row) { res.status(404).json({ error: "Rate not found" }); return; }
   res.json(row);
@@ -267,8 +275,26 @@ router.patch("/gl/tds-types/:id", authenticate, async (req: AuthRequest, res: Re
   const set: Record<string, unknown> = { ...v, setBy: userOf(req), updatedAt: new Date() };
   if (v.rate !== undefined) set.rate = String(v.rate);
   if (v.threshold !== undefined) set.threshold = v.threshold == null ? null : String(v.threshold);
+  // 5b: a changed rate, threshold or date needs confirming again
+  const [old] = await db.select().from(tdsTypesTable).where(eq(tdsTypesTable.id, idOf(req.params.id)));
+  if (old && ((v.rate !== undefined && Number(old.rate) !== v.rate) || (v.threshold !== undefined && (old.threshold == null ? null : Number(old.threshold)) !== v.threshold)
+    || (v.effectiveFrom !== undefined && (old.effectiveFrom ?? null) !== v.effectiveFrom) || (v.effectiveTo !== undefined && (old.effectiveTo ?? null) !== v.effectiveTo))) { set.confirmedBy = null; set.confirmedAt = null; }
   const [row] = await db.update(tdsTypesTable).set(set).where(eq(tdsTypesTable.id, idOf(req.params.id))).returning();
   if (!row) { res.status(404).json({ error: "TDS type not found" }); return; }
+  res.json(row);
+});
+
+// 5b: the accountant (or the admin) confirms a researched rate against IRD
+router.post("/gl/tds-types/:id/confirm", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  const [row] = await db.update(tdsTypesTable).set({ confirmedBy: userOf(req), confirmedAt: new Date() }).where(eq(tdsTypesTable.id, idOf(req.params.id))).returning();
+  if (!row) { res.status(404).json({ error: "TDS type not found" }); return; }
+  res.json(row);
+});
+router.post("/gl/tax-rates/:id/confirm", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  const [row] = await db.update(taxRatesTable).set({ confirmedBy: userOf(req), confirmedAt: new Date() }).where(eq(taxRatesTable.id, idOf(req.params.id))).returning();
+  if (!row) { res.status(404).json({ error: "Rate not found" }); return; }
   res.json(row);
 });
 

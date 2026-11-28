@@ -83,9 +83,9 @@ export function keyRatios(rows: Row[]) {
 // party nets on 1300 (customers) and 2100 (suppliers), Dr - Cr each; profit: earlier fiscal years and this one to date
 export type BsInput = { balances: Sums; accounts: Account[]; customers: number[]; suppliers: number[]; earlierProfit: number; currentProfit: number };
 export const BS_LAYOUT = {
-  current: ["1100", "1200", "1210", "1250", "1260", "1270", "1280", "AR", "SUPPLIER_ADV", "1350", "1400", "1410", "1450"],
+  current: ["1100", "1200", "1210", "1250", "1260", "1270", "1280", "AR", "SUPPLIER_ADV", "1350", "1400", "1410", "1450", "1460"],
   nonCurrent: ["1600"],
-  liabilities: ["AP", "CUSTOMER_ADV", "2200", "2250", "2300", "2350"],
+  liabilities: ["AP", "CUSTOMER_ADV", "2200", "2250", "2270", "2300", "2350"],
   equity: ["3000", "3100", "3050", "RE", "CYP"],
 };
 // accounts the special rows cover (1300, 2100, 2360, 3200)
@@ -114,7 +114,7 @@ export function buildBalanceSheet(i: BsInput) {
   for (const k of BS_LAYOUT.current) {
     if (k === "AR") ca += line("AR", "Accounts receivable (customers who owe)", ar, ["1300"]);
     else if (k === "SUPPLIER_ADV") ca += line("SUPPLIER_ADV", "Advances to suppliers", supAdv, ["2100"], "Suppliers with a debit balance on 2100");
-    else if (byCode.has(k)) ca += line(k, name(k), dr(k), [k]);
+    else if (byCode.has(k) && (byCode.get(k)!.active || dr(k) !== 0)) ca += line(k, name(k), dr(k), [k]);
   }
   ca += other("asset", dr);
   rows.push({ key: "currentAssets", label: "Total current assets", kind: "subtotal", amount: r2(ca) });
@@ -129,7 +129,7 @@ export function buildBalanceSheet(i: BsInput) {
   for (const k of BS_LAYOUT.liabilities) {
     if (k === "AP") li += line("AP", "Accounts payable (suppliers we owe)", ap, ["2100"]);
     else if (k === "CUSTOMER_ADV") li += line("CUSTOMER_ADV", "Customer advances", cr("2360") + custCredit, ["2360", "1300"], "2360 plus customers with a credit balance on 1300");
-    else if (byCode.has(k)) li += line(k, name(k), cr(k), [k]);
+    else if (byCode.has(k) && (byCode.get(k)!.active || cr(k) !== 0)) li += line(k, name(k), cr(k), [k]); // 5b: 2270 only once active
   }
   li += other("liability", cr);
   rows.push({ key: "totalLiabilities", label: "Total liabilities", kind: "total", amount: r2(li) });

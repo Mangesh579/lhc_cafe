@@ -286,7 +286,33 @@ async function summaryDoc(q: Record<string, any>, code: "1300" | "2100"): Promis
   return { title: code === "1300" ? "All customers" : "All suppliers", fileReport: code === "1300" ? "Customers" : "Suppliers", ...(await common(p)), orientation: "portrait", zero: "dash", ...withRows([s]) };
 }
 
+// 5b: the TDS payable report
+async function tdsPayableDoc(q: Record<string, any>): Promise<ReportDoc> {
+  const m = String(q.month ?? "").match(/^(\d{4})-(\d{1,2})$/);
+  if (!m || +m[2] < 1 || +m[2] > 12) throw new ExportError(400, "Choose the BS month, like 2083-09.");
+  const { tdsPayableReport } = await import("./tdsReport");
+  const r = await tdsPayableReport(+m[1], +m[2]);
+  const rows: XRow[] = r.lines.map(l => ({ cells: { date: l.day, voucher: l.voucher, payee: nameCell(l.payee, "payee", l.id), pan: l.pan ?? "", type: l.typeLabel, gross: l.gross, rate: l.rate, tds: l.tds, note: l.warning ? "Rate not confirmed" : "" } }));
+  rows.push({ style: "total", cells: { payee: "Total withheld", gross: r.totals.gross, tds: r.totals.tds } });
+  const byType: XRow[] = [...r.byType.map(t => ({ cells: { type: t.label, count: t.count, gross: t.gross, tds: t.tds } })), { style: "total" as const, cells: { type: "Total", gross: r.totals.gross, tds: r.totals.tds } }];
+  const dep: XRow[] = [...r.deposits.map(d => ({ cells: { date: d.day, voucher: d.voucherNo, reference: d.reference ?? "", amount: d.amount } })),
+    { style: "subtotal" as const, cells: { voucher: "Deposited", amount: r.deposited } }, { style: "total" as const, cells: { voucher: "Still to deposit", amount: r.toDeposit } }];
+  const posted = r.posted;
+  return { title: "TDS payable", fileReport: "TDSPayable", filePeriod: `${r.year}-${String(r.month).padStart(2, "0")}`, periodText: periodText(r.label, r.from, r.to),
+    postedText: posted.postedUpTo ? `Posted up to ${bsWithAd(posted.postedUpTo)}` : "Posted up to: no day posted yet", warning: posted.warning, orientation: "landscape", zero: "dash",
+    pdfRows: rows.length + byType.length + dep.length, extraLines: [r.due.text],
+    sections: [
+      { title: "TDS withheld", rows, notes: [r.unconfirmed ? `${r.unconfirmed} line(s) use a rate the accountant has not confirmed yet.` : "Every rate used is confirmed.",
+          r.check.agrees ? `The posted TDS (Rs. ${money(r.check.documents)}) equals the 2250 credits in the ledger.` : `The posted TDS (Rs. ${money(r.check.documents)}) differs from the 2250 credits in the ledger (Rs. ${money(r.check.ledger)}).`],
+        columns: [{ key: "date", label: "Date", type: "date" }, { key: "voucher", label: "Voucher", type: "text", width: 16 }, { key: "payee", label: "Payee", type: "text", width: 28 }, { key: "pan", label: "PAN", type: "text", width: 12 },
+          { key: "type", label: "TDS type", type: "text", width: 22 }, { key: "gross", label: "Gross", type: "money" }, { key: "rate", label: "Rate %", type: "text", width: 8 }, { key: "tds", label: "TDS", type: "money" }, { key: "note", label: "Note", type: "text", width: 18 }] },
+      { title: "By type", rows: byType, columns: [{ key: "type", label: "TDS type", type: "text", width: 30 }, { key: "count", label: "Lines", type: "text", width: 8 }, { key: "gross", label: "Gross", type: "money" }, { key: "tds", label: "TDS", type: "money" }] },
+      { title: "Deposits", rows: dep, columns: [{ key: "date", label: "Date", type: "date" }, { key: "voucher", label: "Voucher", type: "text", width: 20 }, { key: "reference", label: "Reference", type: "text", width: 20 }, { key: "amount", label: "Amount", type: "money" }] },
+    ] };
+}
+
 export const EXPORTS: Record<string, (q: Record<string, any>) => Promise<ReportDoc>> = {
+  "tds-payable": tdsPayableDoc,
   "day-book": dayBookDoc, ledger: ledgerDoc, book: bookDoc, "trial-balance": trialBalanceDoc, "profit-loss": profitLossDoc, "balance-sheet": balanceSheetDoc,
   compare: compareDoc, customers: q => summaryDoc(q, "1300"), suppliers: q => summaryDoc(q, "2100"),
   "customer-statement": q => statementDoc(q, "customer"), "supplier-statement": q => statementDoc(q, "supplier"),

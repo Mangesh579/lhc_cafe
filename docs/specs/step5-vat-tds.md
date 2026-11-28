@@ -281,3 +281,27 @@ Official sources found, but their text could not be read by the tools used (the 
   - expenses (bill type, VAT inside the amount, the supplier's PAN; changes logged);
   - customers' PAN (PATCH /receivables/customers/:id/pan; Receivables > customer > PAN).
 - **Unchanged:** posting is the same. The VAT on bills and expenses stays in cost until 5d; TDS fields are unused until 5b and 5c.
+
+## 13. Part 5b as built (2026-11-28; see docs/CHANGELOG.md)
+- **Migration 021:**
+  - ledger_settings.tds_base ('excl_vat' default, or 'incl_vat');
+  - confirmed_by and confirmed_at on tax_rates and tds_types;
+  - indexes for the TDS lines and the month's deposits.
+- **The TDS base (to confirm with the accountant):**
+  - excl_vat: TDS = rate x (amount - VAT) on a VAT bill, rate x amount otherwise;
+  - incl_vat: rate x the whole amount;
+  - rounded to the paisa, half away from zero (lib/tds.ts computeTds).
+- **The 10-day contract total:** for a type with a threshold, it sums the active expenses and supplier payments with the same PAN and the same type dated from 10 days before up to the payment's date. A supplier payment's PAN is the supplier's. An edited expense leaves itself out. The type applies when that total plus this payment is above the threshold.
+  - The figure is returned as tdsAggregate and shown on saving.
+  - Earlier payments that were below the threshold are not taxed afterwards.
+- **Supplier payments:**
+  - service suppliers only, never from the drawer;
+  - the base leaves out the VAT share of the VAT bills allocated (pro rata); an unallocated advance counts in full;
+  - the payment's amount stays the gross that settles the bills.
+- **Ledger:**
+  - an expense: Dr its account gross, Cr cash or bank net, Cr 2250 TDS with the supplier found by the PAN;
+  - a supplier payment: Dr 2100 gross, Cr bank net, Cr 2250 TDS, the supplier on both;
+  - a deposit (TX, source tax_payment): Dr 2250, Cr bank.
+  - lib/glRules.ts allows a supplier on 2250 and a customer on 1460.
+- **Confirmation:** a change of rate, threshold or dates clears it. Unconfirmed documents warn but are allowed.
+- **Report:** the check compares the TDS of the documents of the posted days with the 2250 credits less debits of the month, leaving out tax payments.

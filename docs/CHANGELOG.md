@@ -2002,3 +2002,90 @@ None.
 
 ## 2026-11-28 (k): Migration 020 recorded as run
 - The owner ran db/migrations/020_vat_tds_ready.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 5a entry above. Docs only; no code, no SQL, nothing to deploy.
+
+## 2026-11-28 (l): Step 5b, TDS payable
+Plan: docs/specs/step5-vat-tds.md sections 4a, 5, 6 and 8, the owner's answers in section 11; as built in section 13.
+
+### Delivered
+- **TDS base, a setting the accountant must confirm:** ledger_settings.tds_base, 'excl_vat' (default) or 'incl_vat' (Chart of Accounts > Taxes).
+  - With excl_vat, TDS = rate x the amount before VAT when the bill is a VAT bill; otherwise rate x the amount.
+  - Rounded to the paisa, half away from zero. Net paid = gross - TDS.
+- **Confirmed rates:**
+  - tax_rates and tds_types get confirmed_by and confirmed_at (empty at first). The admin or accountant presses Confirm on the Taxes tab.
+  - Changing a rate, a threshold or a date clears the confirmation.
+  - A document using an unconfirmed type is allowed, with the warning "This rate has not been confirmed by the accountant yet." The same warning appears on the save, on the form and on the TDS payable report.
+- **TDS on expenses** (routes/expenses.ts, lib/tds.ts): the admin and accountant choose a TDS type; tds_type, tds_rate and tds_amount are stored. Refused without the payee's PAN, and refused for petty cash from the drawer.
+  - **Contract type:** applies only when the payment plus the same PAN's payments under the same type in the 10 days before (expenses and supplier payments, active only) is above the threshold. The aggregated figure is returned and shown on saving. Earlier payments below the threshold are not caught up.
+  - **Entry:** Dr expense (gross), Cr cash or bank (net), Cr 2250 (TDS, carrying the supplier found by the PAN, memo "type · PAN").
+  - **Edits:** a change of the type, amount, VAT, PAN or bill type recomputes the TDS and logs a "TDS" change. After posting, it goes through the usual reverse and repost.
+- **TDS on supplier payments** (lib/payables.ts, routes/purchases.ts): only for service suppliers, and the type starts from the supplier's default. Refused for goods suppliers and for cash from the drawer (CV).
+  - **The base** leaves out the VAT share of the VAT bills the payment settles, pro rata. An unallocated part (an advance) counts in full.
+  - **Entry:** Dr 2100 gross (supplier), Cr bank net, Cr 2250 TDS (supplier). The supplier's balance falls by the gross. Voiding reverses it.
+- **Tax payment voucher TX** (routes/taxes.ts): source type tax_payment, with its drill-down link. Admin and accountant only.
+  - **Fields:** the BS month, the date, the bank (Nabil or HBL), the e-TDS reference, the amount and notes. The amount defaults to what is still to deposit for that month, is never below zero, and 0 is refused.
+  - **Entry:** Dr 2250, Cr bank.
+  - **Refused** in a locked day or a closed month. Void with a reason (reverses once posted). The VAT payment kind waits for 5f.
+- **Reports > TDS payable** (lib/reports/tdsReport.ts; GET /reports/tds-payable?month=YYYY-MM; Excel and PDF via /reports/export/tds-payable):
+  - each payee with PAN, type, gross, rate, TDS, voucher and the unconfirmed marker;
+  - totals by type; deposits; what is still to deposit;
+  - "due by the 25th of <next BS month>";
+  - the check that the posted documents' TDS equals the 2250 credits for the month (tax payments left out);
+  - the "Posted up to" line and the unposted warning.
+- **Balance Sheet:** 1460 TDS receivable is a current-asset line and 2270 Income tax payable a liability line. A placed account shows only when active or non-zero, so 2270 stays hidden while inactive.
+- **Ledger rule widened** (lib/glRules.ts): a supplier may be on 2250 as well as 2100, and a customer on 1460 as well as 1300, so each TDS line carries its payee.
+- **Screens:**
+  - Expenses: TDS type with gross, TDS and net preview, and TDS and net under the amount in the list;
+  - Suppliers > Record payment: the TDS line for service suppliers;
+  - Chart of Accounts > Taxes: Confirm buttons and the TDS base;
+  - Chart of Accounts > Tax payments: record and void a TDS deposit;
+  - Reports > TDS payable, with Excel and PDF.
+
+### Files
+- **New:**
+  - db/migrations/021_tds_payable.sql;
+  - api-server: lib/tds.ts, lib/reports/tdsReport.ts, routes/taxes.ts, __tests__/tds5b.test.ts;
+  - lhc-cafe: components/TaxPayments.tsx, components/reports/TdsPayable.tsx.
+- **Changed:**
+  - lib/db schema/ledger.ts;
+  - api-server: lib/postingRules.ts, lib/glPosting.ts, lib/glRules.ts, lib/payableRules.ts, lib/payables.ts, lib/reportLayout.ts, lib/reports/drilldown.ts, lib/reports/exportDocs.ts, routes/expenses.ts, routes/purchases.ts, routes/gl.ts, routes/reports.ts, routes/index.ts;
+  - lhc-cafe: pages/expenses.tsx, pages/chart-of-accounts.tsx, pages/reports.tsx, components/SupplierPayables.tsx, components/TaxesTab.tsx.
+
+### Tables
+- ledger_settings: + tds_base (default 'excl_vat', check).
+- tax_rates and tds_types: + confirmed_by, confirmed_at.
+- Indexes: expenses_tds_idx, supplier_payments_tds_idx, tax_payments_month_idx.
+- No existing row's values change.
+
+### Migration
+- db/migrations/021_tds_payable.sql. **Not yet run on the server.** Idempotent (run twice in the tests). Run it before deploy.sh: the new code reads tds_base and confirmed_at.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 53 files, 545 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- **No existing test changed.**
+- New, tds5b (16):
+  - **Rent:** Rs 50,000 at 10% (Dr 6100 50,000, Cr bank 45,000, Cr 2250 5,000, landlord on the line).
+  - **Bill types:** a VAT bill uses 1.5% on the amount before VAT (150 on 10,000), and a PAN bill uses 15% (1,500).
+  - **Refused:** no PAN; drawer-paid; a goods supplier; a drawer supplier payment.
+  - **Contract:** 30,000 gets none, then 25,000 gets 375 (10-day total 55,000).
+  - **Confirming:** an unconfirmed warning, and confirming removes it. Changing the rate clears the confirmation.
+  - **Supplier payment:** 20,000 with 300 withheld; the balance falls by 20,000; the Payables check agrees.
+  - **Late changes:** reverse and repost after posting; a void reverses.
+  - **The deposit:** it defaults to the amount still to deposit, clears 2250, and the report totals equal 2250's movement; the export file names.
+  - **Refused deposits:** a locked day and a closed month. A void needs a reason.
+  - **Statements:** the TB balances, the P&L agrees, and the BS balances.
+  - **Access:** staff and supervisor get 403 on every new route.
+  - **Rules:** tds_base incl_vat (169.50); the pure rule (rounding, threshold).
+  - **Migration:** 021 runs twice.
+- Not run: the screens in a browser; anything against production.
+
+### Decisions and open questions
+- The TDS base (amount before VAT) is Claude's reading and **must be confirmed by the accountant**. It is a setting.
+- Claude's interpretations, to confirm:
+  - TDS is refused on drawer-paid supplier payments (as for petty cash);
+  - the supplier-payment base pro-rates the VAT of the bills it settles;
+  - the 10-day contract total spans expenses and supplier payments;
+  - earlier below-threshold payments are not caught up.
+- Service suppliers seldom have purchase bills, so supplier-payment TDS mostly concerns opening balances and advances. Most service TDS is entered on Expenses.

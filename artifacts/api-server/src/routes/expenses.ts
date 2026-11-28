@@ -10,6 +10,8 @@ import { isDrawerClosed } from "../lib/ledgerData";
 import { nextVoucherNumber } from "../lib/fiscal";
 import { lockGuard } from "../lib/periodLock";
 import { expenseTaxFields } from "../lib/taxes";
+import { expenseTds, TdsError, type TdsResult } from "../lib/tds";
+const tdsOut = (t: TdsResult) => ({ tdsWarning: t.warning, tdsAggregate: t.aggregate, tdsBelowThreshold: t.belowThreshold, tdsBase: t.base });
 
 const router = Router();
 const PURCHASE_BILL_MSG = "This expense was booked by a purchase bill. Open the bill under Suppliers and void it there instead.";
@@ -174,6 +176,10 @@ router.post("/expenses", authenticate, requireAdminOrAccountant, async (req: Aut
   if ("error" in tax) { res.status(400).json({ error: tax.error }); return; }
   const user = req.user?.username ?? "user";
   const fromDrawer = b.paymentMethod === "cash" && !!b.paidFromDrawer;
+  // 5b: TDS withheld (the payee's PAN; never petty cash; a contract only above its threshold, 10-day total)
+  let tds: TdsResult;
+  try { tds = await expenseTds(db, { tdsType: b.tdsType, amount: round2(amount), vatAmount: tax.vatAmount, billType: tax.billType, supplierPan: tax.supplierPan, paidFromDrawer: fromDrawer, day: b.expenseDate }); }
+  catch (e) { if (e instanceof TdsError) { res.status(e.status).json({ error: e.message }); return; } throw e; }
   // Cash out of the drawer is petty cash: it gets a CV number, like a payout on the Cash Drawer page
   const row = await db.transaction(async (tx) => {
     const voucherNo = fromDrawer ? await nextVoucherNumber(tx, "CV", "CV", new Date(`${b.expenseDate}T06:00:00Z`)) : null;
@@ -183,13 +189,14 @@ router.post("/expenses", authenticate, requireAdminOrAccountant, async (req: Aut
       paymentMethod: METHODS.includes(b.paymentMethod) ? b.paymentMethod : "cash",
       paidFromDrawer: fromDrawer, billNumber: clean(b.billNumber, 60), voucherNo, bankAccount,
       billType: tax.billType, vatAmount: String(tax.vatAmount), supplierPan: tax.supplierPan,
+      tdsType: tds.tdsType, tdsRate: tds.tdsRate == null ? null : String(tds.tdsRate), tdsAmount: String(tds.tdsAmount),
       isRecurring: !!b.isRecurring, frequency: b.isRecurring ? (FREQUENCIES.includes(b.frequency) ? b.frequency : "monthly") : null,
       createdBy: user,
     }).returning();
     return r;
   });
-  await logChange(row.id, "created", `Rs. ${row.amount} · ${row.category}${row.voucherNo ? ` · ${row.voucherNo}` : ""}`, user);
-  res.status(201).json(row);
+  await logChange(row.id, "created", `Rs. ${row.amount} · ${row.category}${row.voucherNo ? ` · ${row.voucherNo}` : ""}${tds.tdsAmount > 0 ? ` · TDS Rs. ${tds.tdsAmount.toFixed(2)}` : ""}`, user);
+  res.status(201).json({ ...row, ...tdsOut(tds) });
 });
 
 // ── Edit (purchase-linked expenses only allow note, vendor, payment method and date changes) ──
@@ -243,6 +250,19 @@ router.patch("/expenses/:id", authenticate, requireAdminOrAccountant, async (req
       if (tax.billType !== ((ex as any).billType ?? null)) { track("bill type", (ex as any).billType ?? "none", tax.billType ?? "none"); set.billType = tax.billType; }
       if (tax.vatAmount !== round2(parseFloat(String((ex as any).vatAmount ?? 0)))) { track("VAT", parseFloat(String((ex as any).vatAmount ?? 0)), tax.vatAmount); set.vatAmount = String(tax.vatAmount); }
       if (tax.supplierPan !== ((ex as any).supplierPan ?? null)) { track("supplier PAN", (ex as any).supplierPan ?? "none", tax.supplierPan ?? "none"); set.supplierPan = tax.supplierPan; }
+    }
+    // 5b: TDS: recomputed when the type, the amount, the VAT or the PAN changes
+    if (b.tdsType !== undefined || ((ex as any).tdsType && (b.amount !== undefined || b.vatAmount !== undefined || b.supplierPan !== undefined || b.billType !== undefined))) {
+      const code = b.tdsType !== undefined ? b.tdsType : (ex as any).tdsType;
+      try {
+        const t = await expenseTds(db, { tdsType: code, amount: round2(b.amount !== undefined ? amt : parseFloat(String(ex.amount))), vatAmount: Number(set.vatAmount ?? (ex as any).vatAmount ?? 0),
+          billType: (set.billType !== undefined ? set.billType : (ex as any).billType) as string | null, supplierPan: (set.supplierPan !== undefined ? set.supplierPan : (ex as any).supplierPan) as string | null,
+          paidFromDrawer: !!ex.paidFromDrawer, day: (set.expenseDate as string) ?? ex.expenseDate, expenseId: ex.id });
+        if ((t.tdsType ?? null) !== ((ex as any).tdsType ?? null) || t.tdsAmount !== round2(parseFloat(String((ex as any).tdsAmount ?? 0)))) {
+          track("TDS", `${(ex as any).tdsType ?? "none"} Rs. ${parseFloat(String((ex as any).tdsAmount ?? 0)).toFixed(2)}`, `${t.tdsType ?? "none"} Rs. ${t.tdsAmount.toFixed(2)}`);
+          set.tdsType = t.tdsType; set.tdsRate = t.tdsRate == null ? null : String(t.tdsRate); set.tdsAmount = String(t.tdsAmount);
+        }
+      } catch (e) { if (e instanceof TdsError) { res.status(e.status).json({ error: e.message }); return; } throw e; }
     }
     if (b.isRecurring !== undefined) {
       track("recurring", ex.isRecurring, !!b.isRecurring);

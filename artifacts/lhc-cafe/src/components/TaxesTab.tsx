@@ -16,8 +16,9 @@ export function TaxesTab() {
   const [types, setTypes] = useState<any[]>([]);
   const [editRate, setEditRate] = useState<any | null>(null);
   const [editType, setEditType] = useState<any | null>(null);
+  const [tdsBase, setTdsBase] = useState("excl_vat");
   const load = useCallback(async () => {
-    try { setRates(await apiJson("/gl/tax-rates")); setTypes(await apiJson("/gl/tds-types")); }
+    try { setRates(await apiJson("/gl/tax-rates")); setTypes(await apiJson("/gl/tds-types")); setTdsBase((await apiJson("/gl/settings"))?.tdsBase ?? "excl_vat"); }
     catch (e: any) { toast({ title: "Could not load the tax settings", description: e?.error, variant: "destructive" }); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -36,6 +37,16 @@ export function TaxesTab() {
       toast({ title: "TDS type saved" }); setEditType(null); load();
     } catch (e: any) { fail(e); }
   };
+  // 5b: the accountant (or the admin) confirms a rate; changing a rate, threshold or date asks for it again
+  const confirm = async (kind: "tax-rates" | "tds-types", id: number) => {
+    try { await apiJson(`/gl/${kind}/${id}/confirm`, "POST", {}); toast({ title: "Rate confirmed" }); load(); } catch (e: any) { fail(e); }
+  };
+  const saveBase = async (v: string) => {
+    try { await apiJson("/gl/settings", "PATCH", { tdsBase: v }); setTdsBase(v); toast({ title: "TDS base saved" }); } catch (e: any) { fail(e); }
+  };
+  const confirmCell = (r: any, kind: "tax-rates" | "tds-types") => r.confirmedAt
+    ? <span className="text-xs text-emerald-700">confirmed by {r.confirmedBy}<span className="block text-muted-foreground">{String(r.confirmedAt).slice(0, 10)}</span></span>
+    : <span className="text-xs text-amber-700">not confirmed <Button size="sm" variant="outline" className="h-6 ml-1 px-2" onClick={() => confirm(kind, r.id)}>Confirm</Button></span>;
   const field = (o: any, set: (x: any) => void, k: string, label: string, props: any = {}) => (
     <label className="text-xs space-y-0.5"><span className="block text-muted-foreground">{label}</span><Input className="h-8" value={o[k] ?? ""} onChange={e => set({ ...o, [k]: e.target.value })} {...props} /></label>
   );
@@ -46,9 +57,9 @@ export function TaxesTab() {
       <Card><CardContent className="p-0 overflow-x-auto">
         <div className="flex items-center justify-between px-3 py-2 bg-muted/40"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">VAT rate</p>
           <Button size="sm" variant="outline" className="h-7" onClick={() => setEditRate({ rate: "13", effectiveFrom: "", effectiveTo: "", note: "" })}>Add a rate</Button></div>
-        <table className="w-full text-sm min-w-[480px]"><thead className="text-xs text-muted-foreground"><tr><th className="px-3 py-1.5 text-left">Rate</th><th className="px-3 py-1.5 text-left">From</th><th className="px-3 py-1.5 text-left">To</th><th className="px-3 py-1.5 text-left">Note</th><th /></tr></thead>
+        <table className="w-full text-sm min-w-[480px]"><thead className="text-xs text-muted-foreground"><tr><th className="px-3 py-1.5 text-left">Rate</th><th className="px-3 py-1.5 text-left">From</th><th className="px-3 py-1.5 text-left">To</th><th className="px-3 py-1.5 text-left">Note</th><th className="px-3 py-1.5 text-left">Accountant</th><th /></tr></thead>
           <tbody className="divide-y">{rates.map(r => (
-            <tr key={r.id}><td className="px-3 py-1.5 font-medium">{Number(r.rate)}%</td><td className="px-3 py-1.5">{r.effectiveFrom ?? "always"}</td><td className="px-3 py-1.5">{r.effectiveTo ?? "—"}</td><td className="px-3 py-1.5 text-xs text-muted-foreground">{r.note}</td>
+            <tr key={r.id}><td className="px-3 py-1.5 font-medium">{Number(r.rate)}%</td><td className="px-3 py-1.5">{r.effectiveFrom ?? "always"}</td><td className="px-3 py-1.5">{r.effectiveTo ?? "—"}</td><td className="px-3 py-1.5 text-xs text-muted-foreground">{r.note}</td><td className="px-3 py-1.5">{confirmCell(r, "tax-rates")}</td>
               <td className="px-3 py-1.5 text-right"><Button size="sm" variant="ghost" className="h-7" onClick={() => setEditRate({ ...r, rate: String(Number(r.rate)) })}>Change</Button></td></tr>))}</tbody></table>
         {editRate && <div className="p-3 border-t grid sm:grid-cols-4 gap-2 items-end">
           {field(editRate, setEditRate, "rate", "Rate %", { type: "number", step: "0.001" })}
@@ -62,11 +73,11 @@ export function TaxesTab() {
       <Card><CardContent className="p-0 overflow-x-auto">
         <div className="flex items-center justify-between px-3 py-2 bg-muted/40"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">TDS types (tax LHC withholds when it pays)</p>
           <Button size="sm" variant="outline" className="h-7" onClick={() => setEditType({ ...blankType })}>Add a type</Button></div>
-        <table className="w-full text-sm min-w-[720px]"><thead className="text-xs text-muted-foreground"><tr><th className="px-3 py-1.5 text-left">Type</th><th className="px-3 py-1.5 text-left">Rate</th><th className="px-3 py-1.5 text-left">Threshold</th><th className="px-3 py-1.5 text-left">Section</th><th className="px-3 py-1.5 text-left">For</th><th className="px-3 py-1.5 text-left">Status</th><th /></tr></thead>
+        <table className="w-full text-sm min-w-[720px]"><thead className="text-xs text-muted-foreground"><tr><th className="px-3 py-1.5 text-left">Type</th><th className="px-3 py-1.5 text-left">Rate</th><th className="px-3 py-1.5 text-left">Threshold</th><th className="px-3 py-1.5 text-left">Section</th><th className="px-3 py-1.5 text-left">For</th><th className="px-3 py-1.5 text-left">Status</th><th className="px-3 py-1.5 text-left">Accountant</th><th /></tr></thead>
           <tbody className="divide-y">{types.map(t => (
             <tr key={t.id} className={t.active ? "" : "opacity-60"}><td className="px-3 py-1.5">{t.label}<span className="block text-xs text-muted-foreground">{t.code}{t.note ? ` · ${t.note}` : ""}</span></td>
               <td className="px-3 py-1.5 font-medium">{Number(t.rate)}%</td><td className="px-3 py-1.5">{t.threshold != null ? `above Rs ${Number(t.threshold).toLocaleString("en-IN")}` : "—"}</td>
-              <td className="px-3 py-1.5">{t.actSection ?? "—"}</td><td className="px-3 py-1.5">{PAYEE[t.payeeKind] ?? t.payeeKind}</td><td className="px-3 py-1.5">{t.active ? "in use" : "not in use"}</td>
+              <td className="px-3 py-1.5">{t.actSection ?? "—"}</td><td className="px-3 py-1.5">{PAYEE[t.payeeKind] ?? t.payeeKind}</td><td className="px-3 py-1.5">{t.active ? "in use" : "not in use"}</td><td className="px-3 py-1.5">{confirmCell(t, "tds-types")}</td>
               <td className="px-3 py-1.5 text-right"><Button size="sm" variant="ghost" className="h-7" onClick={() => setEditType({ ...t, rate: String(Number(t.rate)), threshold: t.threshold != null ? String(Number(t.threshold)) : "" })}>Change</Button></td></tr>))}</tbody></table>
         {editType && <div className="p-3 border-t grid sm:grid-cols-4 gap-2 items-end">
           {!editType.id && field(editType, setEditType, "code", "Code (e.g. audit_fee)")}
@@ -81,6 +92,10 @@ export function TaxesTab() {
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!editType.active} onChange={e => setEditType({ ...editType, active: e.target.checked })} /> In use</label>
           <div className="sm:col-span-4 flex gap-2"><Button size="sm" onClick={saveType}>Save</Button><Button size="sm" variant="outline" onClick={() => setEditType(null)}>Cancel</Button></div>
         </div>}
+        <div className="p-3 border-t flex flex-wrap items-center gap-2 text-sm"><span className="text-muted-foreground">TDS is worked out on</span>
+          <select className="h-8 rounded-md border border-input bg-background px-2 text-sm" value={tdsBase} onChange={e => saveBase(e.target.value)}>
+            <option value="excl_vat">the amount before VAT</option><option value="incl_vat">the whole bill, VAT included</option></select>
+          <span className="text-xs text-amber-700">To confirm with the accountant.</span></div>
       </CardContent></Card>
     </div>
   );

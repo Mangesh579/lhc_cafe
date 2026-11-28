@@ -1,6 +1,7 @@
 // Supplier payables (step 2, part B): what each bill still owes, payments (CV/PV) with allocation and advances,
 // opening bills, and voids. Every write runs in ONE transaction with the supplier row locked.
 // Payments never create expenses: the purchase bill's expense is already the cost record.
+import { paymentTds, TdsError } from "./tds";
 import {
   suppliersTable, purchaseBillsTable, purchaseBillItemsTable, supplierPaymentsTable, supplierPaymentAllocationsTable,
   payablesSettingsTable, cashDaysTable,
@@ -112,11 +113,16 @@ export async function createSupplierPayment(dbx: Db, input: PaymentInput, alloca
     }
     const v = validateAllocations(allocationsRaw, input.amount, input.supplierId, await openBillsOf(tx, input.supplierId));
     if ("error" in v) throw new PurchaseError(400, v.error);
+    // 5b: TDS withheld (service suppliers only; not from the drawer); the amount stays the gross that settles the bills
+    let tds;
+    try { tds = await paymentTds(tx, { tdsType: input.tdsType, supplierId: input.supplierId, amount: input.amount, paidVia: input.paidVia, day: input.paymentDate, allocations: v.allocations }); }
+    catch (e) { if (e instanceof TdsError) throw new PurchaseError(e.status, e.message); throw e; }
     const voucherNo = await nextVoucherNumber(tx, input.voucherType, input.voucherType, new Date(`${input.paymentDate}T06:00:00Z`));
     const [p] = await tx.insert(supplierPaymentsTable).values({
       voucherNo, voucherType: input.voucherType, supplierId: input.supplierId, paymentDate: input.paymentDate, paidVia: input.paidVia,
       paidFromAccount: input.paidFromAccount, reference: input.reference, amount: String(input.amount),
       notes: input.notes, createdBy: opts.user,
+      tdsType: tds.tdsType, tdsRate: tds.tdsRate == null ? null : String(tds.tdsRate), tdsAmount: String(tds.tdsAmount),
     }).returning();
     for (const a of v.allocations) await tx.insert(supplierPaymentAllocationsTable).values({ paymentId: p.id, billId: a.billId, amount: String(a.amount), createdBy: opts.user });
     return p.id;

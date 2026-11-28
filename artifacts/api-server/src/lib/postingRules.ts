@@ -190,14 +190,19 @@ export function purchaseBillEntry(b: BillSource): Built {
   return { entry: { voucherType: "PB", narration: `${b.pjNumber}: bill ${b.billNumber} from ${b.supplierName}`, sourceType: "purchase_bill", sourceId: b.billId, sourceRef: b.pjNumber, date: b.day, lines: tidy([...stock, credit]) }, problems };
 }
 
-export type PaymentSource = { paymentId: number; voucherNo: string; day: string; supplierId: number; paidVia: string; paidFromAccount: string | null; amount: number };
+export type PaymentSource = { paymentId: number; voucherNo: string; day: string; supplierId: number; paidVia: string; paidFromAccount: string | null; amount: number; tdsAmount?: number; tdsType?: string | null };
+export const TDS_PAYABLE = "2250";
 
 // A supplier payment (CV from the drawer, PV by cheque or online); an advance also debits 2100 (the supplier goes negative)
 export function supplierPaymentEntry(p: PaymentSource): Built {
   const credit = p.paidVia === "drawer" ? CASH : BANK_ACCOUNT[p.paidFromAccount ?? ""];
   if (!credit) return { entry: null, problems: [{ level: "fix", code: "payment_bank", message: `${p.voucherNo}: paid by ${p.paidVia} with no bank recorded.`, ref: p.voucherNo }] };
-  return { entry: { voucherType: "SP", narration: `${p.voucherNo}: supplier payment`, sourceType: "supplier_payment", sourceId: p.paymentId, sourceRef: p.voucherNo, date: p.day,
-    lines: [{ accountCode: PAYABLE, debit: round2(p.amount), credit: 0, supplierId: p.supplierId }, { accountCode: credit, debit: 0, credit: round2(p.amount) }] }, problems: [] };
+  // 5b: TDS withheld: the supplier's balance falls by the gross; the bank pays the net; 2250 owes the tax (supplier on the line)
+  const tds = round2(p.tdsAmount ?? 0);
+  if (tds > 0 && p.paidVia === "drawer") return { entry: null, problems: [{ level: "fix", code: "tds_drawer", message: `${p.voucherNo}: TDS on cash from the drawer.`, ref: p.voucherNo }] };
+  return { entry: { voucherType: "SP", narration: `${p.voucherNo}: supplier payment${tds > 0 ? `, TDS Rs. ${tds.toFixed(2)} withheld` : ""}`, sourceType: "supplier_payment", sourceId: p.paymentId, sourceRef: p.voucherNo, date: p.day,
+    lines: [{ accountCode: PAYABLE, debit: round2(p.amount), credit: 0, supplierId: p.supplierId }, { accountCode: credit, debit: 0, credit: round2(p.amount - tds) },
+      ...(tds > 0 ? [{ accountCode: TDS_PAYABLE, debit: 0, credit: tds, supplierId: p.supplierId, memo: `TDS ${p.tdsType ?? ""}`.trim() }] : [])] }, problems: [] };
 }
 
 export type DebitNoteSource = { noteId: number; noteNo: string; day: string; supplierId: number; total: number; lines: { department: string; lineTotal: number }[] };
@@ -212,7 +217,8 @@ export function debitNoteEntry(n: DebitNoteSource): Built {
   return { entry: { voucherType: "DJ", narration: `${n.noteNo}: purchase return`, sourceType: "debit_note", sourceId: n.noteId, sourceRef: n.noteNo, date: n.day, lines }, problems: [] };
 }
 
-export type ExpenseSource = { expenseId: number; voucherNo: string | null; day: string; category: string; accountCode: string | null; amount: number; paymentMethod: string; paidFromDrawer: boolean; bankAccount: string | null; billNumber: string | null };
+export type ExpenseSource = { expenseId: number; voucherNo: string | null; day: string; category: string; accountCode: string | null; amount: number; paymentMethod: string; paidFromDrawer: boolean; bankAccount: string | null; billNumber: string | null;
+  tdsAmount?: number; tdsType?: string | null; payeePan?: string | null; payeeSupplierId?: number | null };
 
 // An expense through expense_account_map. Petty cash with no bill posts the same way, flagged for the accountant's review.
 export function expenseEntry(e: ExpenseSource): Built {
@@ -227,9 +233,25 @@ export function expenseEntry(e: ExpenseSource): Built {
     if (!credit) problems.push({ level: "fix", code: "expense_bank", message: `${ref}: paid by ${e.paymentMethod.replace("_", " ")} with no bank recorded.`, ref });
   } else problems.push({ level: "fix", code: "expense_mode", message: `${ref}: paid by ${e.paymentMethod}; tell the accountant which account it came from.`, ref });
   if (e.paidFromDrawer && !e.billNumber) problems.push({ level: "ack", code: "no_bill", message: `${ref}: petty cash with no bill (Rs. ${e.amount.toFixed(2)}, ${e.category}).`, ref });
+  // 5b: TDS withheld: the expense at the gross, the bank pays the net, 2250 owes the tax (the payee on the line)
+  const tds = round2(e.tdsAmount ?? 0);
+  if (tds > 0 && e.paidFromDrawer) problems.push({ level: "fix", code: "tds_drawer", message: `${ref}: TDS on petty cash from the drawer.`, ref });
   if (problems.some(p => p.level === "fix") || !credit) return { entry: null, problems };
-  return { entry: { voucherType: "EX", narration: `${ref}: ${e.category}${e.billNumber ? `, bill ${e.billNumber}` : e.paidFromDrawer ? ", no bill" : ""}`, sourceType: "expense", sourceId: e.expenseId, sourceRef: ref, date: e.day,
-    lines: [{ accountCode: e.accountCode!, debit: round2(e.amount), credit: 0 }, { accountCode: credit, debit: 0, credit: round2(e.amount) }] }, problems };
+  return { entry: { voucherType: "EX", narration: `${ref}: ${e.category}${e.billNumber ? `, bill ${e.billNumber}` : e.paidFromDrawer ? ", no bill" : ""}${tds > 0 ? `, TDS Rs. ${tds.toFixed(2)} withheld` : ""}`, sourceType: "expense", sourceId: e.expenseId, sourceRef: ref, date: e.day,
+    lines: [{ accountCode: e.accountCode!, debit: round2(e.amount), credit: 0 }, { accountCode: credit, debit: 0, credit: round2(e.amount - tds) },
+      ...(tds > 0 ? [{ accountCode: TDS_PAYABLE, debit: 0, credit: tds, supplierId: e.payeeSupplierId ?? null, memo: `TDS ${e.tdsType ?? ""} · PAN ${e.payeePan ?? ""}`.trim() }] : [])] }, problems };
+}
+
+// 5b: the tax payment voucher. A TDS deposit clears 2250 from the bank. (The VAT payment kind is built in 5f.)
+export type TaxPaymentSource = { paymentId: number; voucherNo: string; day: string; kind: string; amount: number; bankAccount: string; bsLabel: string; reference: string | null };
+export function taxPaymentEntry(t: TaxPaymentSource): Built {
+  const bank = BANK_ACCOUNT[t.bankAccount];
+  if (!bank) return { entry: null, problems: [{ level: "fix", code: "tax_payment_bank", message: `${t.voucherNo}: no bank recorded.`, ref: t.voucherNo }] };
+  if (t.kind !== "tds_deposit") return { entry: null, problems: [{ level: "fix", code: "tax_payment_kind", message: `${t.voucherNo}: a ${t.kind} is posted from step 5f.`, ref: t.voucherNo }] };
+  const a = round2(t.amount);
+  if (a < 0.005) return { entry: null, problems: [] };
+  return { entry: { voucherType: "TX", narration: `${t.voucherNo}: TDS deposit for ${t.bsLabel}${t.reference ? ` (${t.reference})` : ""}`, sourceType: "tax_payment", sourceId: t.paymentId, sourceRef: t.voucherNo, date: t.day,
+    lines: [{ accountCode: TDS_PAYABLE, debit: a, credit: 0 }, { accountCode: bank, debit: 0, credit: a }] }, problems: [] };
 }
 
 export type MovementSource = { movementId: number; day: string; kind: string; amount: number; bankAccount: string | null; accountCode: string | null; reference: string | null };
