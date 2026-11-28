@@ -98,6 +98,8 @@ async function fileVat(req: AuthRequest, res: Response) {
   const amount = b.amount === undefined || b.amount === null || b.amount === "" ? payable : paisa(Number(b.amount));
   if (!Number.isFinite(amount) || amount < 0) { res.status(400).json({ error: "The amount cannot be below zero." }); return; }
   if (amount - payable >= 0.005) { res.status(400).json({ error: `That is more than the VAT payable for ${r.label} (Rs ${payable.toFixed(2)}).` }); return; }
+  // 5f-fix: a VAT return is filed for the full payable, to the paisa (a credit or nil month files with Rs 0)
+  if (payable - amount >= 0.005) { res.status(400).json({ error: `A VAT return is filed for the full payable (Rs ${payable.toFixed(2)}). Pay it in full; a fine or interest is an expense.` }); return; }
   const user = req.user?.username ?? "user";
   try {
     const row = await db.transaction(async (tx) => {

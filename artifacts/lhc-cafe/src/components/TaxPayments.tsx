@@ -36,7 +36,8 @@ export function TaxPaymentsTab() {
   const save = async () => {
     setBusy(true);
     try {
-      const p = await apiJson("/tax-payments", "POST", { ...form, amount: form.amount === "" ? undefined : form.amount });
+      // 5f-fix: a VAT return is filed for its full payable (the server's figure), never a typed amount
+      const p = await apiJson("/tax-payments", "POST", { ...form, amount: form.kind === "vat_payment" ? hint?.payable : form.amount === "" ? undefined : form.amount });
       toast({ title: `Tax payment ${p.voucherNo} recorded` }); setForm(null); setHint(null); load();
     } catch (e: any) { fail(e); } finally { setBusy(false); }
   };
@@ -61,7 +62,9 @@ export function TaxPaymentsTab() {
           <label className="text-xs space-y-0.5"><span className="block text-muted-foreground">Paid from *</span>
             <select className={sel} value={form.bankAccount} onChange={e => setForm({ ...form, bankAccount: e.target.value })}><option value="nabil">Nabil Bank</option><option value="hbl">HBL</option></select></label>
           <label className="text-xs space-y-0.5"><span className="block text-muted-foreground">{form.kind === "vat_payment" ? "IRD return / payment reference" : "e-TDS / deposit reference"}</span><Input className="h-8" value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} /></label>
-          <label className="text-xs space-y-0.5"><span className="block text-muted-foreground">Amount (Rs.) *</span><Input className="h-8" type="number" min="0" step="0.01" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} /></label>
+          {form.kind === "vat_payment"
+            ? <div className="text-xs space-y-0.5"><span className="block text-muted-foreground">VAT payable (paid in full)</span><p className="h-8 flex items-center font-semibold text-sm">{hint ? rs(Number(hint.payable)) : "—"}</p></div>
+            : <label className="text-xs space-y-0.5"><span className="block text-muted-foreground">Amount (Rs.) *</span><Input className="h-8" type="number" min="0" step="0.01" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} /></label>}
           <label className="text-xs space-y-0.5"><span className="block text-muted-foreground">Notes</span><Input className="h-8" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></label>
           {hint && form.kind !== "vat_payment" && <p className="sm:col-span-3 text-xs text-muted-foreground">{hint.label}: withheld {rs(hint.withheld)}, deposited {rs(hint.deposited)}, still to deposit {rs(hint.toDeposit)}.</p>}
           {hint && form.kind === "vat_payment" && <div className="sm:col-span-3 text-xs space-y-0.5">

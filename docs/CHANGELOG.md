@@ -2472,8 +2472,20 @@ Plan: docs/specs/step5-vat-tds.md section 18 (approved as recommended); as built
 
 ### Decisions and open questions
 - **Narrower than the plan:** a reopened filed month that changes shows "Changed after filing" with the difference. That difference is not added to the next return automatically.
-- **A payment below the payable is allowed;** what is left stays on 2200.
+- **A payment below the payable was allowed;** what was left stayed on 2200. The 5f-fix (entry y) refuses it.
 - **Step 5 is complete** apart from CBMS (roadmap 9). The VAT return's columns switch to the accountant's IRD layout when he gives it.
 
 ## 2026-11-28 (x): Migration 026 recorded as run
 - The owner ran db/migrations/026_vat_return.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 5f entry above. Docs only; no code, no SQL, nothing to deploy. Step 5 is complete apart from CBMS.
+
+## 2026-11-28 (y): 5f-fix, a VAT return is filed for the full payable
+- **The rule:** POST /tax-payments with kind vat_payment (routes/taxes.ts fileVat) now needs the amount to equal the month's payable exactly, to the paisa.
+  - Lower: refused with "A VAT return is filed for the full payable (Rs X). Pay it in full; a fine or interest is an expense."
+  - Higher: refused as before.
+  - Credit and nil months still file with Rs 0.
+- **The screen** (Chart of Accounts > Tax payments > File a VAT return): the payable is a fixed figure, not an editable box, and the filing sends the server's payable.
+- **Files:** artifacts/api-server/src/routes/taxes.ts, artifacts/lhc-cafe/src/components/TaxPayments.tsx, __tests__/vatReturn5f.test.ts (one new test). The plan file (18.8) and CLAUDE.md are updated.
+- **No migration.**
+- **Tests:**
+  - `pnpm test`: 59 files, 601 tests pass; typecheck clean; both artifacts build.
+  - New: Poush (a credit month) files with Rs 0. Magh is closed with Rs 78 payable: Rs 77.99 is refused with the new message, Rs 78.01 with the old one, and Rs 78 files (output 123.50, input 0).
