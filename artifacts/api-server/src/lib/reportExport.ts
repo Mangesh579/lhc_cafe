@@ -1,13 +1,14 @@
 // Step 4c: the Excel and PDF builders (docs/specs/step4c-exports.md section 6). They take one ReportDoc
 // (lib/reports/exportDocs.ts) and write the file; the header block and the footer are shared. Excel is streamed
-// row by row (a full-year Day Book never sits in memory); a PDF is refused above PDF_LIMIT lines before it is built.
+// row by row (a full-year Day Book never sits in memory). A PDF is laid out on the main thread, so it is refused above
+// PDF_LIMIT table rows (ReportDoc.pdfRows) before it is built.
 import type { Writable } from "node:stream";
 import ExcelJS from "exceljs";
 import PdfPrinter from "pdfmake";
 import type { ReportDoc, Section, XRow, Col, Cell } from "./reports/exportDocs";
 import { money, percent, paisa, bsWithAd, nepalStamp, pdfDrawable } from "./reportFormat";
 
-export const PDF_LIMIT = 5000;
+export const PDF_LIMIT = 3000;
 export const PDF_TOO_BIG = "Too many lines for a PDF: use Excel, or narrow the period.";
 export const BUSINESS = ["Legendary House Cafe & Barista Coffee School", "Sulimha Durbar, Patan · PAN 194139113"];
 const GOOD = "FFDCFCE7", BAD = "FFFEE2E2";

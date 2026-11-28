@@ -17,7 +17,9 @@ export type XRow = { cells: Record<string, Cell>; style?: "line" | "heading" | "
 export type Section = { title: string; columns: Col[]; rows: XRow[] | (() => AsyncGenerator<XRow>); notes?: string[]; ruleText?: string | null };
 export type ReportDoc = {
   title: string; fileReport: string; filePeriod: string; periodText: string; postedText: string; warning: string | null; extraLines?: string[];
-  orientation: "portrait" | "landscape"; zero: "dash" | "zero"; count: number; sections: Section[]; signature?: boolean;
+  orientation: "portrait" | "landscape"; zero: "dash" | "zero";
+  // the table rows the PDF would draw (headings, lines, subtotals and totals): checked against PDF_LIMIT before it is built
+  pdfRows: number; sections: Section[]; signature?: boolean;
 };
 export class ExportError extends Error { constructor(public status: number, message: string) { super(message); } }
 
@@ -49,6 +51,9 @@ const nameCell = (name: string | null | undefined, kind: string, id: number | nu
 };
 const ruleTextOf = (rule: { pct: number; min: number }) => `A change is coloured only when it is above ${rule.pct}% and above Rs ${money(rule.min)}: green when it helps profit, red when it hurts.`;
 
+const withRows = (sections: Section[]) => ({ sections, pdfRows: rowsIn(sections) });
+const rowsIn = (sections: Section[]) => sections.reduce((t, s) => t + (Array.isArray(s.rows) ? s.rows.length : 0), 0);
+
 // ── Day Book: every voucher, page by page (a year is streamed into Excel) ──
 async function dayBookDoc(q: Record<string, any>): Promise<ReportDoc> {
   const p = await periodOf(q);
@@ -75,7 +80,7 @@ async function dayBookDoc(q: Record<string, any>): Promise<ReportDoc> {
     if (open) yield { style: "subtotal", cells: { narration: "Day total", debit: open.debit, credit: open.credit } };
     yield { style: "total", cells: { narration: `Total (${first.count} vouchers)`, debit: first.totals.debit, credit: first.totals.credit } };
   }
-  return { title: "Day Book", fileReport: "DayBook", ...(await common(p)), orientation: "landscape", zero: "zero", count: first.count,
+  return { title: "Day Book", fileReport: "DayBook", ...(await common(p)), orientation: "landscape", zero: "zero", pdfRows: first.lineCount + 2 * first.dayCount + 1,
     sections: [{ title: "Day Book", rows, columns: [{ key: "date", label: "Date", type: "date" }, { key: "voucher", label: "Voucher", type: "text", width: 16 }, { key: "type", label: "Type", type: "text", width: 9 },
       { key: "narration", label: "Narration", type: "text", width: 36 }, { key: "account", label: "Account", type: "text", width: 28 }, { key: "party", label: "Customer / supplier", type: "text", width: 20 },
       { key: "debit", label: "Debit", type: "money" }, { key: "credit", label: "Credit", type: "money" }] }] };
@@ -93,7 +98,7 @@ async function ledgerDoc(q: Record<string, any>): Promise<ReportDoc> {
   const c = await common(p);
   const base = { title: `General Ledger: ${a.code} ${a.name}`, fileReport: `Ledger-${a.code}`, ...c, orientation: "landscape" as const, zero: "zero" as const };
   if (a.isHeader) {
-    return { ...base, count: first.children.length, sections: [{ title: `${a.code} ${a.name} (summary of its accounts)`,
+    return { ...base, pdfRows: first.children.length + 1, sections: [{ title: `${a.code} ${a.name} (summary of its accounts)`,
       columns: [{ key: "account", label: "Account", type: "text", width: 36 }, { key: "opening", label: "Opening", type: "money" }, { key: "debit", label: "Debit", type: "money" }, { key: "credit", label: "Credit", type: "money" }, { key: "closing", label: "Closing", type: "money" }],
       rows: [...first.children.map((k: any) => ({ cells: { account: `${k.code} ${k.name}`, opening: k.opening, debit: k.debit, credit: k.credit, closing: k.closing } })),
         { style: "total" as const, cells: { account: "Total", opening: first.opening, debit: first.totals.debit, credit: first.totals.credit, closing: first.closing } }] }] };
@@ -111,7 +116,7 @@ async function ledgerDoc(q: Record<string, any>): Promise<ReportDoc> {
     { key: "particulars", label: "Particulars", type: "text", width: 26 }, { key: "narration", label: "Narration", type: "text", width: 36 }, { key: "party", label: "Customer / supplier", type: "text", width: 18 },
     { key: "debit", label: "Debit", type: "money" }, { key: "credit", label: "Credit", type: "money" }, { key: "balance", label: "Balance", type: "money" }, { key: "side", label: "Dr/Cr", type: "text", width: 6 }] }];
   if (first.parties) sections.push(partiesSection(first.parties, code === "1300" ? "Customers in this account" : "Suppliers in this account", code === "1300" ? "customer" : "supplier"));
-  return { ...base, count: first.count, sections };
+  return { ...base, pdfRows: first.count + 2 + rowsIn(sections), sections };
 }
 function partiesSection(parties: any[], title: string, kind: string, totals?: any): Section {
   return { title, columns: [{ key: "name", label: kind === "customer" ? "Customer" : "Supplier", type: "text", width: 30 }, { key: "opening", label: "Opening", type: "money" }, { key: "debit", label: "Debits", type: "money" }, { key: "credit", label: "Credits", type: "money" }, { key: "closing", label: "Closing", type: "money" }],
@@ -148,7 +153,7 @@ async function bookDoc(q: Record<string, any>): Promise<ReportDoc> {
   }
   const columns: Col[] = [{ key: "date", label: "Date", type: "date" }, { key: "voucher", label: "Voucher", type: "text", width: 16 }, { key: "particulars", label: "Particulars", type: "text", width: 44 },
     ...(cash ? [] : [{ key: "reference", label: "Reference", type: "text" as const, width: 16 }]), { key: "receipt", label: "Receipts", type: "money" }, { key: "payment", label: "Payments", type: "money" }, { key: "balance", label: "Balance", type: "money" }];
-  return { title: `${BOOKS[code]} (${code})`, fileReport: cash ? "CashBook" : code === "1200" ? "BankBook-Nabil" : "BankBook-HBL", ...(await common(p)), orientation: "landscape", zero: "zero", count: first.count,
+  return { title: `${BOOKS[code]} (${code})`, fileReport: cash ? "CashBook" : code === "1200" ? "BankBook-Nabil" : "BankBook-HBL", ...(await common(p)), orientation: "landscape", zero: "zero", pdfRows: first.count + 2 * first.dayCount + 2,
     sections: [{ title: BOOKS[code], columns, rows }] };
 }
 
@@ -162,7 +167,7 @@ async function trialBalanceDoc(q: Record<string, any>): Promise<ReportDoc> {
     const posted = await postedInfo(to, to);
     const rows = (hideZero ? tb.rows.filter((r: any) => r.debit || r.credit) : tb.rows);
     return { title: "Trial Balance", fileReport: "TrialBalance", filePeriod: bsCompact(to), periodText: `As at ${bsWithAd(to)}`, warning: posted.warning,
-      postedText: posted.postedUpTo ? `Posted up to ${bsWithAd(posted.postedUpTo)}` : "Posted up to: no day posted yet", orientation: "portrait", zero: "dash", count: rows.length,
+      postedText: posted.postedUpTo ? `Posted up to ${bsWithAd(posted.postedUpTo)}` : "Posted up to: no day posted yet", orientation: "portrait", zero: "dash", pdfRows: rows.length + 1,
       sections: [{ title: "Trial Balance", columns: [{ key: "account", label: "Account", type: "text", width: 36 }, { key: "debit", label: "Debit", type: "money" }, { key: "credit", label: "Credit", type: "money" }, { key: "balance", label: "Balance", type: "money" }, { key: "side", label: "Dr/Cr", type: "text", width: 6 }],
         rows: [...rows.map((r: any) => ({ cells: { account: `${r.code} ${r.name}`, debit: r.debit, credit: r.credit, balance: r.balance, side: r.normalSide === "debit" ? "Dr" : "Cr" } })),
           { style: "total" as const, cells: { account: `Total${tb.balanced ? " (balanced)" : " (NOT balanced)"}`, debit: tb.totalDebit, credit: tb.totalCredit } }] }] };
@@ -179,7 +184,7 @@ async function trialBalanceDoc(q: Record<string, any>): Promise<ReportDoc> {
     rows.push({ style: "subtotal", cells: { account: `${g.label} subtotal`, ...nums(g.subtotal) } });
   }
   rows.push({ style: "total", cells: { account: `Total${tb.balanced ? " (balanced)" : " (NOT balanced)"}`, ...nums(tb.totals) } });
-  return { title: "Trial Balance", fileReport: "TrialBalance", ...(await common(p)), orientation: "landscape", zero: "dash", count: rows.length,
+  return { title: "Trial Balance", fileReport: "TrialBalance", ...(await common(p)), orientation: "landscape", zero: "dash", pdfRows: rows.length,
     sections: [{ title: "Trial Balance for the period", columns: [{ key: "account", label: "Account", type: "text", width: 34 }, ...K.map((k, i) => ({ key: k, label: L[i], type: "money" as const }))], rows }] };
 }
 
@@ -223,7 +228,7 @@ async function profitLossDoc(q: Record<string, any>): Promise<ReportDoc> {
   const p = await periodOf(q);
   const r = await profitLoss(p, q.compare !== "none");
   const wide = r.columns.filter((c: any) => c.available).length > 2;
-  return { title: "Profit and Loss", fileReport: "ProfitLoss", ...(await common(p)), orientation: wide ? "landscape" : "portrait", zero: "dash", count: r.rows.length, sections: [plSection(r, "Profit and Loss")] };
+  return { title: "Profit and Loss", fileReport: "ProfitLoss", ...(await common(p)), orientation: wide ? "landscape" : "portrait", zero: "dash", ...withRows([plSection(r, "Profit and Loss")]) };
 }
 async function balanceSheetDoc(q: Record<string, any>): Promise<ReportDoc> {
   const at = q.at === undefined ? new Date(Date.now() + 345 * 60000).toISOString().slice(0, 10) : isDay(q.at) ? String(q.at) : null;
@@ -231,7 +236,7 @@ async function balanceSheetDoc(q: Record<string, any>): Promise<ReportDoc> {
   const r = await balanceSheet(at, q.compare !== "none");
   const posted = await postedInfo(at, at);
   return { title: "Balance Sheet", fileReport: "BalanceSheet", filePeriod: bsCompact(at), periodText: `As at ${bsWithAd(at)}`, warning: posted.warning,
-    postedText: posted.postedUpTo ? `Posted up to ${bsWithAd(posted.postedUpTo)}` : "Posted up to: no day posted yet", orientation: "portrait", zero: "dash", count: r.rows.length, sections: [bsSection(r, "Balance Sheet")] };
+    postedText: posted.postedUpTo ? `Posted up to ${bsWithAd(posted.postedUpTo)}` : "Posted up to: no day posted yet", orientation: "portrait", zero: "dash", ...withRows([bsSection(r, "Balance Sheet")]) };
 }
 async function compareDoc(q: Record<string, any>): Promise<ReportDoc> {
   const kind = String(q.period ?? "month"), at = String(q.at ?? "");
@@ -240,8 +245,8 @@ async function compareDoc(q: Record<string, any>): Promise<ReportDoc> {
   if (!pq) throw new ExportError(400, "Use period=month&at=2083/09 or period=fy&at=2083/84.");
   const p = await periodOf(pq);
   const pl = await profitLoss(p, true), bs = await balanceSheet(p.to, true);
-  return { title: `Compare: ${p.label}`, fileReport: "Compare", ...(await common(p)), orientation: "landscape", zero: "dash", count: pl.rows.length + bs.rows.length,
-    sections: [plSection(pl, "Profit and Loss"), bsSection(bs, "Balance Sheet")] };
+  return { title: `Compare: ${p.label}`, fileReport: "Compare", ...(await common(p)), orientation: "landscape", zero: "dash",
+    ...withRows([plSection(pl, "Profit and Loss"), bsSection(bs, "Balance Sheet")]) };
 }
 
 // ── Statements and summaries ──
@@ -268,7 +273,7 @@ async function statementDoc(q: Record<string, any>, who: "customer" | "supplier"
     : `Differs from the ${who === "customer" ? "Receivables" : "Suppliers"} screen at ${ag.atBs}: ledger ${money(ag.ledger)}, screen ${money(ag.operational)}.`;
   return { title: `Statement: ${name ?? `${who === "customer" ? "Customer" : "Supplier"} #${id}`}`, fileReport: `Statement-${safePart(pt.name, `${who === "customer" ? "Customer" : "Supplier"}-${id}`)}`, ...(await common(p)),
     extraLines: [[pt.name && !name ? `${pt.name}` : null, pt.phone, pt.pan && `PAN ${pt.pan}`, `credit days ${pt.creditDays}`].filter(Boolean).join(" · "), agreeLine],
-    orientation: "portrait", zero: "zero", count: first.count, signature: true,
+    orientation: "portrait", zero: "zero", pdfRows: first.count + 2, signature: true,
     sections: [{ title: who === "customer" ? "Customer statement (1300)" : "Supplier statement (2100)", rows, columns: [{ key: "date", label: "Date", type: "date" }, { key: "voucher", label: "Voucher", type: "text", width: 16 },
       { key: "particulars", label: "Particulars", type: "text", width: 34 }, { key: "debit", label: "Debit", type: "money" }, { key: "credit", label: "Credit", type: "money" }, { key: "balance", label: "Balance", type: "money" }, { key: "side", label: "Dr/Cr", type: "text", width: 6 }] }] };
 }
@@ -278,7 +283,7 @@ async function summaryDoc(q: Record<string, any>, code: "1300" | "2100"): Promis
   const kind = code === "1300" ? "customer" : "supplier";
   const s = partiesSection(r.parties, code === "1300" ? "All customers (1300)" : "All suppliers (2100)", kind, r.totals);
   s.notes = [r.agrees ? `The total equals account ${code} (${money(r.account.closing)}).` : `The total differs from account ${code} (${money(r.account.closing)}).`];
-  return { title: code === "1300" ? "All customers" : "All suppliers", fileReport: code === "1300" ? "Customers" : "Suppliers", ...(await common(p)), orientation: "portrait", zero: "dash", count: r.parties.length, sections: [s] };
+  return { title: code === "1300" ? "All customers" : "All suppliers", fileReport: code === "1300" ? "Customers" : "Suppliers", ...(await common(p)), orientation: "portrait", zero: "dash", ...withRows([s]) };
 }
 
 export const EXPORTS: Record<string, (q: Record<string, any>) => Promise<ReportDoc>> = {

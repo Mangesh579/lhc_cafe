@@ -148,7 +148,7 @@
 
 35. Reports part 4c, Excel and PDF exports, 2026-11-28 (docs/specs/step4c-exports.md). No migration. Step 4 is complete.
   - **The buttons:** every report tab, and an open statement, has Excel and PDF buttons. The files are built on the server from the same data as the screen (GET /reports/export/:report?format=xlsx|pdf). The header block names the business, the period in BS and AD, "Posted up to", any warning, and who generated it and when.
-  - **The files:** Excel cells are real numbers with lakh commas (from the PC's region: set English (India)), totals bold, the heading row frozen, highlighted changes filled. PDFs are A4, with "Page x of y". A PDF over 5,000 lines is refused (use Excel).
+  - **The files:** Excel cells are real numbers with lakh commas (from the PC's region: set English (India)), totals bold, the heading row frozen, highlighted changes filled. PDFs are A4, with "Page x of y". A PDF over 3,000 rows drawn is refused (use Excel); a failed Excel download is cut off, never saved as a finished file (4c-fix, 2026-11-28).
   - **The 4b fixes:**
     - a change from 0 is highlighted on its amount alone;
     - the key ratios table has column headings;

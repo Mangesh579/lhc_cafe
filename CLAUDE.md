@@ -131,7 +131,7 @@ Step 4 decisions (owner, 2026-11-27, docs/specs/step4-reports.md section 9; all 
   - A name the PDF's standard font cannot draw (e.g. Devanagari) shows as "(name in Excel)" with the customer or supplier number; Excel keeps every name as typed.
   - Excel's lakh commas come from the PC's region setting: the accountant's PC is set to English (India).
   - No carried-forward totals at the foot of each PDF page: the column headings repeat on every page and the totals are on the last page.
-  - A PDF over 5,000 vouchers or lines is refused; Excel has no limit.
+  - A PDF over 3,000 rows drawn (lines plus heading and total rows) is refused, because the PDF is laid out on the server's main thread; Excel has no limit (4c-fix, 2026-11-28).
 
 ## Roadmap, in order
 Done so far: cash drawer and payment-mode ledgers; payment modes, split payment, credit sales, receipt vouchers, credit rules and credit notes (migrations 001, 002); card and QR settlements (003); monthly-account conversion (004). See docs/CHANGELOG.md.

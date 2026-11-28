@@ -13,6 +13,8 @@ import { bsLabel, bsMonthRange } from "../lib/fiscal";
 import { EXPORTS, ExportError } from "../lib/reports/exportDocs";
 import { toXlsx, toPdf, PDF_LIMIT, PDF_TOO_BIG } from "../lib/reportExport";
 import { fileName } from "../lib/reportFormat";
+import { PassThrough } from "node:stream";
+import { logger } from "../lib/logger";
 import { profitLoss, balanceSheet, compareView, customerStatement, supplierStatement, partySummary, reportSettings, fyRange } from "../lib/reports/statements";
 
 const router = Router();
@@ -125,14 +127,24 @@ router.get("/reports/export/:report", authenticate, only, async (req: AuthReques
   let doc;
   try { doc = await make(req.query as Record<string, any>); }
   catch (e) { if (e instanceof ExportError) { res.status(e.status).json({ error: e.message }); return; } throw e; }
-  if (format === "pdf" && doc.count > PDF_LIMIT) { res.status(400).json({ error: PDF_TOO_BIG, count: doc.count, limit: PDF_LIMIT }); return; }
+  if (format === "pdf" && doc.pdfRows > PDF_LIMIT) { res.status(400).json({ error: PDF_TOO_BIG, count: doc.pdfRows, limit: PDF_LIMIT }); return; }
   const by = { user: req.user?.username ?? "user", at: new Date() };
   res.setHeader("Content-Disposition", `attachment; filename="${fileName(doc.fileReport, doc.filePeriod, format)}"`);
   res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
   res.setHeader("Cache-Control", "no-store");
   if (format === "pdf") { res.type("application/pdf").send(await toPdf(doc, by)); return; }
   res.type(XLSX_TYPE);
-  await toXlsx(doc, res, by);
+  // a failure part-way must not look like a finished download: before any byte is sent, the usual JSON error; after, the
+  // connection is cut so the browser reports a failed download
+  const pass = new PassThrough();
+  pass.pipe(res);
+  try { await toXlsx(doc, pass, by); }
+  catch (err) {
+    logger.error({ err, report: req.params.report }, "Excel export failed");
+    pass.unpipe(res);
+    if (!res.headersSent) { res.removeHeader("Content-Disposition"); res.status(500).json({ error: "The Excel file could not be built. Please try again." }); }
+    else res.destroy(err as Error);
+  }
 });
 
 // The customers and suppliers that appear in the journal (for the party pickers)
