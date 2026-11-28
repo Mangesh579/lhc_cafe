@@ -237,3 +237,24 @@ describe("everything agrees", () => {
     expect(was).toEqual({ b: 1, e: 2 });
   });
 });
+
+describe("5d-fix: voiding restores the last purchase", () => {
+  it("a claimed bill (last price before VAT) and an unclaimed bill both give back the last price, qty, date and supplier", async () => {
+    const [{ id: sugar }] = await ctx.db.insert(inventoryItemsTable).values({ name: "Sugar", unit: "kg", department: "kitchen", currentStock: "0" }).returning();
+    const last = async () => { const i = await item(sugar); return [i.lastPurchasePrice == null ? null : Number(i.lastPurchasePrice), i.lastPurchaseQty == null ? null : Number(i.lastPurchaseQty), i.lastPurchaseDate, i.lastSupplier]; };
+    const pan = await bill(sup.plain, "600000022", { billDate: "2026-12-23", billType: "pan", lines: [{ inventoryItemId: sugar, quantity: 5, amount: 500 }] });
+    expect(pan.status, JSON.stringify(pan.body)).toBe(201);
+    expect(await last()).toEqual([500, 5, "2026-12-23", "Local Traders"]);
+    const vat = await bill(sup.vat, "600000021", { billDate: "2026-12-23", billType: "vat", lines: [{ inventoryItemId: sugar, quantity: 10, amount: 1000, vatAmount: 130 }] });
+    expect(vat.status, JSON.stringify(vat.body)).toBe(201);
+    expect(await last()).toEqual([1000, 10, "2026-12-23", "Bhatbhateni Wholesale"]); // before VAT
+    const log = (await ctx.client.query<any>(`SELECT reason FROM inventory_logs WHERE inventory_item_id = ${sugar} ORDER BY id`)).rows.map((r: any) => r.reason);
+    expect(log[0]).toMatch(/for Rs\. 500\.00 from Local Traders/);
+    expect(log[1]).toMatch(/for Rs\. 1000\.00 before VAT from Bhatbhateni Wholesale/);
+    // void the claimed bill: back to the PAN bill's figures; then void that: back to nothing
+    expect((await api("acct", "POST", `/purchase-bills/${vat.body.id}/void`, { reason: "entered twice" })).status).toBe(200);
+    expect(await last()).toEqual([500, 5, "2026-12-23", "Local Traders"]);
+    expect((await api("acct", "POST", `/purchase-bills/${pan.body.id}/void`, { reason: "entered twice" })).status).toBe(200);
+    expect(await last()).toEqual([null, null, null, null]);
+  });
+});

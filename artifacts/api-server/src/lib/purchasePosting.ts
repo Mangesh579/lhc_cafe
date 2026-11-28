@@ -87,7 +87,7 @@ export async function createPurchaseBill(dbx: Db, input: BillInput, opts: { user
       }).where(eq(inventoryItemsTable.id, item.id));
       await tx.insert(inventoryLogsTable).values({
         inventoryItemId: item.id, changeAmount: String(line.quantity), stockBefore: String(stockBefore), stockAfter: String(stockAfter),
-        reason: `Purchase ${pjNumber}: ${line.quantity} ${item.unit} for Rs. ${line.lineTotal.toFixed(2)} from ${supplier.name} (bill ${input.billNumber})`, changedBy: opts.user,
+        reason: `Purchase ${pjNumber}: ${line.quantity} ${item.unit} for Rs. ${cost.toFixed(2)}${claimed ? " before VAT" : ""} from ${supplier.name} (bill ${input.billNumber})`, changedBy: opts.user,
       });
       const [bi] = await tx.insert(purchaseBillItemsTable).values({
         billId: bill.id, inventoryItemId: item.id, itemName: item.name, department: item.department, quantity: n4(line.quantity), unit: item.unit,
@@ -150,7 +150,9 @@ export async function voidPurchaseBill(dbx: Db, billId: number, opts: { reason: 
       const qty = num(l.quantity);
       const before = num(item.currentStock), after = before - qty;
       const untouched = item.costPerUnit != null && Math.abs(num(item.costPerUnit) - num(l.costAfter)) < 0.00005;
-      const lastUntouched = l.setLastPurchase && item.lastPurchaseDate === bill.billDate && Math.abs(num(item.lastPurchasePrice) - num(l.lineTotal)) < 0.005
+      // 5d-fix: a bill that claimed input VAT stored the amount before VAT as the last price
+      const lastPrice = num(bill.inputVatClaimed ? l.amount : l.lineTotal);
+      const lastUntouched = l.setLastPurchase && item.lastPurchaseDate === bill.billDate && Math.abs(num(item.lastPurchasePrice) - lastPrice) < 0.005
         && Math.abs(num(item.lastPurchaseQty) - qty) < 0.00005 && item.lastSupplier === bill.supplierName;
       await tx.update(inventoryItemsTable).set({
         currentStock: String(after),
