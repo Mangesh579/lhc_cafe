@@ -167,7 +167,7 @@
   - **The history** (stay_events) is insert-only and written with each change.
   - **3f-fix (2026-11-28):** a QR sign-up keeps the guest's name; the Guests view counts bills in one query; adding a member with an archived customer's phone says to bring them back; the Loyalty page has an Archived filter with Bring back (admin, supervisor). The Receivables pickers (Record receipt, Wrong customer) were checked and still find Sulimha and hotel guests.
 
-37. Step 5a, VAT and TDS settings and fields, 2026-11-28 (docs/specs/step5-vat-tds.md). Needs migration 020 (not yet applied).
+37. Step 5a, VAT and TDS settings and fields, 2026-11-28 (docs/specs/step5-vat-tds.md). Migration 020 run (recorded 2026-11-28).
   - **Settings:** Chart of Accounts > settings has "VAT registered from" and the VAT number. VAT itself cannot be switched on until step 5e.
   - **Taxes tab:** the VAT rate (13%) and the TDS types (researched values, UNVERIFIED, rent off) are editable. Enter the accountant's confirmed rates here.
   - **New fields:**
@@ -198,9 +198,10 @@
 - 017_report_indexes.sql (recorded 2026-11-28, by the owner): report indexes on journal_lines and journal_entries.
 - 018_report_settings.sql (recorded 2026-11-28, by the owner): report_settings (the highlight rule, 20% and Rs 1,000).
 - 019_hotel_guests.sql (recorded 2026-11-28, by the owner): loyalty_customers kind, archive and promotion columns, phone optional, member-only email rule; orders.paid_by; stay_events.
+- 020_vat_tds_ready.sql (recorded 2026-11-28, by the owner): VAT settings, tax_rates, tds_types, tax_payments, the VAT/PAN/TDS fields, accounts 1460 and 2270 (inactive).
 
 # Not yet applied on the server
-- 020_vat_tds_ready.sql (2026-11-28): VAT settings, tax_rates, tds_types, tax_payments, the VAT/PAN/TDS fields, accounts 1460 and 2270 (inactive). Run after a backup, before deploy.sh.
+- None.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.

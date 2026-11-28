@@ -1973,7 +1973,7 @@ None.
 - No existing row's values change.
 
 ### Migration
-- db/migrations/020_vat_tds_ready.sql. NOT run on the server yet. Idempotent (run twice in the tests).
+- db/migrations/020_vat_tds_ready.sql. Run on the server by the owner (recorded 2026-11-28). Idempotent (run twice in the tests).
 
 ### Tests
 - Run on the dev machine:
@@ -1999,3 +1999,6 @@ None.
     - a plain expense has no type and no VAT.
   - **Customer PAN:** staff refused, a bad PAN refused, saved for Sulimha.
 - Not run: the screens in a browser; anything against production.
+
+## 2026-11-28 (k): Migration 020 recorded as run
+- The owner ran db/migrations/020_vat_tds_ready.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 5a entry above. Docs only; no code, no SQL, nothing to deploy.
