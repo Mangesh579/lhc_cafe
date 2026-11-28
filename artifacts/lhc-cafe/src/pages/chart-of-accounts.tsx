@@ -17,6 +17,7 @@ import * as XLSX from "xlsx";
 import { PostDayTab, MenuCategoriesTab } from "@/components/PostDay";
 import { MonthCloseTab } from "@/components/MonthClose";
 import { TaxesTab } from "@/components/TaxesTab";
+import { TaxPaymentsTab } from "@/components/TaxPayments";
 
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
 const TYPE_LABEL: Record<string, string> = { asset: "Asset", liability: "Liability", equity: "Equity", income: "Income", expense: "Expense" };
@@ -76,11 +77,13 @@ export default function ChartOfAccounts() {
           <TabsTrigger value="opening">Opening balances</TabsTrigger>
           <TabsTrigger value="categories">Menu categories</TabsTrigger>
           <TabsTrigger value="taxes">Taxes</TabsTrigger>
+          <TabsTrigger value="taxpay">Tax payments</TabsTrigger>
         </TabsList>
         <TabsContent value="post"><PostDayTab /></TabsContent>
         <TabsContent value="month"><MonthCloseTab /></TabsContent>
         <TabsContent value="categories"><MenuCategoriesTab /></TabsContent>
         <TabsContent value="taxes"><TaxesTab /></TabsContent>
+        <TabsContent value="taxpay"><TaxPaymentsTab /></TabsContent>
         <TabsContent value="accounts"><AccountsTab accounts={accounts} onChanged={load} /></TabsContent>
         <TabsContent value="map"><MapTab map={map} postable={postable} onChanged={load} /></TabsContent>
         <TabsContent value="journals"><JournalsTab postable={postable} settings={settings} /></TabsContent>

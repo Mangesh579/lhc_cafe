@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/auth";
 import { apiJson } from "@/lib/expenseApi";
 import { amt, side, drcr, select, PeriodPicker, PeriodLine, Pager, DownloadButtons, EntryDialog, ConsumptionDialog, initialPeriod, periodQuery, type Meta, type Period } from "@/components/reports/common";
+import { TdsPayableTab } from "@/components/reports/TdsPayable";
 import { ProfitLossTab, BalanceSheetTab, StatementsTab, CompareTab, asAtOf } from "@/components/reports/statements";
 
 export default function Reports() {
@@ -52,6 +53,7 @@ export default function Reports() {
           <TabsTrigger value="bs">Balance Sheet</TabsTrigger>
           <TabsTrigger value="statements">Statements</TabsTrigger>
           <TabsTrigger value="compare">Compare</TabsTrigger>
+          <TabsTrigger value="tds">TDS payable</TabsTrigger>
         </TabsList>
         <TabsContent value="daybook"><DayBook q={q} meta={meta} parties={parties} accounts={accounts} onEntry={open} /></TabsContent>
         <TabsContent value="ledger"><Ledger q={q} parties={parties} accounts={accounts} onEntry={open} /></TabsContent>
@@ -61,6 +63,7 @@ export default function Reports() {
         <TabsContent value="bs"><BalanceSheetTab defaultAt={asAtOf(period, meta)} /></TabsContent>
         <TabsContent value="statements"><StatementsTab q={q} onEntry={open} /></TabsContent>
         <TabsContent value="compare"><CompareTab meta={meta} /></TabsContent>
+        <TabsContent value="tds"><TdsPayableTab /></TabsContent>
       </Tabs>
       <EntryDialog id={entry} onClose={() => setEntry(null)} onOpen={open} onConsumption={d => { setEntry(null); setConsumption(d); }} />
       <ConsumptionDialog day={consumption} onClose={() => setConsumption(null)} onOpen={id => { setConsumption(null); setEntry(id); }} />

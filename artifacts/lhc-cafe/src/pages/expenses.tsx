@@ -21,7 +21,7 @@ import ProfitLoss from "@/components/ProfitLoss";
 const money = (n: number) => `Rs. ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const methodLabel = (v: string) => v === "credit" ? "Credit (supplier bill)" : PAYMENT_METHODS.find(m => m.value === v)?.label ?? v;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const EMPTY = { type: "indirect", category: INDIRECT_CATEGORIES[0], subcategory: "", expenseDate: "", amount: "", paymentMethod: "cash", vendor: "", description: "", isRecurring: false, frequency: "monthly", paidFromDrawer: true, billNumber: "", bankAccount: "", billType: "", vatAmount: "", supplierPan: "" };
+const EMPTY = { type: "indirect", category: INDIRECT_CATEGORIES[0], subcategory: "", expenseDate: "", amount: "", paymentMethod: "cash", vendor: "", description: "", isRecurring: false, frequency: "monthly", paidFromDrawer: true, billNumber: "", bankAccount: "", billType: "", vatAmount: "", supplierPan: "", tdsType: "" };
 
 export default function Expenses() {
   const { user } = useAuth();
@@ -51,6 +51,9 @@ export default function Expenses() {
   const [saving, setSaving] = useState(false);
   const [voidTarget, setVoidTarget] = useState<any | null>(null);
   const [voidReason, setVoidReason] = useState("");
+  // 5b: TDS types for the TDS withheld on an expense
+  const [tdsTypes, setTdsTypes] = useState<any[]>([]);
+  useEffect(() => { if (allowed) apiJson("/gl/tds-types").then(setTdsTypes).catch(() => setTdsTypes([])); }, [allowed]);
 
   const load = useCallback(async () => {
     if (!allowed) return;
@@ -85,7 +88,7 @@ export default function Expenses() {
 
   const openEdit = async (r: any) => {
     setEditing(r);
-    setForm({ type: r.type, category: r.category, subcategory: r.subcategory ?? "", expenseDate: r.expenseDate, amount: String(parseFloat(r.amount)), paymentMethod: r.paymentMethod, vendor: r.vendor ?? "", description: r.description ?? "", isRecurring: r.isRecurring, frequency: r.frequency ?? "monthly", bankAccount: r.bankAccount ?? "", billType: r.billType ?? "", vatAmount: parseFloat(r.vatAmount ?? 0) > 0 ? String(parseFloat(r.vatAmount)) : "", supplierPan: r.supplierPan ?? "" } as any);
+    setForm({ type: r.type, category: r.category, subcategory: r.subcategory ?? "", expenseDate: r.expenseDate, amount: String(parseFloat(r.amount)), paymentMethod: r.paymentMethod, vendor: r.vendor ?? "", description: r.description ?? "", isRecurring: r.isRecurring, frequency: r.frequency ?? "monthly", bankAccount: r.bankAccount ?? "", billType: r.billType ?? "", vatAmount: parseFloat(r.vatAmount ?? 0) > 0 ? String(parseFloat(r.vatAmount)) : "", supplierPan: r.supplierPan ?? "", tdsType: r.tdsType ?? "", paidFromDrawer: !!r.paidFromDrawer } as any);
     setFiles([]); setFormOpen(true);
     try {
       setAttachments(await apiJson(`/expenses/${r.id}/attachments`));
@@ -100,11 +103,13 @@ export default function Expenses() {
     try {
       const body = { ...form, amount };
       let id = editing?.id as number | undefined;
-      if (editing) await apiJson(`/expenses/${editing.id}`, "PATCH", body);
-      else { const created = await apiJson("/expenses", "POST", body); id = created.id; }
+      let saved: any = null;
+      if (editing) saved = await apiJson(`/expenses/${editing.id}`, "PATCH", body);
+      else { saved = await apiJson("/expenses", "POST", body); id = saved.id; }
       let failed = 0;
       for (const f of files) { try { await uploadReceipt(id!, f); } catch { failed++; } }
-      toast({ title: editing ? "Expense updated" : "Expense added", description: failed ? `${failed} receipt(s) could not be uploaded (JPG, PNG, WEBP or PDF up to 10 MB).` : undefined });
+      const tdsNote = saved?.tdsType ? `TDS Rs. ${parseFloat(saved.tdsAmount).toFixed(2)} withheld; net paid Rs. ${(parseFloat(saved.amount) - parseFloat(saved.tdsAmount)).toFixed(2)}.${saved.tdsAggregate ? ` Paid to this PAN under this type in 10 days: Rs. ${Number(saved.tdsAggregate).toFixed(2)}.` : ""}${saved.tdsBelowThreshold ? " Below the threshold, so no TDS." : ""}` : "";
+      toast({ title: editing ? "Expense updated" : "Expense added", description: [failed ? `${failed} receipt(s) could not be uploaded (JPG, PNG, WEBP or PDF up to 10 MB).` : "", tdsNote, saved?.tdsWarning ?? ""].filter(Boolean).join(" ") || undefined });
       setFormOpen(false); load();
     } catch (e: any) { toast({ title: "Couldn't save", description: e?.error, variant: "destructive" }); }
     finally { setSaving(false); }
@@ -270,7 +275,7 @@ export default function Expenses() {
                           {r.attachmentCount > 0 && <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Paperclip className="w-3 h-3" /> {r.attachmentCount} receipt{r.attachmentCount === 1 ? "" : "s"}</div>}
                         </td>
                         <td className="px-4 py-3 text-xs">{methodLabel(r.paymentMethod)}</td>
-                        <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">{money(parseFloat(r.amount))}</td>
+                        <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">{money(parseFloat(r.amount))}{r.tdsType && parseFloat(r.tdsAmount) > 0 && <div className="text-xs font-normal text-muted-foreground">TDS {money(parseFloat(r.tdsAmount))} · net {money(parseFloat(r.amount) - parseFloat(r.tdsAmount))}</div>}</td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           {r.status === "active" && r.purchaseBillId && <span className="text-xs text-muted-foreground">From a purchase bill (Suppliers)</span>}
                           {r.status === "active" && !r.purchaseBillId && (
@@ -386,6 +391,16 @@ export default function Expenses() {
                   <option value="">No bill / not known</option><option value="pan">PAN bill</option><option value="vat">VAT bill</option></select></div>
               {(form as any).billType === "vat" && <div className="space-y-1"><Label>VAT on the bill (Rs.) *</Label><Input type="number" min="0" step="0.01" value={(form as any).vatAmount ?? ""} onChange={e => setForm({ ...form, vatAmount: e.target.value } as any)} /><p className="text-xs text-muted-foreground">Part of the amount above. Counted as cost until LHC is VAT registered.</p></div>}
               {(form as any).billType && <div className="space-y-1"><Label>Supplier PAN/VAT no.{(form as any).billType === "vat" ? " *" : ""}</Label><Input value={(form as any).supplierPan ?? ""} placeholder="9 digits" onChange={e => setForm({ ...form, supplierPan: e.target.value } as any)} /></div>}
+              {/* 5b: TDS withheld (needs the PAN; never from the drawer) */}
+              {!(form.paymentMethod === "cash" && form.paidFromDrawer) && (() => {
+                const t = tdsTypes.find(x => x.code === (form as any).tdsType);
+                const gross = parseFloat(form.amount) || 0, vat = (form as any).billType === "vat" ? parseFloat((form as any).vatAmount) || 0 : 0;
+                const tds = t ? Math.round(((gross - vat) * Number(t.rate)) / 100 * 100) / 100 : 0;
+                return <div className="space-y-1 col-span-2 rounded-md border p-2"><Label>TDS withheld</Label>
+                  <select className="h-9 rounded-md border border-input bg-background px-2 text-sm w-full" value={(form as any).tdsType ?? ""} onChange={e => setForm({ ...form, tdsType: e.target.value } as any)}>
+                    <option value="">No TDS</option>{tdsTypes.filter(x => x.active || x.code === (form as any).tdsType).map(x => <option key={x.code} value={x.code}>{x.label} ({Number(x.rate)}%){x.confirmedAt ? "" : " · not confirmed"}</option>)}</select>
+                  {t && <p className="text-xs">Gross {money(gross)} · TDS about {money(tds)} · net paid about {money(gross - tds)}<span className="block text-muted-foreground">Needs the supplier's PAN. Worked out exactly on saving{t.threshold != null ? `; only above Rs ${Number(t.threshold).toLocaleString("en-IN")} paid to this PAN in 10 days` : ""}.</span>{!t.confirmedAt && <span className="block text-amber-700">This rate has not been confirmed by the accountant yet.</span>}</p>}</div>;
+              })()}
               {form.paymentMethod === "cash" && !editing && (
                 <label className="col-span-2 flex items-center gap-2 text-sm cursor-pointer">
                   <input type="checkbox" checked={!!form.paidFromDrawer} onChange={e => setForm({ ...form, paidFromDrawer: e.target.checked })} />

@@ -29,8 +29,9 @@ export function checkEntryLines(raw: unknown, accounts: Map<string, AccountInfo>
     const supplierId = r?.supplierId ? Number(r.supplierId) : null;
     if (accountCode === RECEIVABLE && !customerId) return { error: `Line ${n}: choose the customer for 1300 Accounts Receivable.` };
     if (accountCode === PAYABLE && !supplierId) return { error: `Line ${n}: choose the supplier for 2100 Accounts Payable.` };
-    if (customerId && accountCode !== RECEIVABLE) return { error: `Line ${n}: a customer belongs only on 1300.` };
-    if (supplierId && accountCode !== PAYABLE) return { error: `Line ${n}: a supplier belongs only on 2100.` };
+    // 5b: the payee also sits on a TDS line (supplier on 2250); 5c: the customer on 1460 (TDS the customer withheld)
+    if (customerId && accountCode !== RECEIVABLE && accountCode !== "1460") return { error: `Line ${n}: a customer belongs only on 1300 or 1460.` };
+    if (supplierId && accountCode !== PAYABLE && accountCode !== "2250") return { error: `Line ${n}: a supplier belongs only on 2100 or 2250.` };
     const memo = String(r?.memo ?? "").trim().slice(0, 200) || null;
     lines.push({ accountCode, debit, credit, customerId, supplierId, memo });
   }

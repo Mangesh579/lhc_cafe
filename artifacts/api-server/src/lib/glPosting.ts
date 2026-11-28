@@ -4,7 +4,7 @@ import {
   db, ordersTable, orderItemsTable, menuItemsTable, menuCategoriesTable, creditNotesTable, customerReceiptsTable, settlementsTable,
   settlementSettingsTable, journalEntriesTable, journalLinesTable, postingDaysTable, periodClosesTable, cashDaysTable,
   purchaseBillsTable, purchaseBillItemsTable, supplierPaymentsTable, debitNotesTable, debitNoteItemsTable, expensesTable, expenseAccountMapTable,
-  cashMovementsTable, wasteLogsTable, inventoryItemsTable, creditNoteItemsTable, inventoryLogsTable,
+  cashMovementsTable, wasteLogsTable, inventoryItemsTable, creditNoteItemsTable, inventoryLogsTable, taxPaymentsTable, suppliersTable,
 } from "@workspace/db";
 import { and, eq, gte, lte, lt, inArray, sql, asc } from "drizzle-orm";
 import { dayRangeUtc, addDays, nepalDay, paidOrdersBetween, paymentRowsFor, receiptsBetween, creditNotesBetween, reissuedOrderIds, collectionsByDay } from "./ledgerData";
@@ -12,7 +12,7 @@ import { partsFor, round2 } from "./payments";
 import { salesByMachineDay } from "./settlementRules";
 import { creditInvoices } from "./receivables";
 import { saleEntry, creditNoteEntry, receiptEntry, settlementEntry, sameLines, MACHINE_ACCOUNT, type Draft, type Problem, type Line, type SaleSource,
-  purchaseBillEntry, supplierPaymentEntry, debitNoteEntry, expenseEntry, cashMovementEntry, cashCloseEntry, consumptionEntry, stockAdjustmentEntry, dayKey, type Built } from "./postingRules";
+  purchaseBillEntry, supplierPaymentEntry, debitNoteEntry, expenseEntry, cashMovementEntry, cashCloseEntry, consumptionEntry, stockAdjustmentEntry, taxPaymentEntry, dayKey, type Built } from "./postingRules";
 import { menuItemCosting } from "./costing";
 import { computeDay } from "../routes/cash";
 import { ledgerSettings, postEntry, reverseEntry, LedgerError } from "./ledger";
@@ -21,7 +21,7 @@ import { bsLabel } from "./fiscal";
 
 import { lockOnDay } from "./periodLock";
 const num = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
-type SourceType = "order" | "credit_note" | "receipt" | "settlement" | "purchase_bill" | "supplier_payment" | "debit_note" | "expense" | "cash_movement" | "cash_close" | "consumption" | "stock_adjustment";
+type SourceType = "order" | "credit_note" | "receipt" | "settlement" | "purchase_bill" | "supplier_payment" | "debit_note" | "expense" | "cash_movement" | "cash_close" | "consumption" | "stock_adjustment" | "tax_payment";
 const keyDay = (k: number) => `${String(k).slice(0, 4)}-${String(k).slice(4, 6)}-${String(k).slice(6, 8)}`;
 export type LateItem = { action: "reverse" | "repost" | "add"; sourceType: string; sourceId: number; sourceRef: string | null; entryId?: number; entryNo?: string; oldLines?: Line[]; draft?: Draft; reason: string };
 
@@ -81,7 +81,8 @@ async function billSources(where: any) {
 }
 async function paymentSources(where: any) {
   return (await db.select().from(supplierPaymentsTable).where(where)).map(p => ({ id: p.id, day: p.paymentDate, postable: p.status === "active",
-    built: supplierPaymentEntry({ paymentId: p.id, voucherNo: p.voucherNo, day: p.paymentDate, supplierId: p.supplierId, paidVia: p.paidVia, paidFromAccount: p.paidFromAccount, amount: round2(num(p.amount)) }) }));
+    built: supplierPaymentEntry({ paymentId: p.id, voucherNo: p.voucherNo, day: p.paymentDate, supplierId: p.supplierId, paidVia: p.paidVia, paidFromAccount: p.paidFromAccount, amount: round2(num(p.amount)),
+      tdsAmount: round2(num((p as any).tdsAmount)), tdsType: (p as any).tdsType ?? null }) }));
 }
 async function debitNoteSources(where: any) {
   const notes = await db.select().from(debitNotesTable).where(where);
@@ -95,9 +96,19 @@ const postableExpense = and(sql`${expensesTable.purchaseBillId} IS NULL`, sql`${
   sql`NOT EXISTS (SELECT 1 FROM settlements st WHERE st.expense_id = ${expensesTable.id})`);
 async function expenseSources(where: any) {
   const map = new Map((await db.select().from(expenseAccountMapTable)).map(m => [m.category, m.accountCode]));
-  return (await db.select().from(expensesTable).where(and(postableExpense, where))).map(e => ({ id: e.id, day: e.expenseDate, postable: e.status === "active",
+  const rows = await db.select().from(expensesTable).where(and(postableExpense, where));
+  // 5b: the payee of a TDS line is the supplier with that PAN, when there is one
+  const pans = [...new Set(rows.filter(e => num((e as any).tdsAmount) > 0 && (e as any).supplierPan).map(e => (e as any).supplierPan as string))];
+  const supByPan = new Map(pans.length ? (await db.select({ id: suppliersTable.id, pan: suppliersTable.pan }).from(suppliersTable).where(inArray(suppliersTable.pan, pans))).map(r => [r.pan, r.id]) : []);
+  return rows.map(e => ({ id: e.id, day: e.expenseDate, postable: e.status === "active",
     built: expenseEntry({ expenseId: e.id, voucherNo: e.voucherNo, day: e.expenseDate, category: e.category, accountCode: map.get(e.category) ?? null, amount: round2(num(e.amount)),
-      paymentMethod: e.paymentMethod, paidFromDrawer: e.paidFromDrawer, bankAccount: (e as any).bankAccount ?? null, billNumber: e.billNumber }) }));
+      paymentMethod: e.paymentMethod, paidFromDrawer: e.paidFromDrawer, bankAccount: (e as any).bankAccount ?? null, billNumber: e.billNumber,
+      tdsAmount: round2(num((e as any).tdsAmount)), tdsType: (e as any).tdsType ?? null, payeePan: (e as any).supplierPan ?? null, payeeSupplierId: supByPan.get((e as any).supplierPan) ?? null }) }));
+}
+// 5b: the tax payment vouchers (TDS deposits)
+async function taxPaymentSources(where: any) {
+  return (await db.select().from(taxPaymentsTable).where(where)).map(t => ({ id: t.id, day: t.paymentDate, postable: t.status === "active",
+    built: taxPaymentEntry({ paymentId: t.id, voucherNo: t.voucherNo, day: t.paymentDate, kind: t.kind, amount: round2(num(t.amount)), bankAccount: t.bankAccount, bsLabel: `${t.bsYear}-${String(t.bsMonth).padStart(2, "0")}`, reference: t.reference }) }));
 }
 async function movementSources(where: any) {
   return (await db.select().from(cashMovementsTable).where(where)).map(m => ({ id: m.id, day: m.day, postable: m.status === "active",
@@ -214,6 +225,7 @@ async function docs3c(fromDay: string, toDay: string, onlyUnposted: boolean) {
   const noCloseInForce = onlyUnposted ? sql`NOT EXISTS (SELECT 1 FROM journal_entries je WHERE je.source_type = 'cash_close' AND je.source_id = ${closeKey} AND je.kind = 'post'
     AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reverses_entry_id = je.id))` : sql`true`;
   for (const c of await closeSources(and(eq(cashDaysTable.status, "closed"), gte(cashDaysTable.day, fromDay), lte(cashDaysTable.day, toDay), noCloseInForce))) out.push({ type: "cash_close", ...c });
+  for (const t of await taxPaymentSources(and(eq(taxPaymentsTable.status, "active"), gte(taxPaymentsTable.paymentDate, fromDay), lte(taxPaymentsTable.paymentDate, toDay), ne("tax_payment", taxPaymentsTable.id)))) out.push({ type: "tax_payment", ...t });
   for (const a of await adjustmentSources(and(gte(inventoryLogsTable.createdAt, dayRangeUtc(fromDay).from), lte(inventoryLogsTable.createdAt, dayRangeUtc(toDay).to), ne("stock_adjustment", inventoryLogsTable.id)))) out.push({ type: "stock_adjustment", ...a });
   return out;
 }
@@ -253,6 +265,7 @@ async function currentOf(keys: { type: string; id: number }[], opts: { vatEnable
   const ex = ids("expense"); if (ex.length) for (const s of await expenseSources(inArray(expensesTable.id, ex))) out.set(`expense:${s.id}`, s);
   const cm = ids("cash_movement"); if (cm.length) for (const s of await movementSources(inArray(cashMovementsTable.id, cm))) out.set(`cash_movement:${s.id}`, s);
   const cc = ids("cash_close"); if (cc.length) for (const s of await closeSources(inArray(cashDaysTable.day, cc.map(keyDay)))) out.set(`cash_close:${s.id}`, s);
+  const tp = ids("tax_payment"); if (tp.length) for (const s of await taxPaymentSources(inArray(taxPaymentsTable.id, tp))) out.set(`tax_payment:${s.id}`, s);
   for (const k of ids("consumption")) out.set(`consumption:${k}`, { postable: true, built: await consumptionFor(keyDay(k), opts.reissued) });
   return out;
 }

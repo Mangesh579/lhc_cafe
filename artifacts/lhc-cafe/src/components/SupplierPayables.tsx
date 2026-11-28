@@ -63,6 +63,10 @@ export function PaymentDialog({ open, onClose, suppliers, supplierId: initialSup
   const [openBills, setOpenBills] = useState<any[]>([]);
   const [alloc, setAlloc] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
+  // 5b: TDS withheld (service suppliers, by cheque or online); the type starts from the supplier's default
+  const [tdsType, setTdsType] = useState("");
+  const [tdsTypes, setTdsTypes] = useState<any[]>([]);
+  useEffect(() => { if (open && !allocateFrom) apiJson("/gl/tds-types").then(setTdsTypes).catch(() => setTdsTypes([])); }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -89,14 +93,17 @@ export function PaymentDialog({ open, onClose, suppliers, supplierId: initialSup
     try {
       const p = allocateFrom
         ? await apiJson(`/supplier-payments/${allocateFrom.id}/allocate`, "POST", { allocations })
-        : await apiJson("/supplier-payments", "POST", { supplierId: Number(supplierId), paymentDate: date, amount: amt, paidVia: via, reference, paidFromAccount: via === "drawer" ? undefined : account, notes, allocations });
-      toast({ title: allocateFrom ? "Allocated" : `Payment ${p.voucherNo} recorded`, description: p.unallocated > 0 ? `${rs(p.unallocated)} stays as an advance to the supplier.` : undefined });
+        : await apiJson("/supplier-payments", "POST", { supplierId: Number(supplierId), paymentDate: date, amount: amt, paidVia: via, reference, paidFromAccount: via === "drawer" ? undefined : account, notes, allocations, tdsType: via !== "drawer" ? tdsType || undefined : undefined });
+      toast({ title: allocateFrom ? "Allocated" : `Payment ${p.voucherNo} recorded`, description: [p.unallocated > 0 ? `${rs(p.unallocated)} stays as an advance to the supplier.` : null, p.tdsWarning].filter(Boolean).join(" ") || undefined });
       onSaved(p); onClose();
     } catch (e: any) { toast({ title: "Not saved", description: e?.error, variant: "destructive" }); }
     finally { setBusy(false); }
   };
 
   const supplier = suppliers.find(s => String(s.id) === supplierId);
+  useEffect(() => { setTdsType(supplier?.supplierType === "service" ? supplier?.defaultTdsType ?? "" : ""); }, [supplierId]);
+  const tdsRow = tdsTypes.find(t => t.code === tdsType);
+  const tdsPreview = tdsRow && via !== "drawer" ? round2((amt * Number(tdsRow.rate)) / 100) : 0;
   return (
     <Dialog open={open} onOpenChange={o => !o && onClose()}>
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
@@ -108,6 +115,15 @@ export function PaymentDialog({ open, onClose, suppliers, supplierId: initialSup
                 <SearchableSelect options={suppliers.map(s => ({ value: String(s.id), label: `${s.name} · owed ${rs(s.balance ?? 0)}${(s.advance ?? 0) > 0 ? ` · advance ${rs(s.advance)}` : ""}` }))} value={supplierId} onChange={v => { setSupplierId(v); setAlloc({}); }} placeholder="Choose a supplier…" /></div>
               <div className="space-y-1"><Label>Payment date *</Label><Input type="date" value={date} max={nepalToday()} onChange={e => setDate(e.target.value)} /></div>
               <div className="space-y-1"><Label>Amount (Rs.) *</Label><Input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} /></div>
+              {supplier?.supplierType === "service" && via !== "drawer" && (
+                <div className="space-y-1 col-span-2 rounded-md border p-2">
+                  <Label>TDS withheld</Label>
+                  <select className="h-9 rounded-md border border-input bg-background px-2 text-sm w-full" value={tdsType} onChange={e => setTdsType(e.target.value)}>
+                    <option value="">No TDS</option>{tdsTypes.filter(t => t.active || t.code === tdsType).map(t => <option key={t.code} value={t.code}>{t.label} ({Number(t.rate)}%){t.confirmedAt ? "" : " · not confirmed"}</option>)}
+                  </select>
+                  {tdsRow && <p className="text-xs">Gross {rs(amt)} · TDS about {rs(tdsPreview)} · net paid about {rs(round2(amt - tdsPreview))}<span className="block text-muted-foreground">The exact TDS is worked out on saving (the VAT of the bills paid is left out{tdsRow.threshold != null ? `; only above Rs ${Number(tdsRow.threshold).toLocaleString("en-IN")} over 10 days` : ""}).</span>{!tdsRow.confirmedAt && <span className="block text-amber-700">This rate has not been confirmed by the accountant yet.</span>}</p>}
+                </div>
+              )}
               <div className="space-y-1"><Label>Paid by</Label>
                 <select className={SELECT} value={via} onChange={e => setVia(e.target.value)}><option value="drawer">Cash from the drawer (CV)</option><option value="cheque">Cheque (PV)</option><option value="online">Online transfer (PV)</option></select></div>
               {via !== "drawer" ? <>

@@ -28,6 +28,7 @@ export const SOURCE_LINKS: Record<string, { page: string; label: string; path: (
   consumption: { page: "Reports", label: "Consumption of the day", path: (id) => `/reports?consumption=${keyDay(id)}` },
   stock_adjustment: { page: "Inventory", label: "Stock adjustment (Stock Log)", path: () => "/inventory" },
   opening: { page: "Chart of Accounts", label: "Opening balances", path: () => "/chart-of-accounts" },
+  tax_payment: { page: "Chart of Accounts", label: "Tax payment (TDS deposit)", path: () => "/chart-of-accounts" },
 };
 const MANUAL_LINK = { page: "Chart of Accounts", label: "Journal voucher", path: () => "/chart-of-accounts" };
 export const linkFor = (sourceType: string | null, sourceId: number | null) => {
@@ -124,6 +125,10 @@ export async function sourceDocument(type: string, id: number): Promise<Doc | nu
     case "stock_adjustment": {
       const l = await one(sql`SELECT l.*, i.name, i.unit, i.department FROM inventory_logs l LEFT JOIN inventory_items i ON i.id = l.inventory_item_id WHERE l.id = ${id}`);
       return l ? { title: `Stock adjustment #${id}`, fields: [["Ingredient", l.name], ["Department", l.department], ["Change", `${num(l.change_amount)} ${l.unit ?? ""}`.trim()], ["Stock before", num(l.stock_before)], ["Stock after", num(l.stock_after)], ["Cost per unit", l.unit_cost == null ? null : num(l.unit_cost)], ["Reason", l.reason], ["By", l.changed_by], ["When", at(l.created_at)]] } : null;
+    }
+    case "tax_payment": {
+      const t = await one(sql`SELECT * FROM tax_payments WHERE id = ${id}`);
+      return t ? { title: `Tax payment ${t.voucher_no}`, fields: [["Kind", t.kind === "tds_deposit" ? "TDS deposit" : "VAT payment"], ["For", `${t.bs_year}-${String(t.bs_month).padStart(2, "0")}`], ["Paid on", dayOf(t.payment_date)], ["Bank", t.bank_account], ["Reference", t.reference], ["Amount", rs(t.amount)], ["Status", t.status], ["Void reason", t.void_reason]] } : null;
     }
     case "consumption": {
       const c = await consumptionView(keyDay(id));

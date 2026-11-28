@@ -9,6 +9,7 @@ const isDay = (s: unknown): s is string => typeof s === "string" && /^\d{4}-\d{2
 export type PaymentInput = {
   supplierId: number; paymentDate: string; paidVia: (typeof PAID_VIA)[number]; paidFromAccount: (typeof BANK_ACCOUNTS)[number] | null;
   reference: string | null; amount: number; notes: string | null; voucherType: "CV" | "PV";
+  tdsType?: string | null; // 5b: TDS withheld (service suppliers only)
 };
 
 // A payment's date is the real payment date: backdating allowed within the fiscal year, never the future (Nepal day).
@@ -31,7 +32,7 @@ export function validatePayment(body: any, ctx: { today: string; currentFiscalYe
     if (!(BANK_ACCOUNTS as readonly string[]).includes(body?.paidFromAccount)) return { error: "Choose the bank account that paid: Nabil or HBL." };
     paidFromAccount = body.paidFromAccount;
   }
-  return { supplierId, paymentDate, paidVia, paidFromAccount, reference, amount, notes: clean(body?.notes, 300), voucherType: paidVia === "drawer" ? "CV" : "PV" };
+  return { supplierId, paymentDate, paidVia, paidFromAccount, reference, amount, notes: clean(body?.notes, 300), voucherType: paidVia === "drawer" ? "CV" : "PV", tdsType: clean(body?.tdsType, 30) };
 }
 
 export type OpenBill = { billId: number; supplierId: number; balance: number };

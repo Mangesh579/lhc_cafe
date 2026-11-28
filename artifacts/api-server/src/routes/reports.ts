@@ -13,6 +13,7 @@ import { bsLabel, bsMonthRange } from "../lib/fiscal";
 import { EXPORTS, ExportError } from "../lib/reports/exportDocs";
 import { toXlsx, toPdf, PDF_LIMIT, PDF_TOO_BIG } from "../lib/reportExport";
 import { fileName } from "../lib/reportFormat";
+import { tdsPayableReport } from "../lib/reports/tdsReport";
 import { PassThrough } from "node:stream";
 import { logger } from "../lib/logger";
 import { profitLoss, balanceSheet, compareView, customerStatement, supplierStatement, partySummary, reportSettings, fyRange } from "../lib/reports/statements";
@@ -145,6 +146,13 @@ router.get("/reports/export/:report", authenticate, only, async (req: AuthReques
     if (!res.headersSent) { res.removeHeader("Content-Disposition"); res.status(500).json({ error: "The Excel file could not be built. Please try again." }); }
     else res.destroy(err as Error);
   }
+});
+
+// 5b: the TDS payable report for one BS month (?month=2083-09)
+router.get("/reports/tds-payable", authenticate, only, async (req: AuthRequest, res: Response): Promise<void> => {
+  const m = String(req.query.month ?? "").match(/^(\d{4})-(\d{1,2})$/);
+  if (!m || +m[2] < 1 || +m[2] > 12) { res.status(400).json({ error: "Choose the BS month, like 2083-09." }); return; }
+  res.json(await tdsPayableReport(+m[1], +m[2]));
 });
 
 // The customers and suppliers that appear in the journal (for the party pickers)

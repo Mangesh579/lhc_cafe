@@ -81,6 +81,7 @@ export const ledgerSettingsTable = pgTable("ledger_settings", {
   vatEnabled: boolean("vat_enabled").notNull().default(false),
   vatStartDate: date("vat_start_date"),
   vatNumber: text("vat_number"),
+  tdsBase: text("tds_base").notNull().default("excl_vat"), // 5b (migration 021): excl_vat | incl_vat; the accountant confirms
   updatedBy: text("updated_by"),
   updatedAt: timestamp("updated_at"),
 });
@@ -169,6 +170,8 @@ export const taxRatesTable = pgTable("tax_rates", {
   note: text("note"),
   setBy: text("set_by").notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  confirmedBy: text("confirmed_by"), // 5b: the accountant's confirmation of a researched rate
+  confirmedAt: timestamp("confirmed_at"),
 });
 export const tdsTypesTable = pgTable("tds_types", {
   id: serial("id").primaryKey(),
@@ -184,6 +187,8 @@ export const tdsTypesTable = pgTable("tds_types", {
   note: text("note"),
   setBy: text("set_by").notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  confirmedBy: text("confirmed_by"), // 5b: empty until confirmed; documents using it show a warning
+  confirmedAt: timestamp("confirmed_at"),
 });
 export const taxPaymentsTable = pgTable("tax_payments", {
   id: serial("id").primaryKey(),

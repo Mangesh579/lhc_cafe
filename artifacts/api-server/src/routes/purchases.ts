@@ -4,6 +4,7 @@
 import { Router } from "express";
 import { lockGuard } from "../lib/periodLock";
 import { tdsTypesTable } from "@workspace/db";
+import { UNCONFIRMED } from "../lib/tds";
 const tdsTypeExists = async (code: string) => (await db.select({ id: tdsTypesTable.id }).from(tdsTypesTable).where(eq(tdsTypesTable.code, code))).length > 0;
 import type { Response } from "express";
 import {
@@ -292,7 +293,10 @@ router.post("/supplier-payments", authenticate, async (req: AuthRequest, res: Re
   try {
     const id = await createSupplierPayment(db, v, req.body?.allocations, { user: req.user?.username ?? "user" });
     const [p] = await loadPayments(db, eq(supplierPaymentsTable.id, id));
-    res.status(201).json(p);
+    // 5b: a TDS type the accountant has not confirmed yet is allowed, with a warning
+    const [row] = await db.select({ code: supplierPaymentsTable.tdsType }).from(supplierPaymentsTable).where(eq(supplierPaymentsTable.id, id));
+    const [t] = row?.code ? await db.select().from(tdsTypesTable).where(eq(tdsTypesTable.code, row.code)) : [];
+    res.status(201).json({ ...p, tdsWarning: t && !t.confirmedAt ? UNCONFIRMED : null });
   } catch (e) { fail(res, e); }
 });
 

@@ -177,6 +177,14 @@
     - customers: PAN (Sulimha Durbar).
   - **Nothing posts differently yet.** VAT stays in cost until 5d; TDS starts in 5b and 5c.
 
+38. Step 5b, TDS payable, 2026-11-28 (docs/specs/step5-vat-tds.md section 13). Migration 021 NOT yet run.
+  - **Withholding:** the admin and accountant pick a TDS type on an expense (needs the supplier's PAN; never petty cash from the drawer) or on a payment to a service supplier (pre-filled from the supplier). The form shows gross, TDS and net. The ledger gets Cr 2250 with the payee.
+  - **Contract type:** only above its threshold, counting the same PAN's payments of the 10 days before.
+  - **Confirming:** Chart of Accounts > Taxes has Confirm buttons. An unconfirmed rate is allowed with a warning. Changing a rate asks for it again. The TDS base (before VAT, the default) is a setting the accountant must confirm.
+  - **Deposit:** Chart of Accounts > Tax payments records the TDS deposit (voucher TX, Dr 2250 Cr bank) and voids it with a reason.
+  - **Report:** Reports > TDS payable for a BS month, with Excel and PDF, the deadline reminder and the 2250 check.
+  - **Balance Sheet:** shows 1460 and, once active, 2270.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -201,7 +209,7 @@
 - 020_vat_tds_ready.sql (recorded 2026-11-28, by the owner): VAT settings, tax_rates, tds_types, tax_payments, the VAT/PAN/TDS fields, accounts 1460 and 2270 (inactive).
 
 # Not yet applied on the server
-- None.
+- 021_tds_payable.sql: ledger_settings.tds_base; tax_rates and tds_types confirmed_by and confirmed_at; TDS indexes on expenses, supplier_payments and tax_payments. Run before deploy.sh.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
