@@ -203,12 +203,12 @@
   - **5b fix:** a TDS deposit can no longer be more than what is still to deposit.
   - **Small fix:** the customer page now gets the PAN and the kind from the server (the 5a PAN line always showed "—").
 
-41. Step 5d, input VAT, 2026-11-28 (docs/specs/step5-vat-tds.md section 15). Migration 023 NOT yet run.
+41. Step 5d, input VAT, 2026-11-28 (docs/specs/step5-vat-tds.md section 15). Migration 023 run (recorded 2026-11-28).
   - **The rule:** a VAT bill dated on or after the VAT switch-on date claims its VAT to 1450, and its stock costs the amount before VAT. Before that date, and on PAN bills, the VAT stays in cost, as now.
   - **Frozen:** the decision is stored on each bill and expense. Moving the VAT date later never changes a document.
   - **Nothing changes until VAT is switched on (5e).** Every existing figure stays the same.
   - **Screens:** the purchase bill, the expense list and the drill-down say "Input VAT Rs X (claimable)" or "VAT stays in cost".
-42. Default TDS rate customers withhold, 2026-11-28 (section 16). Migration 024 NOT yet run.
+42. Default TDS rate customers withhold, 2026-11-28 (section 16). Migration 024 run (recorded 2026-11-28).
   - **Setting:** Chart of Accounts > Taxes has the rate (15%, UNVERIFIED) with Change and Confirm.
   - **Record receipt:** "TDS withheld by the customer" pre-fills rate x the invoices being settled. It can be typed over, and warns softly when much higher.
 
@@ -236,10 +236,11 @@
 - 020_vat_tds_ready.sql (recorded 2026-11-28, by the owner): VAT settings, tax_rates, tds_types, tax_payments, the VAT/PAN/TDS fields, accounts 1460 and 2270 (inactive).
 - 021_tds_payable.sql (recorded 2026-11-28, by the owner): ledger_settings.tds_base; confirmed_by and confirmed_at on tax_rates and tds_types; TDS indexes.
 - 022_tds_receivable.sql (recorded 2026-11-28, by the owner): customer_receipts.tds_reference_by and tds_reference_at; the TDS receivable register index.
+- 023_input_vat.sql (recorded 2026-11-28, by the owner): purchase_bills.input_vat_claimed and expenses.input_vat_claimed (default false).
+- 024_tds_receivable_rate.sql (recorded 2026-11-28, by the owner): ledger_settings.tds_receivable_rate (15.00) and its confirmation columns.
 
 # Not yet applied on the server
-- 023_input_vat.sql: purchase_bills.input_vat_claimed and expenses.input_vat_claimed (default false). Run before deploy.sh.
-- 024_tds_receivable_rate.sql: ledger_settings.tds_receivable_rate (15.00) and its confirmation columns. Run before deploy.sh.
+- None.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
