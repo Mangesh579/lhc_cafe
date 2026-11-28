@@ -187,7 +187,7 @@ Step 5 decisions (owner, 2026-11-28, docs/specs/step5-vat-tds.md section 11; VAT
   - corrections are credit notes that follow the invoice's frozen VAT; a cancelled invoice keeps its number;
   - switching on: admin only, with the VAT number, a start date today or later, the rate confirmed by the accountant, and "SWITCH ON VAT" typed; switching off ("SWITCH OFF VAT") affects only bills paid after it.
 - **The VAT return (Part 5f, owner 2026-11-28, approved as recommended):**
-  - filed (TX vat_payment) only for a closed month, in order, once a month; a nil or credit month at Rs 0;
+  - filed (TX vat_payment) only for a closed month, in order, once a month, for the full payable to the paisa (5f-fix); a nil or credit month at Rs 0;
   - Dr 2200 (output cleared), Cr 1450 (input used), Cr bank (paid);
   - a credit carries forward until used;
   - the VAT of a moved sale stays with the first invoice; a cancel in the same month is nil, a later cancel or void is negative in its own month;

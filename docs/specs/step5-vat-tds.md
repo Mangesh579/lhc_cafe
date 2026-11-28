@@ -583,4 +583,4 @@ Migration 026 (one index only). CBMS is not built.
 - **Chart of Accounts > Tax payments > File a VAT return:** the month's figures, the reasons it cannot be filed yet, and the amount.
 - **Narrower than the plan:**
   - when a filed month is reopened and changes, the return shows "Changed after filing" with the difference. The difference is not added to the next return as an adjustment line automatically: the accountant enters it (or files the corrected month after voiding the latest filing).
-  - a payment below the payable is allowed; what is left stays on 2200 as owed.
+  - a payment below the payable was allowed at first; the 5f-fix (2026-11-28) refuses it: a return is filed for its full payable, to the paisa.

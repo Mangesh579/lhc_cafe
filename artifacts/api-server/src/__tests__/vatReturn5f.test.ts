@@ -222,3 +222,26 @@ describe("everything agrees", () => {
     expect((await ret("2083-10")).unfiledBefore).toEqual(["Poush 2083"]);
   });
 });
+
+describe("5f-fix: a VAT return is filed for the full payable", () => {
+  it("Magh (Rs 78 payable): a short payment is refused, the exact amount files; Poush (a credit month) files with Rs 0", async () => {
+    setNow("2027-02-17T06:00:00Z"); // Magh has ended and its days lock
+    // Poush was voided above: file it again (a credit month: Rs 0), then post the days up to Magh's end and close Magh
+    const p = await api("acct", "POST", "/tax-payments", { kind: "vat_payment", month: "2083-09", paymentDate: "2027-02-17", bankAccount: "nabil" });
+    expect(p.status, JSON.stringify(p.body)).toBe(201);
+    expect(p.body.amount).toBe("0.00");
+    await postThrough("2027-01-23", "2027-02-16");
+    const c = await api("acct", "POST", "/gl/months/2083/10/close", { note: "test close" });
+    expect(c.status, JSON.stringify(c.body)).toBeLessThan(300);
+    expect((await api("acct", "GET", "/tax-payments/vat-suggest?month=2083-10")).body).toMatchObject({ output: 123.5, input: 0, creditIn: 45.5, payable: 78, canFile: true });
+    const file = (amount: number) => api("acct", "POST", "/tax-payments", { kind: "vat_payment", month: "2083-10", paymentDate: "2027-02-17", bankAccount: "nabil", reference: "IRD-78", amount });
+    const short = await file(77.99);
+    expect(short.status).toBe(400);
+    expect(short.body.error).toBe("A VAT return is filed for the full payable (Rs 78.00). Pay it in full; a fine or interest is an expense.");
+    expect((await file(78.01)).body.error).toMatch(/more than the VAT payable for Magh 2083 \(Rs 78\.00\)/);
+    const ok = await file(78);
+    expect(ok.status, JSON.stringify(ok.body)).toBe(201);
+    expect(ok.body).toMatchObject({ amount: "78.00", vatOutput: "123.50", vatInput: "0.00" });
+  }, 120000); // posting 25 days
+});
+
