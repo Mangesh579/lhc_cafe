@@ -31,6 +31,7 @@ export const expensesTable = pgTable("expenses", {
   updatedBy: text("updated_by"),
   updatedAt: timestamp("updated_at"),
   billType: text("bill_type"), // 5a: pan | vat | null (no bill)
+  inputVatClaimed: boolean("input_vat_claimed").notNull().default(false), // 5d (migration 023): recomputed only when the date, bill type or VAT changes
   vatAmount: numeric("vat_amount", { precision: 12, scale: 2 }).notNull().default("0"), // part of the amount; 1450 from the switch-on date (5d)
   supplierPan: text("supplier_pan"),
   tdsType: text("tds_type"), // TDS LHC withholds (used from 5b)

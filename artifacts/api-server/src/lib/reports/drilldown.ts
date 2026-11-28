@@ -69,6 +69,8 @@ type Doc = { title: string; fields: [string, string | number | null][]; items?: 
 const one = async (q: SQL) => (await rows(q))[0];
 export async function sourceDocument(type: string, id: number): Promise<Doc | null> {
   const rs = (v: unknown) => v == null ? null : round2(num(v));
+  // 5d: what happens to a document's VAT
+  const vatField = (vat: unknown, claimed: boolean): [string, string][] => num(vat) > 0 ? [["VAT", claimed ? `Input VAT Rs. ${round2(num(vat)).toFixed(2)} (claimable)` : `Rs. ${round2(num(vat)).toFixed(2)}, VAT stays in cost`]] : [];
   switch (type) {
     case "order": {
       const o = await one(sql`SELECT o.*, c.name AS customer FROM orders o LEFT JOIN loyalty_customers c ON c.id = o.loyalty_customer_id WHERE o.id = ${id}`);
@@ -96,7 +98,7 @@ export async function sourceDocument(type: string, id: number): Promise<Doc | nu
       const b = await one(sql`SELECT * FROM purchase_bills WHERE id = ${id}`);
       if (!b) return null;
       const it = await rows(sql`SELECT item_name, quantity, unit, rate, line_total FROM purchase_bill_items WHERE bill_id = ${id} ORDER BY id`);
-      return { title: `Purchase bill ${b.pj_number}`, fields: [["Supplier", b.supplier_name], ["PAN", b.supplier_pan], ["Bill no.", b.bill_number], ["Date", dayOf(b.bill_date)], ["Terms", b.terms], ["Paid via", b.paid_via], ["Total", rs(b.total)], ["Status", b.status]],
+      return { title: `Purchase bill ${b.pj_number}`, fields: [["Supplier", b.supplier_name], ["PAN", b.supplier_pan], ["Bill no.", b.bill_number], ["Date", dayOf(b.bill_date)], ["Terms", b.terms], ["Paid via", b.paid_via], ...vatField(b.vat_amount, !!b.input_vat_claimed), ["Total", rs(b.total)], ["Status", b.status]],
         items: { cols: ["Item", "Qty", "Rate", "Amount"], rows: it.map(i => [i.item_name, `${num(i.quantity)} ${i.unit ?? ""}`.trim(), rs(i.rate), rs(i.line_total)]) } };
     }
     case "supplier_payment": {
@@ -104,15 +106,15 @@ export async function sourceDocument(type: string, id: number): Promise<Doc | nu
       return p ? { title: `Supplier payment ${p.voucher_no}`, fields: [["Supplier", p.supplier], ["Date", dayOf(p.payment_date)], ["Paid via", p.paid_via], ["From account", p.paid_from_account], ["Reference", p.reference], ["Amount", rs(p.amount)], ["Status", p.status]] } : null;
     }
     case "debit_note": {
-      const n = await one(sql`SELECT n.*, s.name AS supplier FROM debit_notes n LEFT JOIN suppliers s ON s.id = n.supplier_id WHERE n.id = ${id}`);
+      const n = await one(sql`SELECT n.*, s.name AS supplier, b.input_vat_claimed FROM debit_notes n LEFT JOIN suppliers s ON s.id = n.supplier_id LEFT JOIN purchase_bills b ON b.id = n.bill_id WHERE n.id = ${id}`);
       if (!n) return null;
       const it = await rows(sql`SELECT item_name, quantity, unit, line_total FROM debit_note_items WHERE debit_note_id = ${id} ORDER BY id`);
-      return { title: `Debit note ${n.note_no}`, fields: [["Supplier", n.supplier], ["Date", dayOf(n.note_date)], ["Reason", n.reason], ["Total", rs(n.total)], ["Status", n.status]],
+      return { title: `Debit note ${n.note_no}`, fields: [["Supplier", n.supplier], ["Date", dayOf(n.note_date)], ["Reason", n.reason], ...vatField(n.vat_amount, !!n.input_vat_claimed), ["Total", rs(n.total)], ["Status", n.status]],
         items: { cols: ["Item", "Qty", "Amount"], rows: it.map(i => [i.item_name, `${num(i.quantity)} ${i.unit ?? ""}`.trim(), rs(i.line_total)]) } };
     }
     case "expense": {
       const x = await one(sql`SELECT * FROM expenses WHERE id = ${id}`);
-      return x ? { title: `Expense #${id}${x.voucher_no ? ` (${x.voucher_no})` : ""}`, fields: [["Date", dayOf(x.expense_date)], ["Category", x.category], ["Vendor", x.vendor], ["Description", x.description], ["Bill no.", x.bill_number], ["Paid by", x.payment_method], ["From the drawer", x.paid_from_drawer ? "yes" : "no"], ["Bank", x.bank_account], ["Amount", rs(x.amount)], ["Status", x.status]] } : null;
+      return x ? { title: `Expense #${id}${x.voucher_no ? ` (${x.voucher_no})` : ""}`, fields: [["Date", dayOf(x.expense_date)], ["Category", x.category], ["Vendor", x.vendor], ["Description", x.description], ["Bill no.", x.bill_number], ["Paid by", x.payment_method], ["From the drawer", x.paid_from_drawer ? "yes" : "no"], ["Bank", x.bank_account], ["Amount", rs(x.amount)], ...vatField(x.vat_amount, !!x.input_vat_claimed), ["Status", x.status]] } : null;
     }
     case "cash_movement": {
       const m = await one(sql`SELECT * FROM cash_movements WHERE id = ${id}`);

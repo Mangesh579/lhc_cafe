@@ -12,6 +12,7 @@ import { Plus, Printer, ArrowLeft } from "lucide-react";
 import { apiJson } from "@/lib/expenseApi";
 import { RECEIPT_MODES, modeLabel, round2, rs } from "@/lib/payments";
 import { printReceiptHtml } from "@/lib/kot";
+import { taxableSettled, tdsPrefill, followPrefill, typeTds, tdsWarning, type TdsField } from "@/lib/tdsPrefill";
 import { ConvertedMonthlyBills } from "@/components/ConvertedMonthlyBills";
 import { InvoiceActionDialog } from "@/components/InvoiceActions";
 import { CreditNoteDialog, printNote } from "@/components/CreditNoteDialog";
@@ -87,9 +88,11 @@ export default function Receivables() {
   const [rvAmount, setRvAmount] = useState("");
   const [rvRef, setRvRef] = useState("");
   // 5c: TDS the customer withheld (admin and accountant; cash or bank only) and its certificate
-  const [rvTds, setRvTds] = useState("");
+  const [rvTdsOn, setRvTdsOn] = useState(false);
+  const [rvTds, setRvTdsField] = useState<TdsField>({ value: "", typed: false });
   const [rvTdsRef, setRvTdsRef] = useState("");
-  const [tdsHintRate, setTdsHintRate] = useState<number | null>(null);
+  // the default TDS rate customers withhold (Settings): a pre-fill only, never applied by itself
+  const [tdsRate, setTdsRate] = useState<{ rate: number; confirmed: boolean } | null>(null);
   const [rvNotes, setRvNotes] = useState("");
   const [rvInvoices, setRvInvoices] = useState<any[]>([]);
   const [rvAlloc, setRvAlloc] = useState<Record<number, string>>({});
@@ -109,7 +112,7 @@ export default function Receivables() {
   }, []);
   useEffect(() => { if (canView) load(); }, [canView, load]);
   // the hint only (the customer's certificate decides the amount): the rate of a service with a VAT bill
-  useEffect(() => { if (canAdmin) apiJson("/gl/tds-types").then((t: any[]) => { const r = t.find(x => x.code === "service_vat"); setTdsHintRate(r ? Number(r.rate) : null); }).catch(() => {}); }, [canAdmin]);
+  useEffect(() => { if (canAdmin) apiJson("/gl/settings").then((s: any) => setTdsRate({ rate: Number(s.tdsReceivableRate ?? 15), confirmed: !!s.tdsReceivableRateConfirmedAt })).catch(() => {}); }, [canAdmin]);
 
   const openDetail = async (id: number) => {
     try { setDetail(await apiJson(`/receivables/customers/${id}`)); } catch (e: any) { fail(e, "Failed to load the customer"); }
@@ -127,7 +130,7 @@ export default function Receivables() {
   const openNewReceipt = (cust?: { id: number; name: string }) => {
     setRvTarget(null);
     setRvCustomer(cust ?? null); setRvQuery(""); setRvResults([]); setRvDate(nepalToday()); setRvMode("cash");
-    setRvAmount(""); setRvRef(""); setRvNotes(""); setRvInvoices([]); setRvAlloc({}); setRvTds(""); setRvTdsRef("");
+    setRvAmount(""); setRvRef(""); setRvNotes(""); setRvInvoices([]); setRvAlloc({}); setRvTdsOn(false); setRvTdsField({ value: "", typed: false }); setRvTdsRef("");
     if (cust) loadInvoices(cust.id); else searchCustomers("");
     setRvOpen(true);
   };
@@ -135,16 +138,22 @@ export default function Receivables() {
   const openAllocate = (r: any) => {
     setRvTarget(r);
     setRvCustomer({ id: r.customerId, name: r.customerName });
-    setRvAmount(String(r.unallocated)); setRvTds(""); setRvTdsRef("");
+    setRvAmount(String(r.unallocated)); setRvTdsOn(false); setRvTdsField({ value: "", typed: false }); setRvTdsRef("");
     loadInvoices(r.customerId);
     setRvOpen(true);
   };
 
   const amountNum = round2(parseFloat(rvAmount) || 0);
   const tdsOk = canAdmin && !rvTarget && (rvMode === "cash" || rvMode === "bank");
-  const tdsNum = tdsOk ? round2(parseFloat(rvTds) || 0) : 0;
+  const tdsNum = tdsOk && rvTdsOn ? round2(parseFloat(rvTds.value) || 0) : 0;
+  // the taxable part of the invoices being settled: the whole amount while VAT is off, the amount before VAT once on
+  const taxable = taxableSettled(rvInvoices.filter(i => parseFloat(rvAlloc[i.orderId] ?? "") > 0)
+    .map(i => ({ allocated: parseFloat(rvAlloc[i.orderId]) || 0, billTotal: Number(i.billTotal) || 0, vat: Number(i.vatAmount) || 0 })), true);
+  const prefill = tdsRate ? tdsPrefill(tdsRate.rate, taxable) : 0;
+  const tdsWarn = tdsRate && tdsNum > 0 ? tdsWarning(tdsNum, taxable, tdsRate.rate) : null;
   const settledNum = round2(amountNum + tdsNum); // the receipt settles the money plus the TDS
   const allocTotal = round2(Object.values(rvAlloc).reduce((s, v) => s + (parseFloat(v) || 0), 0));
+  useEffect(() => { if (rvTdsOn) setRvTdsField(f => followPrefill(f, prefill)); }, [rvTdsOn, prefill]);
   const autoFill = () => {
     let left = settledNum;
     const next: Record<number, string> = {};
@@ -482,10 +491,12 @@ export default function Receivables() {
                 <div className="space-y-1"><Label>Amount (Rs.)</Label><Input type="number" min="0" step="0.01" value={rvAmount} onChange={e => setRvAmount(e.target.value)} /></div>
                 <div className="space-y-1"><Label>Reference</Label><Input placeholder={rvMode === "bank" ? "Cheque / transfer no." : rvMode === "nabil_qr" ? "QR transaction no." : "Optional"} value={rvRef} onChange={e => setRvRef(e.target.value)} /></div>
                 <div className="space-y-1 col-span-2"><Label>Note</Label><Input value={rvNotes} onChange={e => setRvNotes(e.target.value)} /></div>
-                {tdsOk && <>
-                  <div className="space-y-1"><Label>Tax withheld by the customer (TDS)</Label><Input type="number" min="0" step="0.01" placeholder="0" value={rvTds} onChange={e => setRvTds(e.target.value)} /></div>
+                {tdsOk && <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={rvTdsOn} onChange={e => setRvTdsOn(e.target.checked)} /> TDS withheld by the customer</label>}
+                {tdsOk && rvTdsOn && <>
+                  <div className="space-y-1"><Label>Tax withheld by the customer (TDS)</Label><Input type="number" min="0" step="0.01" placeholder="0" value={rvTds.value} onChange={e => setRvTdsField(typeTds(e.target.value))} />
+                    {tdsRate && <p className="text-xs text-muted-foreground">Default {tdsRate.rate}% - change in Settings{tdsRate.confirmed ? "" : " (UNVERIFIED)"}{taxable > 0 ? ` · ${tdsRate.rate}% of ${rs(taxable)} = ${rs(prefill)}` : " · set the invoices below first"}</p>}</div>
                   <div className="space-y-1"><Label>Certificate / e-TDS ref.</Label><Input placeholder="Can be added later" value={rvTdsRef} onChange={e => setRvTdsRef(e.target.value)} /></div>
-                  {tdsHintRate != null && allocTotal > 0 && <p className="col-span-2 text-xs text-muted-foreground">A hint only: {tdsHintRate}% of the taxable amount ({rs(allocTotal)} of invoices) would be {rs(round2(allocTotal * tdsHintRate / 100))}. Enter what the customer's certificate says.</p>}
+                  {tdsWarn && <p role="status" className="col-span-2 text-xs text-amber-700">{tdsWarn}</p>}
                   {tdsNum > 0 && <p className="col-span-2 text-xs">Money {rs(amountNum)} + TDS {rs(tdsNum)} = settles {rs(settledNum)}. The TDS can only be on invoices this receipt settles.</p>}
                 </>}
               </div>

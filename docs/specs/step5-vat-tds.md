@@ -343,3 +343,31 @@ Official sources found, but their text could not be read by the tools used (the 
 - **The customer page** in Receivables shows the TDS withheld this fiscal year and how many certificates are missing.
 - **The hint:** on Record receipt, "<rate>% of the taxable amount would be Rs X" uses the service_vat TDS type's rate on the invoices allocated. It is never filled in. Shortcut: the taxable amount is the allocated total, which equals the amount before VAT while VAT is off; it must leave out VAT once 5e switches VAT on.
 - **The Sulimha example** (TDS base excl_vat, VAT off): 10 breakfasts x Rs 800 = Rs 8,000; 1.5% = Rs 120; paid Rs 7,880. The entry is Dr 1200 7,880, Dr 1460 120, Cr 1300 8,000, and both invoices are fully settled.
+
+## 15. Part 5d as built: input VAT (2026-11-28; see docs/CHANGELOG.md)
+- **One helper:** vatActiveOn(day) in lib/taxes.ts: vat_enabled, vat_start_date set, and the day on or after it. claimsInputVat adds "a VAT bill with VAT above 0". 5e and 5f use the same helper.
+- **The flag is frozen (migration 023):** purchase_bills.input_vat_claimed and expenses.input_vat_claimed, default false (existing rows stay false). Posting reads only the stored flag, so moving the VAT date later never changes a document.
+  - **Purchase bills:** set when the bill is made. A bill is never edited (void and re-enter). Opening bills are always false.
+  - **Expenses:** set when made, and recomputed only when the date, the bill type or the VAT changes (logged as an "input VAT" change). An edit after posting goes through the usual reverse and repost at the next revision, with the recomputed flag. An expense moved across the switch-on date therefore follows its new date. Any other edit keeps the flag.
+  - **Debit notes** follow their bill's flag.
+- **The supplier tick:** a VAT bill that would claim needs the supplier ticked VAT registered ("Tick VAT registered on the supplier first"). Before the switch-on date the tick is not needed, as before, because the VAT stays in cost.
+- **A claimed purchase bill:**
+  - each line's stock cost is the amount before VAT: the cost per unit (average or last), the last purchase price, the landed unit cost in the price history, and the bill's own cost record on Expenses;
+  - posting: Dr 1400/1410 net, Dr 1450 VAT, Cr 2100, cash or bank with the total;
+  - the stock check (stock x cost per unit against 1400/1410) agrees, because both exclude the VAT.
+- **A debit note on a claimed bill:** Dr 2100 with the total, Cr 1400/1410 with the net, Cr 1450 with the returned VAT (proportional). Its negative cost record is net. On an unclaimed bill, as before.
+- **A claimed expense:** Dr expense net (amount less VAT), Dr 1450 VAT, Cr cash or bank with the amount less TDS, Cr 2250 TDS. The TDS base is the 5b setting. Petty cash from the drawer with no bill number cannot have VAT.
+- **Fix problems at posting:**
+  - input_vat: claimed, but not a VAT bill with VAT (or the VAT is not below the amount);
+  - input_vat_supplier: a claimed bill whose supplier is no longer ticked VAT registered.
+- **Screens:** the purchase bill, the expense list and the drill-down say "Input VAT Rs X (claimable)" or "VAT stays in cost".
+
+## 16. The default TDS rate customers withhold (2026-11-28; migration 024)
+- **The setting:** ledger_settings.tds_receivable_rate (default 15.00, from 0 to 100), with confirmed_by and confirmed_at (empty = UNVERIFIED).
+  - It is on Chart of Accounts > Taxes, for the admin and accountant only.
+  - Editing it to a different rate clears the confirmation.
+- **Record receipt:** a "TDS withheld by the customer" tick pre-fills rate x the taxable amount of the invoices being settled. That is the whole amount while VAT is off, and the amount before VAT once an invoice carries VAT.
+  - It follows the invoices until the user types over it.
+  - It shows "Default X% - change in Settings".
+  - A soft warning appears when the figure is above the default rate and more than Rs 1,000 above the pre-fill.
+  - Only the amount typed is stored; posting is unchanged. This replaces the 5c hint line, which used the service_vat rate.

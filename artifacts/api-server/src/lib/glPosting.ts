@@ -76,8 +76,15 @@ async function billSources(where: any) {
   const bills = await db.select().from(purchaseBillsTable).where(and(eq(purchaseBillsTable.kind, "purchase"), where)); // opening bills are in the opening balances
   const ids = bills.map(b => b.id);
   const items = ids.length ? await db.select().from(purchaseBillItemsTable).where(inArray(purchaseBillItemsTable.billId, ids)) : [];
-  return bills.map(b => ({ id: b.id, day: b.billDate, postable: b.status === "active", built: purchaseBillEntry({ billId: b.id, pjNumber: b.pjNumber, billNumber: b.billNumber, day: b.billDate, supplierId: b.supplierId, supplierName: b.supplierName,
-    terms: b.terms, paidVia: b.paidVia, paidFromAccount: b.paidFromAccount, total: round2(num(b.total)), lines: items.filter(i => i.billId === b.id).map(i => ({ department: i.department, lineTotal: round2(num(i.lineTotal)) })) }) }));
+  const claimedSup = [...new Set(bills.filter(b => (b as any).inputVatClaimed).map(b => b.supplierId))];
+  const vatReg = new Map(claimedSup.length ? (await db.select({ id: suppliersTable.id, r: suppliersTable.vatRegistered }).from(suppliersTable).where(inArray(suppliersTable.id, claimedSup))).map(s => [s.id, !!s.r]) : []);
+  return bills.map(b => {
+    const claimed = !!(b as any).inputVatClaimed; // 5d: frozen on the bill when it was made
+    return { id: b.id, day: b.billDate, postable: b.status === "active", built: purchaseBillEntry({ billId: b.id, pjNumber: b.pjNumber, billNumber: b.billNumber, day: b.billDate, supplierId: b.supplierId, supplierName: b.supplierName,
+      terms: b.terms, paidVia: b.paidVia, paidFromAccount: b.paidFromAccount, total: round2(num(b.total)),
+      lines: items.filter(i => i.billId === b.id).map(i => ({ department: i.department, lineTotal: round2(num(claimed ? i.amount : i.lineTotal)) })),
+      inputVat: claimed ? { claimed, billType: b.billType, vat: round2(num(b.vatAmount)), supplierVatRegistered: vatReg.get(b.supplierId) ?? false } : undefined }) };
+  });
 }
 async function paymentSources(where: any) {
   return (await db.select().from(supplierPaymentsTable).where(where)).map(p => ({ id: p.id, day: p.paymentDate, postable: p.status === "active",
@@ -88,8 +95,14 @@ async function debitNoteSources(where: any) {
   const notes = await db.select().from(debitNotesTable).where(where);
   const ids = notes.map(n => n.id);
   const items = ids.length ? await db.select().from(debitNoteItemsTable).where(inArray(debitNoteItemsTable.debitNoteId, ids)) : [];
-  return notes.map(n => ({ id: n.id, day: n.noteDate, postable: n.status === "active", built: debitNoteEntry({ noteId: n.id, noteNo: n.noteNo, day: n.noteDate, supplierId: n.supplierId, total: round2(num(n.total)),
-    lines: items.filter(i => i.debitNoteId === n.id).map(i => ({ department: i.department, lineTotal: round2(num(i.lineTotal)) })) }) }));
+  const billIds = [...new Set(notes.map(n => n.billId).filter((x): x is number => x != null))];
+  const claimedBill = new Set(billIds.length ? (await db.select({ id: purchaseBillsTable.id, c: purchaseBillsTable.inputVatClaimed }).from(purchaseBillsTable).where(inArray(purchaseBillsTable.id, billIds))).filter(r => r.c).map(r => r.id) : []);
+  return notes.map(n => {
+    const claimed = n.billId != null && claimedBill.has(n.billId); // 5d: a return follows its bill
+    return { id: n.id, day: n.noteDate, postable: n.status === "active", built: debitNoteEntry({ noteId: n.id, noteNo: n.noteNo, day: n.noteDate, supplierId: n.supplierId, total: round2(num(n.total)),
+      lines: items.filter(i => i.debitNoteId === n.id).map(i => ({ department: i.department, lineTotal: round2(num(claimed ? i.amount : i.lineTotal)) })),
+      inputVat: claimed ? { claimed, vat: round2(num(n.vatAmount)) } : undefined }) };
+  });
 }
 // Expenses that post: never the rows made by purchase bills, debit notes, the old Record purchase or settlement bank charges
 const postableExpense = and(sql`${expensesTable.purchaseBillId} IS NULL`, sql`${expensesTable.debitNoteId} IS NULL`, sql`${expensesTable.inventoryItemId} IS NULL`,
@@ -103,7 +116,8 @@ async function expenseSources(where: any) {
   return rows.map(e => ({ id: e.id, day: e.expenseDate, postable: e.status === "active",
     built: expenseEntry({ expenseId: e.id, voucherNo: e.voucherNo, day: e.expenseDate, category: e.category, accountCode: map.get(e.category) ?? null, amount: round2(num(e.amount)),
       paymentMethod: e.paymentMethod, paidFromDrawer: e.paidFromDrawer, bankAccount: (e as any).bankAccount ?? null, billNumber: e.billNumber,
-      tdsAmount: round2(num((e as any).tdsAmount)), tdsType: (e as any).tdsType ?? null, payeePan: (e as any).supplierPan ?? null, payeeSupplierId: supByPan.get((e as any).supplierPan) ?? null }) }));
+      tdsAmount: round2(num((e as any).tdsAmount)), tdsType: (e as any).tdsType ?? null, payeePan: (e as any).supplierPan ?? null, payeeSupplierId: supByPan.get((e as any).supplierPan) ?? null,
+      inputVat: (e as any).inputVatClaimed ? { claimed: true, billType: (e as any).billType ?? null, vat: round2(num((e as any).vatAmount)) } : undefined }) }));
 }
 // 5b: the tax payment vouchers (TDS deposits)
 async function taxPaymentSources(where: any) {

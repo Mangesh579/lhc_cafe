@@ -17,8 +17,11 @@ export function TaxesTab() {
   const [editRate, setEditRate] = useState<any | null>(null);
   const [editType, setEditType] = useState<any | null>(null);
   const [tdsBase, setTdsBase] = useState("excl_vat");
+  const [recv, setRecv] = useState<{ rate: string; by: string | null; at: string | null }>({ rate: "15", by: null, at: null });
+  const [recvEdit, setRecvEdit] = useState<string | null>(null);
   const load = useCallback(async () => {
-    try { setRates(await apiJson("/gl/tax-rates")); setTypes(await apiJson("/gl/tds-types")); setTdsBase((await apiJson("/gl/settings"))?.tdsBase ?? "excl_vat"); }
+    try { setRates(await apiJson("/gl/tax-rates")); setTypes(await apiJson("/gl/tds-types")); const st = await apiJson("/gl/settings"); setTdsBase(st?.tdsBase ?? "excl_vat");
+      setRecv({ rate: String(Number(st?.tdsReceivableRate ?? 15)), by: st?.tdsReceivableRateConfirmedBy ?? null, at: st?.tdsReceivableRateConfirmedAt ?? null }); }
     catch (e: any) { toast({ title: "Could not load the tax settings", description: e?.error, variant: "destructive" }); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -43,6 +46,12 @@ export function TaxesTab() {
   };
   const saveBase = async (v: string) => {
     try { await apiJson("/gl/settings", "PATCH", { tdsBase: v }); setTdsBase(v); toast({ title: "TDS base saved" }); } catch (e: any) { fail(e); }
+  };
+  const saveRecv = async () => {
+    try { await apiJson("/gl/settings", "PATCH", { tdsReceivableRate: recvEdit }); toast({ title: "Default rate saved" }); setRecvEdit(null); load(); } catch (e: any) { fail(e); }
+  };
+  const confirmRecv = async () => {
+    try { await apiJson("/gl/settings/tds-receivable-rate/confirm", "POST", {}); toast({ title: "Rate confirmed" }); load(); } catch (e: any) { fail(e); }
   };
   const confirmCell = (r: any, kind: "tax-rates" | "tds-types") => r.confirmedAt
     ? <span className="text-xs text-emerald-700">confirmed by {r.confirmedBy}<span className="block text-muted-foreground">{String(r.confirmedAt).slice(0, 10)}</span></span>
@@ -96,6 +105,19 @@ export function TaxesTab() {
           <select className="h-8 rounded-md border border-input bg-background px-2 text-sm" value={tdsBase} onChange={e => saveBase(e.target.value)}>
             <option value="excl_vat">the amount before VAT</option><option value="incl_vat">the whole bill, VAT included</option></select>
           <span className="text-xs text-amber-700">To confirm with the accountant.</span></div>
+      </CardContent></Card>
+
+      <Card><CardContent className="p-3 space-y-2 text-sm">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">TDS customers withhold from LHC</p>
+        <p>Default TDS rate withheld by customers (15% while LHC is not VAT registered, 1.5% after registration). UNVERIFIED until the accountant confirms.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {recvEdit === null ? <span className="font-medium">{recv.rate}%</span>
+            : <><Input className="h-8 w-24" type="number" min="0" max="100" step="0.01" value={recvEdit} onChange={e => setRecvEdit(e.target.value)} /><Button size="sm" className="h-8" onClick={saveRecv}>Save</Button><Button size="sm" variant="outline" className="h-8" onClick={() => setRecvEdit(null)}>Cancel</Button></>}
+          {recvEdit === null && <Button size="sm" variant="ghost" className="h-7" onClick={() => setRecvEdit(recv.rate)}>Change</Button>}
+          {recv.at ? <span className="text-xs text-emerald-700">confirmed by {recv.by} ({String(recv.at).slice(0, 10)})</span>
+            : <span className="text-xs text-amber-700">UNVERIFIED <Button size="sm" variant="outline" className="h-6 ml-1 px-2" onClick={confirmRecv}>Confirm</Button></span>}
+        </div>
+        <p className="text-xs text-muted-foreground">Only a pre-fill on Record receipt: the amount typed there (from the customer's certificate) is what is saved.</p>
       </CardContent></Card>
     </div>
   );
