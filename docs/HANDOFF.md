@@ -212,6 +212,12 @@
   - **Setting:** Chart of Accounts > Taxes has the rate (15%, UNVERIFIED) with Change and Confirm.
   - **Record receipt:** "TDS withheld by the customer" pre-fills rate x the invoices being settled. It can be typed over, and warns softly when much higher.
 
+43. Step 5e, output VAT on sales, 2026-11-28 (docs/specs/step5-vat-tds.md section 17). Migration 025 NOT yet run.
+  - **Switching on:** Chart of Accounts > settings has "Switch VAT on". The checklist needs the VAT number, a start date today or later, and the rate confirmed by the accountant on the Taxes tab. The admin types SWITCH ON VAT.
+  - **Every bill from the start date:** VAT 13% on top (the server works it out), a tax invoice number TI-2083/84-00001..., and a tax invoice print after payment. Order Log reprints it as a copy. NC has no VAT.
+  - **Reports > Tax invoices:** the month's tax invoices with the gap check. A cancelled invoice keeps its number.
+  - **Nothing changes until VAT is switched on.**
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -240,7 +246,7 @@
 - 024_tds_receivable_rate.sql (recorded 2026-11-28, by the owner): ledger_settings.tds_receivable_rate (15.00) and its confirmation columns.
 
 # Not yet applied on the server
-- None.
+- 025_output_vat.sql: orders.vat_rate, taxable_amount, tax_invoice_no (unique), tax_invoice_at. Run before deploy.sh.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.

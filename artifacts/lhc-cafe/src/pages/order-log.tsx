@@ -1,4 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
+import { buildTaxInvoiceHtml } from "@/lib/taxInvoice";
 import { paymentSummary, orderHasMode, rs } from "@/lib/payments";
 import { useListOrders, useListMenuCategories, useListMenuItems } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -520,7 +521,8 @@ export default function OrderLog() {
 
       const isNcOrder = (order as any).isNc;
 
-      const receiptHtml = isNcOrder ? `
+      // 5e: a bill paid while VAT was in force reprints as its tax invoice, from the frozen figures
+      const receiptHtml = (order as any).taxInvoiceNo && !isNcOrder ? buildTaxInvoiceHtml(order, { reprint: true }) : isNcOrder ? `
         <div style="font-family:monospace;font-size:12px;padding:20px;color:black;background:white;">
           <div style="text-align:center;margin-bottom:12px;border-bottom:2px solid #1a1a1a;padding-bottom:12px;">
             <h2 style="font-size:16px;font-weight:bold;margin:0;">Legendary House Cafe & Barista Coffee School</h2>

@@ -4,6 +4,20 @@ import { Router } from "express";
 import type { Response } from "express";
 import { db, accountsTable, expenseAccountMapTable, expensesTable, journalEntriesTable, journalLinesTable, ledgerSettingsTable, loyaltyCustomersTable, suppliersTable, menuCategoriesTable, taxRatesTable, tdsTypesTable } from "@workspace/db";
 import { validateTaxRate, validateTdsType } from "../lib/taxes";
+
+// 5e: what must be true before VAT is switched on (shown as a checklist; all must pass)
+export const VAT_ON_WORDS = "SWITCH ON VAT", VAT_OFF_WORDS = "SWITCH OFF VAT";
+async function vatChecklist(s: any, today: string) {
+  const start = s.vatStartDate as string | null;
+  const rates = start ? await db.select().from(taxRatesTable).where(eq(taxRatesTable.tax, "vat")).orderBy(asc(taxRatesTable.id)) : [];
+  const rate = rates.filter(r => (!r.effectiveFrom || r.effectiveFrom <= start!) && (!r.effectiveTo || r.effectiveTo >= start!)).pop();
+  return [
+    { key: "number", label: "LHC's VAT number (9-digit PAN) is set", ok: /^\d{9}$/.test(String(s.vatNumber ?? "")) },
+    { key: "start", label: "The VAT start date is set, today or later", ok: !!start && start >= today },
+    { key: "rate", label: rate ? `A VAT rate is in force on the start date (${Number(rate.rate)}%)` : "A VAT rate is in force on the start date", ok: !!rate },
+    { key: "confirmed", label: "That rate is confirmed by the accountant (Taxes tab)", ok: !!rate?.confirmedAt },
+  ];
+}
 import { and, eq, gte, lte, desc, asc, sql, isNull, inArray } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { nepalDay, isDay } from "../lib/ledgerData";
@@ -42,7 +56,8 @@ router.get("/gl/settings", authenticate, async (req: AuthRequest, res: Response)
   if (!can(req, res)) return;
   const s = await ledgerSettings(db);
   const [{ n }] = await db.select({ n: sql<number>`COUNT(*)` }).from(journalEntriesTable);
-  res.json({ ...s, startDateBs: bsLabel(s.startDate), today: nepalDay(new Date()), todayBs: bsLabel(nepalDay(new Date())), entries: Number(n) });
+  res.json({ ...s, startDateBs: bsLabel(s.startDate), today: nepalDay(new Date()), todayBs: bsLabel(nepalDay(new Date())), entries: Number(n),
+    vatChecklist: await vatChecklist(s, nepalDay(new Date())), vatOnWords: VAT_ON_WORDS, vatOffWords: VAT_OFF_WORDS });
 });
 
 router.patch("/gl/settings", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
@@ -58,14 +73,28 @@ router.patch("/gl/settings", authenticate, async (req: AuthRequest, res: Respons
   }
   if (b.vatEnabled !== undefined) {
     if (roleOf(req) !== "admin") { res.status(403).json({ error: "Only the admin switches VAT on (after VAT registration)." }); return; }
-    // 5a: VAT can be prepared (date, number, rates) but not switched on until output VAT is built (step 5e)
-    if (b.vatEnabled === true) { res.status(400).json({ error: "VAT cannot be switched on yet: output VAT on sales is built in step 5e. Set the date and the VAT number now; switch it on after 5e." }); return; }
-    set.vatEnabled = false;
+    // 5e (owner, 2026-11-28): switched on only when every check passes and the admin types the warning words.
+    // Off later: only documents paid after it carry no VAT; everything paid keeps its frozen VAT.
+    const cur = await ledgerSettings(db);
+    const merged = { ...cur, ...(b.vatNumber !== undefined ? { vatNumber: String(b.vatNumber ?? "").replace(/[\s-]/g, "") || null } : {}), ...(b.vatStartDate !== undefined ? { vatStartDate: b.vatStartDate || null } : {}) };
+    if (b.vatEnabled === true) {
+      const failed = (await vatChecklist(merged, nepalDay(new Date()))).filter(c => !c.ok).map(c => c.label);
+      if (String(b.confirmText ?? "").trim() !== VAT_ON_WORDS) failed.push(`Type ${VAT_ON_WORDS} to confirm`);
+      if (failed.length) { res.status(400).json({ error: `VAT cannot be switched on yet: ${failed.join("; ")}.` }); return; }
+      set.vatEnabled = true;
+    } else {
+      if ((cur as any).vatEnabled && String(b.confirmText ?? "").trim() !== VAT_OFF_WORDS) { res.status(400).json({ error: `Type ${VAT_OFF_WORDS} to switch VAT off. Bills paid after it carry no VAT; everything already paid keeps its VAT.` }); return; }
+      set.vatEnabled = false;
+    }
   }
   // 5a (owner, 2026-11-28): the switch-on date is today or later, never a past date; the VAT number is LHC's 9-digit PAN
   if (b.vatStartDate !== undefined) {
     if (roleOf(req) !== "admin") { res.status(403).json({ error: "Only the admin sets the VAT registration date." }); return; }
-    if (b.vatStartDate === null || b.vatStartDate === "") set.vatStartDate = null;
+    if (b.vatStartDate === null || b.vatStartDate === "") {
+      // 5e: while VAT is on, the start date stays (switch VAT off first)
+      if ((await ledgerSettings(db) as any).vatEnabled && b.vatEnabled !== false) { res.status(400).json({ error: "VAT is on: switch it off before clearing the start date." }); return; }
+      set.vatStartDate = null;
+    }
     else {
       if (!isDay(b.vatStartDate)) { res.status(400).json({ error: "Enter the VAT registration date as a valid date." }); return; }
       if (b.vatStartDate < nepalDay(new Date())) { res.status(400).json({ error: "The VAT date must be today or later. An earlier registration date is corrected by the accountant with a JV." }); return; }

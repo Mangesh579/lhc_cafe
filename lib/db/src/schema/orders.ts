@@ -22,6 +22,11 @@ export const ordersTable = pgTable("orders", {
   otherPartyPan: text("other_party_pan"),
   nonTaxableAmount: numeric("non_taxable_amount", { precision: 10, scale: 2 }).default("0"),
   invoiceNumber: text("invoice_number"),
+  // 5e (migration 025): frozen at payment while VAT is in force; tax invoices have their own series (TI-2083/84-00001)
+  vatRate: numeric("vat_rate", { precision: 5, scale: 2 }),
+  taxableAmount: numeric("taxable_amount", { precision: 12, scale: 2 }),
+  taxInvoiceNo: text("tax_invoice_no"),
+  taxInvoiceAt: timestamp("tax_invoice_at"),
   isNc: boolean("is_nc").notNull().default(false),
   ncPersonName: text("nc_person_name"),
   ncReason: text("nc_reason"),

@@ -2334,3 +2334,75 @@ Plan: docs/specs/step5-vat-tds.md sections 3, 5, 8 and 11 (answers 2 and 9); as 
   - `pnpm test`: 57 files, 576 tests pass; typecheck clean.
   - New: an ingredient bought on a PAN bill (Rs 500, 5 kg) and then on a claimed VAT bill (Rs 1,000 before VAT, 10 kg) on the same day. Voiding the VAT bill gives back the PAN bill's last price, qty, date and supplier; voiding the PAN bill gives back nothing (empty), as before. It also checks the two stock log lines.
   - Run without the fix, the test fails.
+
+## 2026-11-28 (t): Step 5e, output VAT on sales
+Plan: docs/specs/step5-vat-tds.md section 17 (approved as recommended); as built in 17.11.
+
+### Delivered
+- **The rule:**
+  - menu prices are VAT-exclusive; VAT (the tax_rates rate in force, 13%) is added once per invoice on the bill after every discount, to the paisa (half away from zero);
+  - it is charged only when vatActiveOn(payment day) is true;
+  - the server works out the VAT; the screen's VAT figures are ignored while VAT is in force;
+  - vat_amount, vat_rate, taxable_amount, tax_invoice_no and tax_invoice_at are frozen on the order at payment;
+  - NC carries no VAT and no tax invoice; a Rs 0 bill gets a tax invoice with Rs 0 VAT;
+  - room charges (extras, the breakfast to Sulimha: Rs 800 + 13% = Rs 904) follow the same rule.
+- **Tax invoices:** their own series per fiscal year (TI-2083/84-00001), taken inside the payment's transaction, so a failed payment leaves no gap.
+  - A cancelled or credited invoice keeps its number.
+  - Wrong customer copies the frozen VAT and takes a new tax invoice number.
+- **Posting:** unchanged in shape: Dr money or 1300 with the total, Dr 4950 discounts, Cr 4000/4010/4020 net, Cr 2200 VAT. A frozen VAT that does not match its rate and taxable amount is the fix problem sale_vat. Credit notes reverse the VAT by the invoice's own figures (as before).
+- **Switching VAT on** (admin only):
+  - the VAT number, a start date today or later, a rate in force on it confirmed by the accountant, and "SWITCH ON VAT" typed;
+  - the settings card shows the checklist;
+  - switching off needs "SWITCH OFF VAT" and affects only bills paid after it;
+  - while VAT is on, the start date cannot be cleared.
+- **Screens:**
+  - the payment dialog (VAT shown from the server's rate, the tax invoice note, and the print offer after payment);
+  - lib/taxInvoice.ts (the tax invoice print: LHC name, Sulimha Durbar, Patan, PAN 194139113, the number, the BS and AD date, the buyer and PAN, items, discount, taxable amount, VAT and total);
+  - the Order Log reprint as "TAX INVOICE (COPY)";
+  - Reports > Tax invoices (number order, state, gap check);
+  - "+ VAT 13% extra" on the QR cart and the POS total once VAT is in force.
+- **Nothing changes until the admin switches VAT on.**
+
+### Files
+- **New:**
+  - db/migrations/025_output_vat.sql;
+  - api-server: lib/salesVat.ts, lib/reports/taxInvoices.ts, __tests__/outputVat5e.test.ts;
+  - lhc-cafe: lib/taxInvoice.ts, components/reports/TaxInvoices.tsx.
+- **Changed:**
+  - lib/db schema/orders.ts;
+  - api-server: routes/orders.ts, routes/gl.ts, routes/receivables.ts, routes/reports.ts, routes/public.ts, lib/postingRules.ts, lib/glPosting.ts;
+  - lhc-cafe: pages/orders.tsx, pages/order-log.tsx, pages/chart-of-accounts.tsx, pages/reports.tsx, pages/pos.tsx, pages/public-order.tsx.
+
+### Migration
+- db/migrations/025_output_vat.sql. **Not yet run on the server.** Idempotent (run twice in the tests). Existing rows stay empty.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 58 files, 590 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- **No existing test changed;** all 576 passed with VAT off before the new tests.
+- New, outputVat5e (14):
+  - **Before the switch-on date:** a sale on the 20th carries no VAT and no number; a VAT bill is refused.
+  - **Switching on:** refused for each missing check, for the accountant, supervisor and staff (403), and with the wrong words; the checklist; accepted.
+  - **The rule:** 800 to 904, 810 to 915.30, and 0.50 to 0.07 VAT.
+  - **Rs 800 becomes Rs 904,** frozen with TI-2083/84-00001. The screen's PAN figures are ignored (Rs 800 paid is refused).
+  - **The split payment** after a 10% discount: total 915.30.
+  - **Sulimha:** a credit sale of 10 breakfasts (9,040), and a room breakfast to Sulimha (904, 4020).
+  - **NC and Rs 0:** NC has no VAT and no number; a Rs 0 bill gets a number with Rs 0 VAT.
+  - **Numbering:** four payments at once take 6 to 9; a payment that fails inside its transaction leaves no gap.
+  - **The entries:** Dr 1100 904 / Cr 4000 800 / Cr 2200 104; the split payment (1100 500, 1250 415.30, 4950 90, 4000 400, 4010 500, 2200 105.30); Sulimha (1300 9,040 / 4000 8,000 / 2200 1,040); the room breakfast (1300 904 / 4020 800 / 2200 104); the sale before (no 2200).
+  - **Corrections:** a credit note on half (Dr 4900 4,000, Dr 2200 520, Cr 1300 4,520) and a cancel (Dr 4900 800, Dr 2200 104, Cr 1300 904).
+  - **The tax invoice list:** 9 numbers, the cancelled one kept, no gaps; staff and supervisor get 403.
+  - **Frozen figures:** moving the VAT date and switching VAT off change nothing paid; a later sale has no VAT.
+  - **Statements:** the TB balances with 2200 at 859.30, the P&L agrees, the BS balances, and Sulimha's statement (4,520) agrees with Receivables.
+  - **Migration:** 025 runs twice.
+- Not run: the screens in a browser (the payment dialog, the prints, the switch); anything against production.
+
+### Decisions and open questions
+- **The invoice day is the payment day:** backdated bills are posted on their payment day, so their VAT follows it.
+- **Not built in 5e** (small follow-ups if wanted):
+  - an Excel or PDF of the tax invoice list;
+  - the tax invoice number on the credit note print;
+  - VAT lines on the guest extras bill.
+- **Before switching VAT on:** the accountant must confirm the 13% rate on the Taxes tab, and the admin must set the start date (today or later) and the VAT number.

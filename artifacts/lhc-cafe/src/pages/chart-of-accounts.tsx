@@ -101,6 +101,15 @@ function SettingsCard({ settings, isAdmin, onSaved }: { settings: any; isAdmin: 
   const [lock, setLock] = useState(String(settings.lockAfterDays));
   const [vatDate, setVatDate] = useState(settings.vatStartDate ?? "");
   const [vatNo, setVatNo] = useState(settings.vatNumber ?? "");
+  // 5e: switching VAT on (admin, every check passing, the warning words typed) or off
+  const [vatWords, setVatWords] = useState("");
+  const switchVat = async (on: boolean) => {
+    try {
+      await apiJson("/gl/settings", "PATCH", { vatEnabled: on, confirmText: vatWords });
+      toast({ title: on ? "VAT is on" : "VAT is off", description: on ? `From ${settings.vatStartDate}, every bill carries VAT and is a tax invoice.` : "Bills paid from now carry no VAT; everything already paid keeps its VAT." });
+      setVatWords(""); onSaved();
+    } catch (e: any) { toast({ title: on ? "VAT not switched on" : "VAT not switched off", description: e?.error, variant: "destructive" }); }
+  };
   const save = async () => {
     try {
       const vat = isAdmin ? { ...(vatDate !== (settings.vatStartDate ?? "") ? { vatStartDate: vatDate || null } : {}), ...(vatNo !== (settings.vatNumber ?? "") ? { vatNumber: vatNo } : {}) } : {};
@@ -115,7 +124,22 @@ function SettingsCard({ settings, isAdmin, onSaved }: { settings: any; isAdmin: 
       <p className="text-xs text-muted-foreground">Nothing before it is posted. A posted day locks after {settings.lockAfterDays} days. Today: {settings.todayBs}.</p>
       <p className="text-xs">VAT: {settings.vatEnabled ? <strong className="text-green-700">on</strong> : <strong>off (VAT bills are refused until LHC is VAT registered)</strong>}
         {settings.vatStartDate && <span className="text-muted-foreground"> · registered from {settings.vatStartDate}</span>}{settings.vatNumber && <span className="text-muted-foreground"> · VAT no. {settings.vatNumber}</span>}
-        <span className="block text-muted-foreground">Rates: Taxes tab. VAT is switched on after step 5e (output VAT) is built.</span></p>
+        <span className="block text-muted-foreground">Rates: Taxes tab.</span></p>
+      {isAdmin && <div className="rounded-md border p-2 space-y-1 text-xs">
+        {!settings.vatEnabled ? <>
+          <p className="font-semibold">Switch VAT on</p>
+          <ul className="space-y-0.5">{(settings.vatChecklist ?? []).map((c: any) => <li key={c.key} className={c.ok ? "text-emerald-700" : "text-red-700"}>{c.ok ? "✓" : "✗"} {c.label}</li>)}</ul>
+          <p className="text-amber-800">From the start date every bill gets VAT {""}on top of the menu price and is a tax invoice with its own number, and VAT bills from suppliers claim input VAT. This is not undone casually: switching off later only stops VAT on bills paid after it.</p>
+          <div className="flex flex-wrap items-center gap-2"><Input className="h-8 w-48" placeholder={settings.vatOnWords} value={vatWords} onChange={e => setVatWords(e.target.value)} />
+            <Button size="sm" className="h-8" disabled={!(settings.vatChecklist ?? []).every((c: any) => c.ok) || vatWords.trim() !== settings.vatOnWords} onClick={() => switchVat(true)}>Switch VAT on</Button></div>
+          <p className="text-muted-foreground">Type {settings.vatOnWords} to confirm.</p>
+        </> : <>
+          <p className="font-semibold">Switch VAT off</p>
+          <p className="text-muted-foreground">Only bills paid after it carry no VAT; every bill already paid keeps its VAT and tax invoice number.</p>
+          <div className="flex flex-wrap items-center gap-2"><Input className="h-8 w-48" placeholder={settings.vatOffWords} value={vatWords} onChange={e => setVatWords(e.target.value)} />
+            <Button size="sm" variant="outline" className="h-8" disabled={vatWords.trim() !== settings.vatOffWords} onClick={() => switchVat(false)}>Switch VAT off</Button></div>
+        </>}
+      </div>}
       {!edit ? <button type="button" className="text-xs underline text-primary" onClick={() => setEdit(true)}>Change</button> : (
         <div className="space-y-2 pt-1">
           {isAdmin && <div className="space-y-1"><Label className="text-xs">Start date (AD)</Label><Input type="date" value={start} disabled={settings.entries > 0} onChange={e => setStart(e.target.value)} className="h-8" />

@@ -21,6 +21,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useNotifications } from "@/contexts/notifications";
 import { useAuth } from "@/contexts/auth";
 import { buildKotHtml, printReceiptHtml, wrapReceipt } from "@/lib/kot";
+import { buildTaxInvoiceHtml } from "@/lib/taxInvoice";
 import { InvoiceFixButtons } from "@/components/InvoiceFix";
 import { PAY_MODES, modeLabel, round2, rs, paymentSummary } from "@/lib/payments";
 
@@ -51,6 +52,9 @@ export default function Orders() {
   const [rewardItemId, setRewardItemId] = useState<number | null>(null);
   // VAT bills are refused until LHC is VAT registered (owner and accountant, 2026-11-27)
   const [vatEnabled, setVatEnabled] = useState(false);
+  // 5e: whether VAT is in force today (the server works out the figures; this only shows them)
+  const [vatNow, setVatNow] = useState<{ active: boolean; rate?: number } | null>(null);
+  const vatPct = vatNow?.active ? Number(vatNow.rate) : 13;
   useEffect(() => {
     fetch(`${API_BASE}/api/gl/vat-status`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } })
       .then(r => r.ok ? r.json() : null).then(d => setVatEnabled(!!d?.vatEnabled)).catch(() => {});
@@ -151,7 +155,9 @@ export default function Orders() {
           if (here.breakfastIncluded && items.length > 0 && items.every(i => i.isBreakfast)) setRoomKind("breakfast");
         }
       }).catch(() => {});
-    setBillType("pan");
+    setBillType("pan"); setVatNow(null);
+    fetch(`${API_BASE}/api/orders/${order.id}/vat-preview`, { headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` } })
+      .then(r => r.ok ? r.json() : null).then(d => { setVatNow(d); if (d?.active) setBillType("vat"); }).catch(() => {});
     setOtherPartyName("");
     setOtherPartyPan("");
     setNonTaxableAmount("0");
@@ -206,7 +212,7 @@ export default function Orders() {
     const alreadyDiscounted = round2((base - reward) * (1 - discountValue / 100));
     if (billType !== "vat") return { discountValue, total: round2(alreadyDiscounted), vatAmount: undefined as number | undefined, finalTotal: undefined as number | undefined };
     const nonTaxable = Math.min(parseFloat(nonTaxableAmount) || 0, alreadyDiscounted);
-    const vat = round2((alreadyDiscounted - nonTaxable) * 0.13);
+    const vat = round2((alreadyDiscounted - nonTaxable) * vatPct / 100);
     const grand = round2(alreadyDiscounted + vat);
     return { discountValue, total: grand, vatAmount: vat, finalTotal: grand };
   };
@@ -334,8 +340,10 @@ export default function Orders() {
       if (!r.ok) throw new Error(d?.error ?? "The payment was not recorded.");
       queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey() });
       const credit = (d.creditAmount ?? 0) > 0;
+      // 5e: a bill paid while VAT is in force is a tax invoice: print it with the frozen figures
+      if (d.taxInvoiceNo && confirm(`Tax invoice ${d.taxInvoiceNo}: print it now?`)) printReceiptHtml(buildTaxInvoiceHtml(d, { payLabel: parts.map(p => `${modeLabel(p.mode)} Rs. ${p.amount.toFixed(2)}`).join(" + ") || "No payment (Rs 0)" }));
       toast({
-        title: credit ? `Credit invoice ${d.invoiceNumber ?? ""} recorded` : "Payment recorded",
+        title: credit ? `Credit invoice ${d.taxInvoiceNo ?? d.invoiceNumber ?? ""} recorded` : d.taxInvoiceNo ? `Paid · tax invoice ${d.taxInvoiceNo}` : "Payment recorded",
         description: [credit ? `${rs(d.creditAmount)} added to ${creditCustomer?.name ?? "the customer"}'s balance.` : null, d.creditWarning].filter(Boolean).join(" ") || undefined,
       });
       setPaymentModalOrder(null);
@@ -508,7 +516,7 @@ export default function Orders() {
     if (isVat) {
       const nonTaxable = Math.min(parseFloat(nonTaxableAmount) || 0, final);
       const taxable = final - nonTaxable;
-      const vat = taxable * 0.13;
+      const vat = round2(taxable * vatPct / 100);
       const grand = final + vat;
       totals += `<div style="border-top:1px dashed #999;margin-top:6px;padding-top:6px;">`;
       if (nonTaxable > 0) totals += row("Non-Taxable Sales", `Rs. ${nonTaxable.toFixed(2)}`);
@@ -1087,13 +1095,17 @@ export default function Orders() {
 
             <div className="space-y-2 border-t pt-4">
               <Label className="text-xs font-semibold text-muted-foreground uppercase">Bill Type</Label>
-              <Tabs value={billType} onValueChange={(v) => setBillType(v as "pan" | "vat")}>
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="pan">PAN Bill</TabsTrigger>
-                  <TabsTrigger value="vat" disabled={!vatEnabled}>VAT Bill</TabsTrigger>
-                </TabsList>
-              </Tabs>
-              {!vatEnabled && <p className="text-xs text-muted-foreground">VAT bills are stopped until LHC is VAT registered.</p>}
+              {vatNow?.active
+                ? <p className="text-sm rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">Tax invoice: VAT {vatPct}% is added to the bill. The tax invoice number is given when it is paid.</p>
+                : <>
+                  <Tabs value={billType} onValueChange={(v) => setBillType(v as "pan" | "vat")}>
+                    <TabsList className="grid w-full grid-cols-2">
+                      <TabsTrigger value="pan">PAN Bill</TabsTrigger>
+                      <TabsTrigger value="vat" disabled>VAT Bill</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  <p className="text-xs text-muted-foreground">{vatEnabled ? "VAT has not started yet: print a PAN bill." : "VAT bills are stopped until LHC is VAT registered."}</p>
+                </>}
               <div className="grid grid-cols-2 gap-2 mt-2">
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">Other Party Name (opt.)</Label>
@@ -1104,7 +1116,7 @@ export default function Orders() {
                   <Input value={otherPartyPan} onChange={e => setOtherPartyPan(e.target.value)} className="h-8 text-sm" />
                 </div>
               </div>
-              {billType === "vat" && (
+              {billType === "vat" && !vatNow?.active && (
                 <div className="space-y-1 mt-2">
                   <Label className="text-xs text-muted-foreground">Non-Taxable Amount (Rs., opt.)</Label>
                   <Input type="number" value={nonTaxableAmount} onChange={e => setNonTaxableAmount(e.target.value)} className="h-8 text-sm w-32" />
@@ -1188,7 +1200,7 @@ export default function Orders() {
               if (billType === "vat") {
                 const nonTaxable = Math.min(parseFloat(nonTaxableAmount) || 0, final);
                 const taxable = final - nonTaxable;
-                const vatAmount = taxable * 0.13;
+                const vatAmount = round2(taxable * vatPct / 100);
                 const grandTotal = final + vatAmount;
                 return (
                   <>
