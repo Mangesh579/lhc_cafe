@@ -1741,3 +1741,43 @@ None.
     - **Access:** 403 for staff and supervisor on all 12 routes in both formats; bad requests get 400 or 404.
     - **No writes:** every table's row count is unchanged after all 24 downloads.
 - Not run: opening the files in Excel and a PDF viewer (by hand, see HANDOFF item 35); anything against production.
+
+## 2026-11-28 (f): Reports 4c-fix, the PDF limit in rows drawn, and a failed Excel stream
+
+### Summary
+1. **The PDF limit counts the rows a PDF draws, not vouchers.**
+   - ReportDoc has pdfRows:
+     - the Day Book: every journal line, a heading and a total per day, and the grand total;
+     - the General Ledger and the books: their lines, the opening, the day rows and the total;
+     - the others: the rows of their sections.
+   - PDF_LIMIT is now 3,000. Above it the route answers 400 "Too many lines for a PDF: use Excel, or narrow the period." with count and limit in the JSON. Excel stays unlimited.
+   - Why rows: pdfmake lays the PDF out on the server's main thread, so the cost of a PDF follows the rows it draws. Under the old rule a Day Book of 5,000 vouchers (15,000 or more rows) could hold up every other request while it was built.
+2. **A failed Excel download no longer looks finished.** In GET /reports/export/:report the Excel write goes through a PassThrough inside try/catch.
+   - An error after the download started is logged ("Excel export failed") and the connection is cut with res.destroy(err), so the browser reports a failed download.
+   - An error before any byte was sent answers 500 with "The Excel file could not be built. Please try again.".
+
+### Files
+- api-server:
+  - src/lib/reportExport.ts (PDF_LIMIT 3000);
+  - src/lib/reports/exportDocs.ts (count becomes pdfRows);
+  - src/lib/reports/books.ts (the Day Book's lineCount and dayCount, the ledger's and books' dayCount);
+  - src/routes/reports.ts (the pdfRows check, the guarded Excel stream);
+  - src/__tests__/exports4c.test.ts (the size tests), src/__tests__/exportAbort.test.ts (new).
+- Docs: docs/specs/step4c-exports.md, CLAUDE.md (Step 4 decisions), docs/HANDOFF.md.
+
+### Tables and migration
+None.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 50 files, 488 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- **exports4c, size tests** (the old 5,000-voucher test replaced):
+  - a Day Book of 1,200 vouchers (3,600 lines over 12 days, 3,625 rows) is refused as a PDF with count 3,625 and limit 3,000; its Excel has all 1,200 vouchers and 3,600 lines; the 1,100 ledger of that month (1,202 rows) still builds as a PDF;
+  - a Day Book of 900 vouchers (2,721 rows) builds as a PDF in under 15 seconds. The test logs the time: 1,306 ms on the dev machine.
+- **exportAbort (3, new):**
+  - the Cash Book of 600 lines (two pages) downloads complete;
+  - with the books function made to throw on page 2, the response is aborted, not a complete 200 file (logged as {"kind":"aborted"});
+  - the server keeps serving afterwards.
+- Not run: the screens in a browser; anything against production.

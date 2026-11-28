@@ -113,7 +113,9 @@ PDF: "Page x of y" on every page, with the report name.
 
 ### 6.5 Size limit (PDF only)
 - **The count:** vouchers for the Day Book, and lines for the General Ledger, books and statements. The statements and the Trial Balance never come near the limit.
-- **Above 5,000:** 400 "Too many lines for a PDF: use Excel, or narrow the period." The count is checked before anything is built.
+- **Above 3,000 rows drawn** (changed by the 4c-fix of 2026-11-28; see below): 400 "Too many lines for a PDF: use Excel, or narrow the period.", with count and limit in the JSON. The count is checked before anything is built.
+- **Rows drawn** (ReportDoc.pdfRows): the Day Book counts every journal line plus a heading and a total per day and the grand total; the ledgers and books count their lines plus the opening, the day rows and the total; the other reports count the rows of their sections.
+- **Why rows:** the PDF is laid out on the server's main thread, so its cost follows the rows it draws. A 2,721-row Day Book took about 1.3 seconds in the tests.
 - **Excel:** the same data downloads.
 
 ### 6.6 Unposted days
@@ -125,7 +127,7 @@ The same "Posted up to" line and warning as the screen, at the top of every file
   - builds the export URL from the tab's current period and filters;
   - fetches it with the bearer token and saves the blob under the server's file name;
   - shows "Preparing…" with both buttons disabled while it runs;
-  - shows the server's error text if refused, e.g. the 5,000-line message.
+  - shows the server's error text if refused, e.g. the 3,000-row message.
 
 ### 6.8 File names
 `LHC_<Report>_<period>.<ext>`, with safe characters only: A-Z, a-z, 0-9, hyphen and underscore.
@@ -170,7 +172,7 @@ The same "Posted up to" line and warning as the screen, at the top of every file
   - a customer statement renders (with compression off in the test); the bytes start with %PDF and end with %%EOF;
   - the text holds the header block ("Legendary House Cafe & Barista Coffee School", the period, "Posted up to") and "Page 1 of N";
   - the page count matches N.
-- **Size:** on generated data with more than 5,000 lines, the PDF answers 400 with the exact message; Excel answers 200 and its row count equals the lines.
+- **Size (4c-fix):** a Day Book of 1,200 vouchers (3,600 lines) is refused as a PDF with its count and the limit, and downloads as Excel with all 3,600 lines; a Day Book of 2,721 rows builds as a PDF in under 15 seconds (the time is logged). Before the fix: on generated data with more than 5,000 lines, the PDF answered 400 with the exact message; Excel answered 200 and its row count equals the lines.
 - **Who and what:**
   - staff and supervisor get 403 on every export route and both formats;
   - no table's row count changes after downloading every report in both formats.
@@ -178,7 +180,8 @@ The same "Posted up to" line and warning as the screen, at the top of every file
 
 ## 9. Risks
 - **pdfkit fonts and the bundle:** handled by externals. A test renders a PDF from the built code path, and deploy.sh's pnpm install fetches the packages on the server.
-- **A full-year PDF of a ledger:** refused above 5,000 lines, so the server never builds a huge PDF in memory.
+- **A full-year PDF of a ledger:** refused above 3,000 rows drawn, so the server never lays out a huge PDF on its main thread.
+- **A failed Excel stream (4c-fix):** an error after the download has started cuts the connection (res.destroy), so the browser reports a failed download; an error before any byte is sent answers the usual JSON error.
 - **Excel's grouping depends on the PC:** the numbers are right either way. Only the commas move (question 10.2).
 
 ## 10. Questions for you (each with my recommendation)

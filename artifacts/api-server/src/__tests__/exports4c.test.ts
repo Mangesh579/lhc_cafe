@@ -118,15 +118,15 @@ beforeAll(async () => {
 
   [{ id: ram }] = await ctx.db.insert(loyaltyCustomersTable).values({ name: "राम श्रेष्ठ", phone: "9800000009" }).returning();
   await jv(D(POUSH.fromDay, 6), [["1300", 700, 0, { customerId: ram }], ["4000", 0, 700]]);
-  // 5,001 vouchers in Magh 2084 (two lines each), for the PDF limit
-  const MAGH84 = bsMonthRange(2084, 10);
-  await ctx.client.exec(`BEGIN;
+  // the PDF limit (3,000 rows drawn): Falgun 2084 has 1,200 vouchers of three lines over 12 days (3,600 lines, refused);
+  // Chaitra 2084 has 900 of three lines over 10 days (2,700 lines + 20 day rows + the total = 2,721 rows, just under)
+  const gen = (tag: string, from: string, n: number, days: number) => `
     INSERT INTO journal_entries (entry_no, voucher_type, entry_date, fiscal_year, narration, kind, created_by)
-      SELECT 'GEN-' || g, 'JV', DATE '${MAGH84.fromDay}' + (g % 25), '2084/85', 'Generated ' || g, 'manual', 'gen' FROM generate_series(1, 5001) g;
+      SELECT '${tag}-' || g, 'JV', DATE '${from}' + (g % ${days}), '2084/85', 'Generated ' || g, 'manual', '${tag}' FROM generate_series(1, ${n}) g;
     INSERT INTO journal_lines (entry_id, line_no, account_code, debit, credit)
-      SELECT e.id, l.n, CASE l.n WHEN 1 THEN '1100' ELSE '4000' END, CASE l.n WHEN 1 THEN 10 ELSE 0 END, CASE l.n WHEN 2 THEN 10 ELSE 0 END
-      FROM journal_entries e CROSS JOIN generate_series(1, 2) AS l(n) WHERE e.created_by = 'gen';
-    COMMIT;`);
+      SELECT e.id, l.n, (ARRAY['1100','4000','4010'])[l.n], CASE l.n WHEN 1 THEN 10 ELSE 0 END, CASE l.n WHEN 2 THEN 6 WHEN 3 THEN 4 ELSE 0 END
+      FROM journal_entries e CROSS JOIN generate_series(1, 3) AS l(n) WHERE e.created_by = '${tag}';`;
+  await ctx.client.exec(`BEGIN; ${gen("BIG", bsMonthRange(2084, 11).fromDay, 1200, 12)} ${gen("NEAR", bsMonthRange(2084, 12).fromDay, 900, 10)} COMMIT;`);
   const { default: app } = await import("../app");
   await new Promise<void>(resolve => { server = app.listen(0, "127.0.0.1", () => resolve()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
@@ -140,7 +140,6 @@ afterAll(async () => {
 // the API allows 120 requests a minute per address
 beforeEach(() => { vi.setSystemTime(new Date(Date.now() + 61000)); });
 
-const MAGH84 = bsMonthRange(2084, 10);
 async function download(path: string, token = acct) {
   const r = await fetch(base + path, { headers: { Authorization: `Bearer ${token}` } });
   const buf = Buffer.from(await r.arrayBuffer());
@@ -270,24 +269,43 @@ describe("PDF", () => {
   });
 });
 
-describe("the size limit", () => {
-  it("a PDF of more than 5,000 vouchers is refused; the Excel of the same data downloads them all", async () => {
-    const q = "month=2084-10";
+describe("the size limit: 3,000 rows drawn", () => {
+  it("a Day Book of 1,200 vouchers (3,600 lines) is refused as a PDF, with its row count, and downloads as Excel", async () => {
+    const q = "month=2084-11";
     const pdf = await download(`/reports/export/day-book?format=pdf&${q}`);
     expect(pdf.status).toBe(400);
-    expect(pdf.json().error).toBe("Too many lines for a PDF: use Excel, or narrow the period.");
+    const body = pdf.json();
+    expect(body.error).toBe("Too many lines for a PDF: use Excel, or narrow the period.");
+    expect(body).toMatchObject({ count: 3600 + 2 * 12 + 1, limit: 3000 });
     const x = await download(`/reports/export/day-book?format=xlsx&${q}`);
     expect(x.status).toBe(200);
-    expect(x.name).toBe("LHC_DayBook_2084-10.xlsx");
+    expect(x.name).toBe("LHC_DayBook_2084-11.xlsx");
     const ws = (await workbook(x.buf)).worksheets[0];
     const t = sheetTable(ws);
-    const vcol = t.col(/^Voucher/);
+    const vcol = t.col(/^Voucher/), dcol = t.col(/^Debit/), ccol = t.col(/^Credit/);
     let vouchers = 0, lines = 0;
-    for (let i = t.headerRow + 1; i <= ws.rowCount; i++) { const v = String(ws.getRow(i).getCell(vcol).value ?? ""); if (v.startsWith("GEN-")) vouchers++; if (typeof ws.getRow(i).getCell(t.col(/^Debit/)).value === "number" || typeof ws.getRow(i).getCell(t.col(/^Credit/)).value === "number") lines++; }
-    expect(vouchers).toBe(5001);
-    expect(lines).toBeGreaterThanOrEqual(10002);
-    // the ledger of 1100 in that month is also over the limit
-    expect((await download(`/reports/export/ledger?format=pdf&code=1100&${q}`)).status).toBe(400);
+    for (let i = t.headerRow + 1; i <= ws.rowCount; i++) {
+      const row = ws.getRow(i);
+      if (String(row.getCell(vcol).value ?? "").startsWith("BIG-")) vouchers++;
+      if (String(row.getCell(t.col(/^Account/)).value ?? "") && (typeof row.getCell(dcol).value === "number" || typeof row.getCell(ccol).value === "number")) lines++;
+    }
+    expect(vouchers).toBe(1200);
+    expect(lines).toBe(3600);
+    // the ledger of 1100 that month draws 1,202 rows: a PDF
+    expect((await download(`/reports/export/ledger?format=pdf&code=1100&${q}`)).status).toBe(200);
+  }, 120000);
+
+  it("a Day Book just under the limit (2,721 rows) builds as a PDF in under 15 seconds", async () => {
+    const { EXPORTS } = await import("../lib/reports/exportDocs");
+    const doc = await EXPORTS["day-book"]({ month: "2084-12" });
+    expect(doc.pdfRows).toBe(2700 + 2 * 10 + 1);
+    const t0 = performance.now();
+    const f = await download("/reports/export/day-book?format=pdf&month=2084-12");
+    const ms = Math.round(performance.now() - t0);
+    console.log(`[4c-fix] PDF of ${doc.pdfRows} rows built and downloaded in ${ms} ms`);
+    expect(f.status, JSON.stringify(f.status === 200 ? {} : f.json())).toBe(200);
+    expect(f.buf.subarray(0, 4).toString()).toBe("%PDF");
+    expect(ms, `PDF of ${doc.pdfRows} rows took ${ms} ms`).toBeLessThan(15000);
   }, 120000);
 });
 

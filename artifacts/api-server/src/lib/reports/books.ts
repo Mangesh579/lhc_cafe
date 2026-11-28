@@ -52,7 +52,7 @@ export async function dayBook(f: DayBookFilter) {
   if (f.supplierId) conds.push(sql`EXISTS (SELECT 1 FROM journal_lines x WHERE x.entry_id = je.id AND x.supplier_id = ${f.supplierId})`);
   if (f.q) { const like = `%${f.q.replace(/[%_\\]/g, m => `\\${m}`)}%`; conds.push(sql`(je.narration ILIKE ${like} OR je.source_ref ILIKE ${like} OR je.entry_no ILIKE ${like})`); }
   const where = sql.join(conds, sql` AND `);
-  const [tot] = await rows(sql`SELECT count(DISTINCT je.id)::int AS n, COALESCE(sum(jl.debit),0) AS d, COALESCE(sum(jl.credit),0) AS c
+  const [tot] = await rows(sql`SELECT count(DISTINCT je.id)::int AS n, count(*)::int AS lines, count(DISTINCT je.entry_date)::int AS days, COALESCE(sum(jl.debit),0) AS d, COALESCE(sum(jl.credit),0) AS c
     FROM journal_entries je JOIN journal_lines jl ON jl.entry_id = je.id WHERE ${where}`);
   const page = Math.max(1, f.page ?? 1);
   const entries = await rows(sql`SELECT je.* FROM journal_entries je WHERE ${where} ORDER BY je.entry_date, je.id LIMIT ${DAY_BOOK_PAGE} OFFSET ${(page - 1) * DAY_BOOK_PAGE}`);
@@ -69,7 +69,7 @@ export async function dayBook(f: DayBookFilter) {
     customerId: l.customer_id, customerName: l.customer_id ? cust.get(Number(l.customer_id)) ?? null : null, supplierId: l.supplier_id, supplierName: l.supplier_id ? sup.get(Number(l.supplier_id)) ?? null : null }]);
   const dt = new Map(dayTot.map(r => [day(r.d), { debit: round2(num(r.debit)), credit: round2(num(r.credit)) }]));
   return {
-    page, pageSize: DAY_BOOK_PAGE, count: tot?.n ?? 0, pages: Math.max(1, Math.ceil((tot?.n ?? 0) / DAY_BOOK_PAGE)),
+    page, pageSize: DAY_BOOK_PAGE, count: tot?.n ?? 0, lineCount: tot?.lines ?? 0, dayCount: tot?.days ?? 0, pages: Math.max(1, Math.ceil((tot?.n ?? 0) / DAY_BOOK_PAGE)),
     totals: { debit: round2(num(tot?.d)), credit: round2(num(tot?.c)) },
     days: days.map(d => ({ day: d, dayBs: bsLabel(d), ...(dt.get(d) ?? { debit: 0, credit: 0 }),
       entries: entries.filter(e => day(e.entry_date) === d).map(e => ({ id: Number(e.id), entryNo: e.entry_no, voucherType: e.voucher_type, kind: kindOf(e), narration: e.narration,
@@ -101,7 +101,7 @@ export async function generalLedger(code: string, from: string, to: string, p: P
   const party = partySql(p);
   const [o] = await rows(sql`SELECT COALESCE(sum(jl.debit),0) AS d, COALESCE(sum(jl.credit),0) AS c FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
     WHERE jl.account_code = ${code} AND je.entry_date < ${from}${party}`);
-  const [t] = await rows(sql`SELECT count(*)::int AS n, COALESCE(sum(jl.debit),0) AS d, COALESCE(sum(jl.credit),0) AS c FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
+  const [t] = await rows(sql`SELECT count(*)::int AS n, count(DISTINCT je.entry_date)::int AS days, COALESCE(sum(jl.debit),0) AS d, COALESCE(sum(jl.credit),0) AS c FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
     WHERE jl.account_code = ${code} AND je.entry_date BETWEEN ${from} AND ${to}${party}`);
   const opening = bal(num(o?.d), num(o?.c));
   const page = Math.max(1, p.page ?? 1);
@@ -127,7 +127,7 @@ export async function generalLedger(code: string, from: string, to: string, p: P
     customerName: r.customer_id ? cust.get(Number(r.customer_id)) ?? `#${r.customer_id}` : null, supplierName: r.supplier_id ? sup.get(Number(r.supplier_id)) ?? `#${r.supplier_id}` : null,
   }));
   const d = round2(num(t?.d)), c = round2(num(t?.c));
-  const out: any = { account, opening, totals: { debit: d, credit: c }, closing: round2(opening + sign * (d - c)), lines, page, pageSize: LEDGER_PAGE, count: t?.n ?? 0, pages: Math.max(1, Math.ceil((t?.n ?? 0) / LEDGER_PAGE)) };
+  const out: any = { account, opening, totals: { debit: d, credit: c }, closing: round2(opening + sign * (d - c)), lines, page, pageSize: LEDGER_PAGE, count: t?.n ?? 0, dayCount: t?.days ?? 0, pages: Math.max(1, Math.ceil((t?.n ?? 0) / LEDGER_PAGE)) };
   if ((code === "1300" || code === "2100") && !p.customerId && !p.supplierId) out.parties = await subLedger(code, from, to);
   return out;
 }
@@ -162,7 +162,7 @@ export async function book(code: string, from: string, to: string, page = 1) {
       receipt: l.debit, payment: l.credit, balance: l.balance });
     d.receipts = round2(d.receipts + l.debit); d.payments = round2(d.payments + l.credit); d.closing = l.balance;
   }
-  return { book: BOOKS[code], account: gl.account, opening: gl.opening, totals: { receipts: gl.totals.debit, payments: gl.totals.credit }, closing: gl.closing, days, page: gl.page, pages: gl.pages, count: gl.count };
+  return { book: BOOKS[code], account: gl.account, opening: gl.opening, totals: { receipts: gl.totals.debit, payments: gl.totals.credit }, closing: gl.closing, days, page: gl.page, pages: gl.pages, count: gl.count, dayCount: gl.dayCount };
 }
 
 // ── 4.4 Trial Balance for a period: opening, movement and closing, Dr and Cr ──
