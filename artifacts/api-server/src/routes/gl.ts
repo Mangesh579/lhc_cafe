@@ -90,9 +90,10 @@ router.patch("/gl/settings", authenticate, async (req: AuthRequest, res: Respons
   // 5a (owner, 2026-11-28): the switch-on date is today or later, never a past date; the VAT number is LHC's 9-digit PAN
   if (b.vatStartDate !== undefined) {
     if (roleOf(req) !== "admin") { res.status(403).json({ error: "Only the admin sets the VAT registration date." }); return; }
+    // 5e-fix: while VAT is on, the start date does not change at all (switch VAT off first); the same date is fine
+    const curVat = await ledgerSettings(db) as any;
+    if (curVat.vatEnabled && (b.vatStartDate || null) !== (curVat.vatStartDate ?? null)) { res.status(400).json({ error: "VAT is on: switch it off before changing the start date." }); return; }
     if (b.vatStartDate === null || b.vatStartDate === "") {
-      // 5e: while VAT is on, the start date stays (switch VAT off first)
-      if ((await ledgerSettings(db) as any).vatEnabled && b.vatEnabled !== false) { res.status(400).json({ error: "VAT is on: switch it off before clearing the start date." }); return; }
       set.vatStartDate = null;
     }
     else {

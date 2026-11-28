@@ -2409,3 +2409,68 @@ Plan: docs/specs/step5-vat-tds.md section 17 (approved as recommended); as built
 
 ## 2026-11-28 (u): Migration 025 recorded as run
 - The owner ran db/migrations/025_output_vat.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 5e entry above. Docs only; no code, no SQL, nothing to deploy. VAT stays off until the admin switches it on after registration.
+
+## 2026-11-28 (v): 5e-fix, the VAT start date is fixed while VAT is on
+- **The change:** PATCH /gl/settings now refuses any change of vatStartDate while ledger_settings.vat_enabled is true, not only clearing it: "VAT is on: switch it off before changing the start date." Sending the same date is accepted (the settings screen only sends the date when it changed).
+- **HANDOFF (Known limits):** the known rule "a backdated sale paid after switch-on gets VAT": its VAT follows the payment day, like its posting.
+- **Files:** artifacts/api-server/src/routes/gl.ts; __tests__/outputVat5e.test.ts (one new test); docs/HANDOFF.md.
+- **No migration.**
+- **Tests:**
+  - New: while VAT is on, a later date, an earlier date, null and "" are each refused with that message; the same date is accepted.
+  - `pnpm test`: 58 files, 591 tests pass; typecheck clean.
+
+## 2026-11-28 (w): Step 5f, the VAT return and the VAT payment
+Plan: docs/specs/step5-vat-tds.md section 18 (approved as recommended); as built in 18.8. Shipped with the 5e-fix (entry v).
+
+### Delivered
+- **Reports > VAT return** for one BS month (admin and accountant, GET only):
+  - **sales book:** the month's tax invoices; a cancel in the same month is nil; a Wrong-customer replacement is nil (the VAT stays with the first invoice); credit notes, and cancels of earlier invoices, are negative lines against their invoice;
+  - **purchase book:** bills and expenses that claimed input VAT; debit notes, and voids in a later month, negative;
+  - **summary:** output less input less the credit brought forward = payable, or the credit carried forward;
+  - the check against the 2200 and 1450 movements of the posted days (leaving out the VAT payment), and the balances at the month end;
+  - the filing, unfiled earlier months, "changed after filing", and the due-date reminder;
+  - Excel and PDF (LHC_VATReturn_YYYY-MM).
+- **Filing** (TX, tax_payments kind vat_payment):
+  - only for a closed month, in order, one active filing a month (migration 026);
+  - the amount defaults to the payable, never above it; a credit or nil month is filed at Rs 0;
+  - posting: Dr 2200 (input used + paid), Cr 1450 (input used), Cr bank (paid);
+  - only the latest filing can be voided.
+  - Chart of Accounts > Tax payments > File a VAT return shows the figures and the reasons it cannot be filed yet.
+- **Month close:** a VAT month is blocked while the sales or purchase book differs from 2200 or 1450, or tax invoice numbers are missing.
+
+### Files
+- **New:**
+  - db/migrations/026_vat_return.sql;
+  - api-server: lib/reports/vatReturn.ts, __tests__/vatReturn5f.test.ts;
+  - lhc-cafe: components/reports/VatReturn.tsx.
+- **Changed:**
+  - api-server: routes/taxes.ts, routes/reports.ts, lib/postingRules.ts, lib/glPosting.ts, lib/monthClose.ts, lib/reports/exportDocs.ts;
+  - lhc-cafe: components/TaxPayments.tsx, pages/reports.tsx.
+
+### Migration
+- db/migrations/026_vat_return.sql. **Not yet run on the server.** Idempotent (run twice in the tests).
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 59 files, 600 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- **No earlier test changed.**
+- New, vatReturn5f (9). VAT is in force from 16 Dec 2026, set in the test database. Poush and Magh are worked:
+  - **Poush books:** output 188.50 (104 + 65 + 52 - 32.50; the same-month cancel nil and its note not listed), input 234 (130 + 130 - 26).
+  - **Magh:** a sale, a late credit note on a Poush invoice and a Poush cancel go into Magh (123.50); Poush is not rewritten.
+  - **Posted:** both books equal 2200 and 1450.
+  - **Filing rules:** refused before the month is closed, and Magh before Poush.
+  - **Month close:** blocked while a book disagrees, then closes.
+  - **Poush filed at Rs 0:** Rs 1 refused; the entry Dr 2200 188.50 / Cr 1450 188.50; a second filing refused.
+  - **Magh:** credit 45.50 brought forward, Rs 78 payable. A month with nothing shows zeros; a month before VAT is not a VAT month.
+  - **A payable voucher:** Dr 2200 123.50, Cr 1450 45.50, Cr 1200 78; a nil return posts nothing.
+  - **Statements:** the TB (2200 123.50 still owed for Magh, 1450 45.50), the P&L and the BS (1450 45.50) agree.
+  - **Exports and access:** both exports; staff and supervisor get 403.
+  - **Void and migration:** voiding the latest filing; 026 runs twice.
+- Not run: the screens in a browser; anything against production.
+
+### Decisions and open questions
+- **Narrower than the plan:** a reopened filed month that changes shows "Changed after filing" with the difference. That difference is not added to the next return automatically.
+- **A payment below the payable is allowed;** what is left stays on 2200.
+- **Step 5 is complete** apart from CBMS (roadmap 9). The VAT return's columns switch to the accountant's IRD layout when he gives it.

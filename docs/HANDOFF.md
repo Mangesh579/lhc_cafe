@@ -218,6 +218,12 @@
   - **Reports > Tax invoices:** the month's tax invoices with the gap check. A cancelled invoice keeps its number.
   - **Nothing changes until VAT is switched on.**
 
+44. Step 5f, the VAT return and the VAT payment, 2026-11-28 (docs/specs/step5-vat-tds.md section 18). Migration 026 NOT yet run.
+  - **Reports > VAT return** (one BS month): the sales book, the purchase book, the summary (payable or credit carried), the check against 2200 and 1450, Excel and PDF.
+  - **Filing:** Chart of Accounts > Tax payments > File a VAT return, for a closed month, in order. Dr 2200, Cr 1450, Cr bank. A credit or nil month is filed at Rs 0.
+  - **Month close:** a VAT month cannot close while its VAT books disagree with the ledger or tax invoice numbers are missing.
+  - **Includes the 5e-fix:** the VAT start date cannot change while VAT is on.
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -247,9 +253,10 @@
 - 025_output_vat.sql (recorded 2026-11-28, by the owner): orders.vat_rate, taxable_amount, tax_invoice_no (unique), tax_invoice_at.
 
 # Not yet applied on the server
-- None.
+- 026_vat_return.sql: one active VAT filing per BS month (unique index). Run before deploy.sh.
 
 # Known limits
+- **VAT follows the payment day (5e, known rule):** a sale backdated to before the VAT start date but paid after VAT is switched on gets VAT, because its VAT, like its posting, follows the day it is paid. While VAT is on, the VAT start date cannot be changed (switch VAT off first).
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
 - **Credit notes:**
   - Customer credit notes exist only for credit invoices and cannot exceed what is still owed. Refunds of money already received are not modelled (accountant: avoid refunds; void with a reason).

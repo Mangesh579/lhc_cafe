@@ -1,5 +1,6 @@
 // Step 3b: the next-day review and posting of sales, credit notes, receipts and settlements (docs/specs/step3-ledger.md 4, 5, 7).
 // Reads run on the shared connection before the posting transaction (PGlite has one connection); the posting is one transaction.
+import { filedReturns } from "./reports/vatReturn";
 import {
   db, ordersTable, orderItemsTable, menuItemsTable, menuCategoriesTable, creditNotesTable, customerReceiptsTable, settlementsTable,
   settlementSettingsTable, journalEntriesTable, journalLinesTable, postingDaysTable, periodClosesTable, cashDaysTable,
@@ -122,8 +123,12 @@ async function expenseSources(where: any) {
 }
 // 5b: the tax payment vouchers (TDS deposits)
 async function taxPaymentSources(where: any) {
-  return (await db.select().from(taxPaymentsTable).where(where)).map(t => ({ id: t.id, day: t.paymentDate, postable: t.status === "active",
-    built: taxPaymentEntry({ paymentId: t.id, voucherNo: t.voucherNo, day: t.paymentDate, kind: t.kind, amount: round2(num(t.amount)), bankAccount: t.bankAccount, bsLabel: `${t.bsYear}-${String(t.bsMonth).padStart(2, "0")}`, reference: t.reference }) }));
+  const rows = await db.select().from(taxPaymentsTable).where(where);
+  // 5f: the input VAT a filing uses depends on the credit carried along the filed returns
+  const used = rows.some(t => t.kind === "vat_payment") ? new Map((await filedReturns()).map(f => [f.id, f.used])) : new Map<number, number>();
+  return rows.map(t => ({ id: t.id, day: t.paymentDate, postable: t.status === "active",
+    built: taxPaymentEntry({ paymentId: t.id, voucherNo: t.voucherNo, day: t.paymentDate, kind: t.kind, amount: round2(num(t.amount)), bankAccount: t.bankAccount, bsLabel: `${t.bsYear}-${String(t.bsMonth).padStart(2, "0")}`, reference: t.reference,
+      vatOutput: round2(num(t.vatOutput)), vatUsed: used.get(t.id) ?? round2(Math.max(0, num(t.vatOutput) - num(t.amount))) }) }));
 }
 async function movementSources(where: any) {
   return (await db.select().from(cashMovementsTable).where(where)).map(m => ({ id: m.id, day: m.day, postable: m.status === "active",
