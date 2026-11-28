@@ -208,6 +208,12 @@ function DishMedia({ item, height, muted = true, onToggleMute, variant = "hero" 
 export default function PublicOrder({ params }: { params: { token: string } }) {
   const tableToken = params.token;
   const SESSION_KEY = `lhc_session_${tableToken}`;
+  // Kept on the phone so leaving the browser for another app (or the phone reloading the page) loses nothing
+  const LOYALTY_KEY = `lhc_loyalty_${tableToken}`;
+  const CART_KEY = `lhc_cart_${tableToken}`;
+  const store = { get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
+    del: (k: string) => { try { localStorage.removeItem(k); } catch { /* private mode */ } } };
 
   const [loyaltyOpen, setLoyaltyOpen] = useState(false);
   const [loyaltyPhone, setLoyaltyPhone] = useState("");
@@ -254,7 +260,8 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     setTimeout(() => setPulsingItems(prev => ({ ...prev, [itemId]: false })), 300);
   };
 
-  const [sessionState, setSessionState] = useState<"loading"|"active"|"expired">("loading");
+  const [sessionState, setSessionState] = useState<"loading"|"active"|"expired"|"offline">("loading");
+  const [attempt, setAttempt] = useState(0);
   const [sessionToken, setSessionToken] = useState<string|null>(null);
   const [tableNumber, setTableNumber] = useState<number|null>(null);
   const [tableName, setTableName] = useState<string|null>(null);
@@ -262,7 +269,11 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   const [menuLoading, setMenuLoading] = useState(false);
 
   const [selectedItem, setSelectedItem] = useState<MenuItem|null>(null);
-  const [cart, setCart] = useState<{id:number;name:string;price:number;quantity:number;itemNote?:string}[]>([]);
+  const [cart, setCart] = useState<{id:number;name:string;price:number;quantity:number;itemNote?:string}[]>(() => {
+    // a cart saved in the last 3 hours on this phone for this table
+    try { const c = JSON.parse(store.get(CART_KEY) ?? "null"); return c && Date.now() - c.at < 3 * 3600_000 && Array.isArray(c.items) ? c.items : []; } catch { return []; }
+  });
+  useEffect(() => { if (cart.length) store.set(CART_KEY, JSON.stringify({ at: Date.now(), items: cart })); else store.del(CART_KEY); }, [cart]);
   const [notes, setNotes] = useState("");
   const [isSuccess, setIsSuccess] = useState(false);
   const [orderId, setOrderId] = useState<number|null>(null);
@@ -299,29 +310,46 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   }, [activeTab]);
 
   useEffect(() => {
-    const stored = localStorage.getItem(SESSION_KEY);
+    const stored = store.get(SESSION_KEY);
     const start = async () => {
       try {
         const r = await fetch(`${API_BASE}/api/public/session/start`, {
           method:"POST", headers:{"Content-Type":"application/json"},
           body: JSON.stringify({ tableToken }),
         });
+        if (r.status === 429 || r.status >= 500) { setSessionState("offline"); return; }
         if (!r.ok) { setSessionState("expired"); return; }
         const d = await r.json();
-        localStorage.setItem(SESSION_KEY, d.sessionToken);
+        store.set(SESSION_KEY, d.sessionToken);
         setSessionToken(d.sessionToken); setTableNumber(d.tableNumber); setTableName(d.tableName ?? null); setSessionState("active");
-      } catch { setSessionState("expired"); }
+      } catch { setSessionState("offline"); }
     };
     const validate = async (tok: string) => {
       try {
-        const r = await fetch(`${API_BASE}/api/public/session/validate?sessionToken=${tok}`);
-        if (!r.ok) { localStorage.removeItem(SESSION_KEY); setSessionState("expired"); return; }
+        const r = await fetch(`${API_BASE}/api/public/session/validate?sessionToken=${encodeURIComponent(tok)}`, { cache: "no-store" });
+        if (r.status === 401) {
+          store.del(SESSION_KEY);
+          const d = await r.json().catch(() => ({}));
+          if (d.reason === "idle") return start(); // the table is still open: carry on, as a new scan would
+          setSessionState("expired"); return;
+        }
+        if (!r.ok) { setSessionState("offline"); return; } // not on the cafe Wi-Fi, or the server is busy: try again
         const d = await r.json();
         setSessionToken(tok); setTableNumber(d.tableNumber); setTableName(d.tableName ?? null); setSessionState("active");
-      } catch { setSessionState("expired"); }
+      } catch { setSessionState("offline"); }
     };
     stored ? validate(stored) : start();
-  }, [tableToken]);
+  }, [tableToken, attempt]);
+
+  // offline: try again every 5 seconds, and at once when the customer comes back to the browser
+  useEffect(() => {
+    if (sessionState !== "offline") return;
+    const retry = () => setAttempt(a => a + 1);
+    const t = setTimeout(retry, 5000);
+    const onVisible = () => { if (document.visibilityState === "visible") retry(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onVisible); };
+  }, [sessionState, attempt]);
 
   useEffect(() => {
     if (sessionState !== "active" || !sessionToken) return;
@@ -341,7 +369,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
           setTimeout(() => setShowLoyaltyWelcome(true), 900);
         }
       })
-      .catch(()=>setSessionState("expired"))
+      .catch(()=>setSessionState("offline"))
       .finally(()=>setMenuLoading(false));
   }, [sessionState, sessionToken]);
 
@@ -361,8 +389,13 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
   useEffect(() => {
     if (sessionState !== "active" || !sessionToken) return;
     const check = () => {
-      fetch(`${API_BASE}/api/public/session/validate?sessionToken=${encodeURIComponent(sessionToken)}`)
-        .then(r => { if (!r.ok) { localStorage.removeItem(SESSION_KEY); setSessionState("expired"); } })
+      fetch(`${API_BASE}/api/public/session/validate?sessionToken=${encodeURIComponent(sessionToken)}`, { cache: "no-store" })
+        .then(async r => {
+          if (r.status !== 401) return;
+          const d = await r.json().catch(() => ({}));
+          store.del(SESSION_KEY);
+          if (d.reason === "idle") { setSessionState("loading"); setAttempt(a => a + 1); } else setSessionState("expired");
+        })
         .catch(() => {});
     };
     const interval = setInterval(check, STATUS_POLL_MS);
@@ -449,12 +482,14 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       setLoyaltyCustomerData(d.customer);
       setLoyaltyVerifiedCustomer(d.customer);
       setLoyaltyStep("done");
+      if (d.loyaltyToken) store.set(LOYALTY_KEY, d.loyaltyToken);
       loadRedeemedLevels(d.customer.id, d.customer.loopNumber ?? 1);
     } catch { setLoyaltyError("Network error. Please try again."); }
     finally { setLoyaltyLoading(false); }
   };
 
   const resetLoyalty = () => {
+    store.del(LOYALTY_KEY); setLoyaltyVerifiedCustomer(null); setRedeemedLevels([]);
     setLoyaltyOpen(false); setLoyaltyPhone(""); setLoyaltyEmail("");
     setLoyaltyOtp(""); setLoyaltyStep("enter"); setLoyaltyCustomerData(null); setLoyaltyError("");
   };
@@ -504,15 +539,31 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
     } catch { /* silent */ }
   };
 
+  // A member who verified on this phone stays signed in while the table stays open (GET /loyalty/me)
+  useEffect(() => {
+    if (sessionState !== "active" || !sessionToken || loyaltyVerifiedCustomer) return;
+    const lt = store.get(LOYALTY_KEY);
+    if (!lt) return;
+    fetch(`${API_BASE}/api/public/loyalty/me?sessionToken=${encodeURIComponent(sessionToken)}&loyaltyToken=${encodeURIComponent(lt)}`, { cache: "no-store" })
+      .then(r => { if (r.status === 401) { store.del(LOYALTY_KEY); return null; } return r.ok ? r.json() : null; })
+      .then(d => {
+        if (!d?.customer) return;
+        setLoyaltyCustomerData(d.customer); setLoyaltyVerifiedCustomer(d.customer); setLoyaltyStep("done");
+        loadRedeemedLevels(d.customer.id, d.customer.loopNumber ?? 1);
+      })
+      .catch(() => {});
+  }, [sessionState, sessionToken]);
+
   const handleRedeem = async (level: number) => {
     if (!sessionToken || !loyaltyVerifiedCustomer) return;
     setRedeemLoading(true);
     try {
       const r = await fetch(`${API_BASE}/api/public/loyalty/redeem`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionToken, loyaltyCustomerId: loyaltyVerifiedCustomer.id, level }),
+        body: JSON.stringify({ sessionToken, loyaltyCustomerId: loyaltyVerifiedCustomer.id, level, loyaltyToken: store.get(LOYALTY_KEY) }),
       });
       const d = await r.json();
+      if (r.status === 401 && !String(d.error ?? "").startsWith("Session")) { resetLoyalty(); alert(d.error ?? "Please verify your loyalty account again."); return; }
       if (!r.ok) { alert(d.error ?? "Redemption failed"); return; }
       setRedeemedLevels(prev => [...prev, level]);
       if (d.cycleComplete) {
@@ -624,6 +675,17 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
       <div style={{ minHeight:"100vh", background:BG, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16 }}>
         <Spinner/>
         <p style={{ fontFamily:SANS, fontSize:12, color:"rgba(245,238,225,0.4)", letterSpacing:"0.06em", textTransform:"uppercase" }}>Preparing your menu</p>
+      </div>
+    </>
+  );
+
+  if (sessionState === "offline") return (
+    <>{G}
+      <div style={{ minHeight:"100vh", background:BG, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:32, textAlign:"center" }}>
+        <Spinner/>
+        <h2 style={{ fontFamily:SERIF, fontSize:22, color:TEXT, fontWeight:400, margin:"18px 0 10px" }}>Reconnecting…</h2>
+        <p style={{ fontFamily:SANS, fontSize:13, color:"rgba(245,238,225,0.45)", lineHeight:1.7, maxWidth:270 }}>Please make sure your phone is on the cafe Wi-Fi. Your order and loyalty sign-in are kept.</p>
+        <button onClick={() => setAttempt(a => a + 1)} style={{ marginTop:20, padding:"10px 24px", background:"transparent", border:`1px solid ${BORDER}`, borderRadius:20, color:WARN, fontFamily:SANS, fontSize:12, letterSpacing:"0.06em", textTransform:"uppercase", cursor:"pointer" }}>Try again</button>
       </div>
     </>
   );
@@ -945,6 +1007,7 @@ export default function PublicOrder({ params }: { params: { token: string } }) {
             <p style={{ fontFamily:SERIF, fontSize:18, color:TEXT, marginBottom:12 }}>{loyaltyVerifiedCustomer.name}</p>
             <p style={{ fontFamily:SERIF, fontSize:44, color:WARN, fontWeight:600, lineHeight:1 }}>{loyaltyVerifiedCustomer.totalPoints}</p>
             <p style={{ fontFamily:SANS, fontSize:11, color:"rgba(245,238,225,0.4)", marginTop:6 }}>loyalty points</p>
+            <button onClick={resetLoyalty} style={{ marginTop:12, background:"none", border:"none", color:"rgba(245,238,225,0.45)", fontFamily:SANS, fontSize:11, textDecoration:"underline", cursor:"pointer" }}>Not you? Sign out</button>
           </div>
 
           {(() => {

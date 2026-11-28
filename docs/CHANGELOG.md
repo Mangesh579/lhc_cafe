@@ -2057,7 +2057,7 @@ Plan: docs/specs/step5-vat-tds.md sections 4a, 5, 6 and 8, the owner's answers i
 - No existing row's values change.
 
 ### Migration
-- db/migrations/021_tds_payable.sql. **Not yet run on the server.** Idempotent (run twice in the tests). Run it before deploy.sh: the new code reads tds_base and confirmed_at.
+- db/migrations/021_tds_payable.sql. Run on the server by the owner (recorded 2026-11-28). Idempotent (run twice in the tests).
 
 ### Tests
 - Run on the dev machine:
@@ -2089,3 +2089,52 @@ Plan: docs/specs/step5-vat-tds.md sections 4a, 5, 6 and 8, the owner's answers i
   - the 10-day contract total spans expenses and supplier payments;
   - earlier below-threshold payments are not caught up.
 - Service suppliers seldom have purchase bills, so supplier-payment TDS mostly concerns opening balances and advances. Most service TDS is entered on Expenses.
+
+## 2026-11-28 (m): Migration 021 recorded as run; the app update notice; the QR page sign-in
+
+### Migration 021 recorded
+- The owner ran db/migrations/021_tds_payable.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 5b entry above.
+
+### The app update notice (owner: people using the app did not know a new version had been deployed)
+- **How it works:**
+  - each frontend build gets an id (the Vercel commit, or the build time), baked into the page and written to /version.json (vite.config.ts);
+  - components/UpdateNotice.tsx (mounted in App.tsx, so on every page, the QR page too) fetches /version.json, uncached, when the tab is shown again or focused, and every 5 minutes while it is open;
+  - when the id differs, it shows "A new version of the app is ready" with Refresh and Later.
+- **Never reloads by itself,** so a bill or form being typed is never lost.
+- **vercel.json:** /version.json is never cached; /assets are cached for a year (their names change every build).
+- **The first time:** pages opened before this deploy do not have the notice yet. They need one manual refresh (or closing the tab) after this deploy.
+
+### The QR page sign-in and session
+- **What was wrong:**
+  - the loyalty sign-in lived only in the page's memory, so a phone that reloaded the page (common when the customer switches apps, or when the camera's QR browser closes) lost it;
+  - any failed check (no network for a second, off the cafe Wi-Fi, a busy server) was treated as "Your session has ended";
+  - asking for a new code was blocked until the old one expired (up to 10 minutes), and each sign-in in the same hour added 10 more minutes of wait;
+  - redeeming points trusted the customer number the page sent.
+- **The session length was not the problem.** The table session already lasts 30 minutes without activity, the page checks every 5 seconds while open, and it ends when staff close the table. Kept as it is.
+- **Now:**
+  - the session check says "idle" (the table is still open under the same opening) or "ended" (closed or reopened for new guests). On "idle" the page starts again by itself, as a new scan would. On "ended" it stays closed.
+  - **Errors:** a network error, a Wi-Fi refusal, a 429 or a 5xx shows "Reconnecting…" (with Try again). It retries every 5 seconds and when the customer comes back to the browser.
+  - **The sign-in:** verify-otp returns a loyalty token: signed, valid 4 hours, bound to the table and its opening, with its own key so it is never a staff login. The phone keeps it, and GET /api/public/loyalty/me restores the member after a reload. "Not you? Sign out" clears it.
+  - **The cart** is kept on the phone for 3 hours and cleared when the order is placed.
+  - **Redeeming** (POST /api/public/loyalty/redeem) needs the loyalty token of the same member, table and opening; otherwise it answers 401 "Please verify your loyalty account again".
+  - **Email codes:** a new code 1 minute after the last (it replaces the old one). The first 3 codes in an hour need only that minute, then 10, 20, 30... minutes. A successful sign-in resets the count.
+
+### Files
+- **api-server:** lib/auth.ts (signQrLoyalty, verifyQrLoyalty), routes/public.ts, __tests__/qrSession.test.ts (new).
+- **lhc-cafe:** vite.config.ts, vercel.json, src/App.tsx, src/components/UpdateNotice.tsx (new), src/pages/public-order.tsx.
+- **Docs:** CLAUDE.md (the QR and update rules; 021 recorded), docs/HANDOFF.md (item 39), this entry.
+
+### Tables and migration
+- None. No SQL.
+
+### Tests
+- `pnpm test`: 54 files, 549 tests pass; typecheck clean; both artifacts build; dist/public/version.json and the bundle carry the same build id.
+- New, qrSession (4):
+  - **Codes:** a resend refused within the minute, 3 codes, the 4th waits 10 minutes; a sign-in resets the count.
+  - **Staying signed in:** the sign-in comes back after a reload. After 30 idle minutes the check says "idle", a new session starts and the sign-in still works. After the table is reopened the check says "ended" and the sign-in is refused; a forged token is refused.
+  - **Staff login:** the loyalty token is refused as a staff login.
+  - **Redeeming:** another member's id is refused, with or without a sign-in. The member's own sign-in gets to the points rule.
+- Not run: a real phone (switching apps, leaving the Wi-Fi), the notice on Vercel.
+
+### Open
+- The email code has no limit on wrong guesses, only the general public rate limit (30 requests a minute per address). Unchanged; a limit of 5 wrong tries per code is a small follow-up if wanted.
