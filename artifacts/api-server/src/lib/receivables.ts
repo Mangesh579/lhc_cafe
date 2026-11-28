@@ -1,4 +1,4 @@
-import { db, ordersTable, orderPaymentsTable, customerReceiptsTable, receiptAllocationsTable, loyaltyCustomersTable, creditNotesTable, creditSettingsTable, loyaltyPointLogsTable } from "@workspace/db";
+import { db, ordersTable, orderPaymentsTable, customerReceiptsTable, receiptAllocationsTable, loyaltyCustomersTable, creditNotesTable, creditSettingsTable, loyaltyPointLogsTable , hotelSettingsTable } from "@workspace/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { nepalDay } from "./ledgerData";
 import { partsFor, creditAmountOf, round2 } from "./payments";
@@ -99,7 +99,7 @@ export async function creditInvoices(filter: { customerId?: number; orderIds?: n
 }
 
 export type CustomerBalance = {
-  customerId: number; name: string; phone: string;
+  customerId: number; name: string; phone: string | null; kind: string; // kind: member or hotel_guest (3f)
   creditLimit: number | null; creditDays: number; ownCreditLimit: number | null; ownCreditDays: number | null;
   invoiced: number; creditNotes: number; received: number; balance: number; outstanding: number; unallocated: number;
   openInvoices: number; overdue: number; oldestDue: string | null;
@@ -129,7 +129,7 @@ export async function customerBalances(customerId?: number, ex: Exec = db): Prom
     const own = { creditLimit: c.creditLimit != null ? num(c.creditLimit) : null, creditDays: c.creditDays ?? null };
     const terms = effectiveTerms(own, defaults);
     return {
-      customerId: c.id, name: c.name, phone: c.phone,
+      customerId: c.id, name: c.name, phone: c.phone, kind: c.kind,
       creditLimit: terms.creditLimit, creditDays: terms.creditDays, ownCreditLimit: own.creditLimit, ownCreditDays: own.creditDays,
       invoiced, creditNotes: cn, received, balance: round2(invoiced - cn - received),
       outstanding: sum(i => i.outstanding), unallocated: round2(received - allocated),
@@ -145,8 +145,11 @@ export async function customerBalances(customerId?: number, ex: Exec = db): Prom
 // Bills paid before this rule (points given in full at payment, loyalty_paid_basis empty) are left as they were.
 export async function syncLoyaltyForOrder(tx: Tx, orderId: number, reason: string, user: string): Promise<{ deltaPoints: number } | null> {
   const [o] = await tx.select().from(ordersTable).where(eq(ordersTable.id, orderId));
-  // No points on hotel stay bills (owner, 2026-11-26): neither the guest's extras nor the breakfasts billed to Sulimha
-  if (!o || !o.loyaltyCustomerId || o.isNc || o.roomStayId || o.paymentStatus !== "paid") return null;
+  // 3f (owner, 2026-11-28; replaces "no points on stay bills"): a guest earns on the extras they pay for; nothing on an
+  // included breakfast; Sulimha Durbar never earns
+  if (!o || !o.loyaltyCustomerId || o.isNc || o.paymentStatus !== "paid" || o.stayCharge === "breakfast") return null;
+  const [hs] = await tx.select({ id: hotelSettingsTable.sulimhaCustomerId }).from(hotelSettingsTable).where(eq(hotelSettingsTable.id, 1));
+  if (hs?.id && o.loyaltyCustomerId === hs.id) return null;
   if (o.loyaltyPaidBasis == null && o.loyaltyPointsEarned != null) return null;
   const rows = await tx.select().from(orderPaymentsTable).where(eq(orderPaymentsTable.orderId, orderId));
   const total = round2(num(o.totalAmount)), vat = round2(num(o.vatAmount));

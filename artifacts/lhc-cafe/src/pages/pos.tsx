@@ -103,7 +103,7 @@ export default function POS() {
   const { data: allLoyaltyCustomers } = useListLoyaltyCustomers();
   const customerMatches = phone.length >= 2
     ? (allLoyaltyCustomers ?? []).filter(c =>
-        c.name.toLowerCase().includes(phone.toLowerCase()) || c.phone.includes(phone)
+        c.name.toLowerCase().includes(phone.toLowerCase()) || (c.phone ?? "").includes(phone)
       ).slice(0, 6)
     : [];
 

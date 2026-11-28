@@ -154,7 +154,7 @@ export async function customerStatement(id: number, from: string, to: string, pa
   const [c] = await rows(sql`SELECT c.*, (SELECT default_credit_days FROM credit_settings LIMIT 1) AS default_days FROM loyalty_customers c WHERE c.id = ${id}`);
   if (!c) return null;
   const st = await statementLines("1300", id, from, to, page);
-  return { party: { id, name: c.name, phone: c.phone, email: c.email ?? null, creditDays: c.credit_days ?? c.default_days ?? 15, creditLimit: c.credit_limit == null ? null : num(c.credit_limit) },
+  return { party: { id, name: c.name, phone: c.phone, email: c.email ?? null, kind: c.kind ?? "member", creditDays: c.credit_days ?? c.default_days ?? 15, creditLimit: c.credit_limit == null ? null : num(c.credit_limit) },
     opening: st.opening, totals: st.totals, closing: st.closing, closingSays: st.closing > 0 ? "owes us" : st.closing < 0 ? "paid in advance" : "settled",
     lines: st.lines, page: st.page, pages: st.pages, count: st.count, agreement: await agreement("1300", id, to, st.closing) };
 }
@@ -168,7 +168,13 @@ export async function supplierStatement(id: number, from: string, to: string, pa
 }
 // All customers (1300) or all suppliers (2100): opening, debits, credits, closing; the total equals the account
 export async function partySummary(code: "1300" | "2100", from: string, to: string) {
-  const parties = await subLedger(code, from, to);
+  const parties: any[] = await subLedger(code, from, to);
+  // 3f: hotel guests are labelled (they owe money like anyone else)
+  if (code === "1300") {
+    const ids = parties.map(p => p.id).filter((x): x is number => x != null);
+    const kinds = new Map(ids.length ? (await rows(sql`SELECT id, kind FROM loyalty_customers WHERE id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)})`)).map(r => [Number(r.id), r.kind]) : []);
+    for (const p of parties) p.kind = p.id != null ? kinds.get(p.id) ?? "member" : null;
+  }
   const gl: any = await generalLedger(code, from, to, { page: 1 });
   const total = (k: string) => round2(parties.reduce((t: number, p: any) => t + p[k], 0));
   const totals = { opening: total("opening"), debit: total("debit"), credit: total("credit"), closing: total("closing") };

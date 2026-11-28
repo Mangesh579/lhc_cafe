@@ -20,7 +20,7 @@ const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-
 const nepalToday = () => new Date(Date.now() + 345 * 60000).toISOString().slice(0, 10);
 const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-type Customer = { customerId: number; name: string; phone: string; creditLimit: number | null; creditDays: number; ownCreditLimit: number | null; ownCreditDays: number | null; invoiced: number; received: number; balance: number; outstanding: number; unallocated: number; openInvoices: number; overdue: number; oldestDue: string | null };
+type Customer = { customerId: number; name: string; phone: string | null; kind?: string; creditLimit: number | null; creditDays: number; ownCreditLimit: number | null; ownCreditDays: number | null; invoiced: number; received: number; balance: number; outstanding: number; unallocated: number; openInvoices: number; overdue: number; oldestDue: string | null };
 
 function printVoucher(r: any) {
   const rows = (r.allocations ?? []).map((a: any) => `<div style="display:flex;justify-content:space-between;"><span>${esc(a.invoiceNumber ?? `Order #${a.orderId}`)}</span><span>Rs. ${Number(a.amount).toFixed(2)}</span></div>`).join("");
@@ -200,7 +200,7 @@ export default function Receivables() {
 
   if (!canView) return <div className="p-8 text-center text-muted-foreground">Receivables are for the admin, supervisors, the head barista and the accountant.</div>;
 
-  const shown = customers.filter(c => !search.trim() || c.name.toLowerCase().includes(search.toLowerCase()) || c.phone.includes(search));
+  const shown = customers.filter(c => !search.trim() || c.name.toLowerCase().includes(search.toLowerCase()) || (c.phone ?? "").includes(search));
   const totals = customers.reduce((t, c) => ({ balance: t.balance + c.balance, overdue: t.overdue + c.overdue }), { balance: 0, overdue: 0 });
 
   const ReceiptRows = ({ list }: { list: any[] }) => (
@@ -262,7 +262,7 @@ export default function Receivables() {
             </div>
           </div>
           <Card><CardContent className="p-4 flex flex-wrap gap-x-8 gap-y-2 text-sm">
-            <div><p className="text-xs text-muted-foreground">Customer</p><p className="font-semibold">{detail.customer.name} <span className="text-muted-foreground font-normal">{detail.customer.phone}</span></p></div>
+            <div><p className="text-xs text-muted-foreground">Customer</p><p className="font-semibold">{detail.customer.name} {(detail.customer.kind) === "hotel_guest" && <span className="ml-1 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">hotel guest</span>} <span className="text-muted-foreground font-normal">{detail.customer.phone}</span></p></div>
             <div><p className="text-xs text-muted-foreground">Balance</p><p className="font-semibold">{rs(detail.balance?.balance ?? 0)}</p></div>
             <div><p className="text-xs text-muted-foreground">Credit limit</p><p className="font-semibold">{detail.customer.creditLimit != null ? rs(detail.customer.creditLimit) : detail.defaultCreditLimit != null ? `${rs(detail.defaultCreditLimit)} (default)` : "None"}</p></div>
             <div><p className="text-xs text-muted-foreground">Credit days</p><p className="font-semibold">{detail.customer.creditDays ?? `${detail.defaultCreditDays} (default)`}</p></div>
@@ -357,7 +357,7 @@ export default function Receivables() {
                     const over = c.creditLimit != null && c.balance > c.creditLimit;
                     return (
                       <tr key={c.customerId} className="cursor-pointer hover:bg-muted/20" onClick={() => openDetail(c.customerId)}>
-                        <td className="px-3 py-2">{c.name} <span className="text-xs text-muted-foreground">{c.phone}</span></td>
+                        <td className="px-3 py-2">{c.name} {(c.kind) === "hotel_guest" && <span className="ml-1 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">hotel guest</span>} <span className="text-xs text-muted-foreground">{c.phone}</span></td>
                         <td className={`px-3 py-2 text-right font-medium ${over ? "text-red-600" : ""}`}>{rs(c.balance)}</td>
                         <td className="px-3 py-2 text-right">{c.creditLimit != null ? rs(c.creditLimit) : "—"}{c.creditLimit != null && c.ownCreditLimit == null && <span className="block text-[10px] text-muted-foreground">default</span>}{over && <span className="block text-xs text-red-600">over limit</span>}</td>
                         <td className="px-3 py-2 text-right">{c.openInvoices}</td>
@@ -421,7 +421,7 @@ export default function Receivables() {
                   {rvResults.length === 0 && <p className="p-2 text-sm text-muted-foreground">No customers found.</p>}
                   {rvResults.map((c: any) => (
                     <button key={c.id} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-muted" onClick={() => { setRvCustomer({ id: c.id, name: c.name }); loadInvoices(c.id); }}>
-                      {c.name} <span className="text-xs text-muted-foreground">{c.phone}</span>
+                      {c.name} {(c.kind) === "hotel_guest" && <span className="ml-1 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">hotel guest</span>} <span className="text-xs text-muted-foreground">{c.phone}</span>
                     </button>
                   ))}
                 </div>

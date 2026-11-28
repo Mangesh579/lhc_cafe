@@ -9,6 +9,7 @@ import { validateAllocations, buildCreditNote, fullCreditNote, RECEIPT_MODES, RE
 import { nextVoucherNumber, nextInvoiceNumber } from "../lib/fiscal";
 import { moveStockForSold, recipesFor, restoreSaleStock, reverseNoteStock } from "../lib/stockMoves";
 import { round2 } from "../lib/payments";
+import { stayEvent, orderStayEvent } from "../lib/stayEvents";
 import { lockGuard, orderDay, PAID_ORDER_ALT } from "../lib/periodLock";
 
 const router = Router();
@@ -360,6 +361,7 @@ router.post("/credit-notes", authenticate, async (req: AuthRequest, res: Respons
         await tx.insert(creditNoteItemsTable).values({ noteId: row.id, orderItemId: l.orderItemId, description: l.description, quantity: l.quantity, unitPrice: String(l.unitPrice), amount: String(l.amount) });
       }
       await syncLoyaltyForOrder(tx, orderId, `${noteNo} issued`, user);
+      await orderStayEvent(tx, orderId, "order_credited", { noteNo, total: v.total, reason }, user);
       return row.id;
     });
     const [n] = await notesWithItems(eq(creditNotesTable.id, id));
@@ -391,6 +393,7 @@ router.post("/credit-notes/:id/void", authenticate, async (req: AuthRequest, res
         await moveStockForSold(tx, await soldLinesOfNote(tx, id), recipes, -1, `${n.noteNo} voided: stock taken out again (by today's recipe)`, n.orderId, user);
       }
       await syncLoyaltyForOrder(tx, n.orderId, `${n.noteNo} voided`, user);
+      await orderStayEvent(tx, n.orderId, "order_credited", { noteNo: n.noteNo, voided: true, reason }, user);
     });
     res.json({ success: true });
   } catch (e: any) {
@@ -459,6 +462,7 @@ router.post("/receivables/invoices/:orderId/cancel", authenticate, async (req: A
       // 2026-11-27: reverse what the sale took out (its Stock Log lines); today's recipe only for older orders without them
       if (restoreStock) stock = await restoreSaleStock(tx, orderId, await soldLinesOfNote(tx, row.id), recipes, `Invoice ${inv.invoiceNumber} cancelled (${row.noteNo}), not served: stock restored`, user);
       await syncLoyaltyForOrder(tx, orderId, `${row.noteNo} issued (invoice cancelled)`, user);
+      await orderStayEvent(tx, orderId, "order_cancelled", { noteNo: row.noteNo, reason, stockRestored: restoreStock }, user);
       return row.id;
     });
     const [n] = await notesWithItems(eq(creditNotesTable.id, id));
@@ -533,6 +537,9 @@ export async function reissueInvoice(tx: any, orderId: number, toId: number, rea
       await tx.insert(orderPaymentsTable).values({ orderId: n.id, mode: "credit", amount: String(inv.creditAmount), paidAt: visitAt, createdBy: user });
       const row = await insertNote(tx, { orderId, customerId: o.loyaltyCustomerId, reason: `Wrong customer, moved to ${to.name} as invoice ${invoiceNumber}: ${reason}`, user, kind: "reissue", reissuedOrderId: n.id, v });
       await syncLoyaltyForOrder(tx, orderId, `${row.noteNo} issued (moved to another customer)`, user);
+      // 3f: the stays' history (Move to another room, Wrong customer, unpaid extras moved to Sulimha at check-out)
+      if (o.roomStayId) await stayEvent(tx, o.roomStayId, "order_moved_out", { orderId, invoice: inv.invoiceNumber, noteNo: row.noteNo, toCustomer: to.name, toCustomerId: toId, newInvoice: invoiceNumber, toStayId: n.roomStayId !== o.roomStayId ? n.roomStayId : null, reason }, user);
+      if (n.roomStayId && n.roomStayId !== o.roomStayId) await stayEvent(tx, n.roomStayId, "order_moved_in", { orderId: n.id, invoice: invoiceNumber, fromInvoice: inv.invoiceNumber, fromStayId: o.roomStayId, customer: to.name, reason }, user);
       return { noteId: row.id, orderId: n.id, invoiceNumber };
 }
 

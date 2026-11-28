@@ -12,13 +12,13 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/auth";
 import { apiJson } from "@/lib/expenseApi";
 import { RECEIPT_MODES, rs, round2 } from "@/lib/payments";
-import { printReceiptHtml } from "@/lib/kot";
 import * as XLSX from "xlsx";
 import { InvoiceFixButtons } from "@/components/InvoiceFix";
+import { useLocation } from "wouter";
+import { printGuestBill } from "@/lib/guestBill";
 
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
 const nepalToday = () => new Date(Date.now() + 345 * 60000).toISOString().slice(0, 10);
-const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const EMPTY = { tableId: 0, guestName: "", phone: "", email: "", adults: "2", children: "0", breakfastIncluded: true, checkIn: "", checkOut: "", notes: "" };
 
 export default function Stays() {
@@ -28,6 +28,8 @@ export default function Stays() {
   const canStay = ["admin", "supervisor", "reception"].includes(role);
   const canMoney = ["admin", "accountant", "supervisor", "head_barista"].includes(role);
   const isAdmin = role === "admin";
+  const canFolio = canStay || canMoney || role === "accountant"; // 3f: the folio page (reception sees it without amounts)
+  const [, navigate] = useLocation();
   const [data, setData] = useState<{ rooms: any[]; settings: any } | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [tab, setTab] = useState("rooms");
@@ -71,9 +73,8 @@ export default function Stays() {
     if (reason?.trim()) act(() => apiJson(`/stays/${s.id}/cancel`, "POST", { reason }), "Stay cancelled");
   };
 
-  const openFolio = async (s: any) => {
-    try { setFolio(await apiJson(`/stays/${s.id}`)); } catch (e: any) { fail(e, "Could not load the folio"); }
-  };
+  const openFolio = (s: any) => navigate(`/stays/${s.id}`);
+  void setFolio;
 
   const exportHistory = () => {
     const wb = XLSX.utils.book_new();
@@ -98,7 +99,7 @@ export default function Stays() {
       {isAdmin && !data.settings.sulimhaCustomerId && <p className="text-sm bg-amber-50 text-amber-800 border border-amber-200 rounded-md px-3 py-2">Choose which customer is Sulimha Durbar (Settings) before charging a hotel breakfast.</p>}
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList><TabsTrigger value="rooms">Rooms</TabsTrigger><TabsTrigger value="history">History</TabsTrigger></TabsList>
+        <TabsList><TabsTrigger value="rooms">Rooms</TabsTrigger><TabsTrigger value="history">History</TabsTrigger>{(canStay || role === "accountant") && <TabsTrigger value="guests">Guests</TabsTrigger>}</TabsList>
         <TabsContent value="rooms">
           {data.rooms.length === 0 && <p className="text-sm text-muted-foreground py-6">No rooms yet. Migration 012 marks the tables named 103 to 402 as rooms.</p>}
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
@@ -120,7 +121,7 @@ export default function Stays() {
                       </div>
                       <p className={`text-sm font-medium ${s.extrasOwed > 0 ? "text-red-600" : "text-green-700"}`}>{s.extrasOwed > 0 ? `${rs(s.extrasOwed)} to pay at LHC` : s.extrasBills ? "Extras paid" : "No extras"}</p>
                       <div className="flex flex-wrap gap-1.5">
-                        {canMoney && <Button size="sm" variant="outline" onClick={() => openFolio(s)}>Folio{s.extrasOwed > 0 ? " / payment" : ""}</Button>}
+                        {canFolio && <Button size="sm" variant="outline" onClick={() => openFolio(s)}>Folio{canMoney && s.extrasOwed > 0 ? " / payment" : ""}</Button>}
                         {canStay && <Button size="sm" variant="outline" onClick={() => setForm({ ...EMPTY, ...s, adults: String(s.adults), children: String(s.children), notes: s.notes ?? "" })}>Change</Button>}
                         {canStay && <Button size="sm" disabled={busy} onClick={() => close(s)}>Check out</Button>}
                         {canStay && <Button size="sm" variant="ghost" className="text-destructive" disabled={busy} onClick={() => cancel(s)}>Cancel</Button>}
@@ -143,7 +144,7 @@ export default function Stays() {
                     <td className="px-3 py-2">{s.room}</td><td className="px-3 py-2">{s.guestName}</td><td className="px-3 py-2">{s.checkIn} to {s.checkOut}</td>
                     <td className="px-3 py-2">{s.status === "checked_out" ? "Checked out" : s.status === "cancelled" ? "Cancelled" : "Open"}{s.closeReason ? <span className="text-xs text-muted-foreground"> · {s.closeReason}</span> : null}</td>
                     <td className="px-3 py-2 text-right">{s.extrasOwed > 0 ? rs(s.extrasOwed) : "—"}</td>
-                    <td className="px-3 py-2 text-right">{canMoney && <Button size="sm" variant="ghost" className="h-7" onClick={() => openFolio(s)}>Folio</Button>}</td>
+                    <td className="px-3 py-2 text-right">{canFolio && <Button size="sm" variant="ghost" className="h-7" onClick={() => openFolio(s)}>Folio</Button>}</td>
                   </tr>
                 ))}
                 {!history.length && <tr><td colSpan={6} className="px-3 py-4 text-muted-foreground">No stays yet.</td></tr>}
@@ -151,6 +152,7 @@ export default function Stays() {
             </table>
           </CardContent></Card>
         </TabsContent>
+        <TabsContent value="guests"><GuestsTab role={role} onOpen={id => navigate(`/stays/${id}`)} /></TabsContent>
       </Tabs>
 
       <Dialog open={!!form} onOpenChange={o => !o && setForm(null)}>
@@ -161,9 +163,10 @@ export default function Stays() {
               {!form.id && <>
                 <div className="space-y-1"><Label>Guest name *</Label><Input value={form.guestName} onChange={e => setForm({ ...form, guestName: e.target.value })} autoFocus /></div>
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1"><Label>Phone *</Label><Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></div>
+                  <div className="space-y-1"><Label>Phone (optional)</Label><Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></div>
                   <div className="space-y-1"><Label>Email (optional)</Label><Input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></div>
                 </div>
+                <p className="text-xs text-muted-foreground">Only the name is needed. A phone that belongs to a loyalty member puts the stay on their record; with no phone the guest is added as a new hotel guest.</p>
               </>}
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1"><Label>Adults *</Label><Input type="number" min="1" value={form.adults} onChange={e => setForm({ ...form, adults: e.target.value })} /></div>
@@ -179,7 +182,7 @@ export default function Stays() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setForm(null)}>Close</Button>
-            <Button disabled={busy || !form || (!form.id && (!form.guestName.trim() || !form.phone.trim())) || !(Number(form?.adults) >= 1)} onClick={saveForm}>{form?.id ? "Save" : "Check in"}</Button>
+            <Button disabled={busy || !form || (!form.id && !form.guestName.trim()) || !(Number(form?.adults) >= 1)} onClick={saveForm}>{form?.id ? "Save" : "Check in"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -191,7 +194,7 @@ export default function Stays() {
 }
 
 // The stay's bills; LHC's cashier records the guest's payment for the extras here (one receipt per mode, oldest bill first)
-function FolioDialog({ folio, onClose, onPaid }: { folio: any; onClose: () => void; onPaid: () => Promise<void> }) {
+export function FolioDialog({ folio, onClose, onPaid }: { folio: any; onClose: () => void; onPaid: () => Promise<void> }) {
   const { toast } = useToast();
   const owed = round2(folio.extrasOwed ?? 0);
   const [mode, setMode] = useState("cash");
@@ -216,18 +219,8 @@ function FolioDialog({ folio, onClose, onPaid }: { folio: any; onClose: () => vo
     finally { setBusy(false); }
   };
 
-  const print = () => {
-    const row = (l: string, r: string, extra = "") => `<div style="display:flex;justify-content:space-between;${extra}"><span>${l}</span><span>${r}</span></div>`;
-    const lines = extras.map(b => `${row(`${esc(b.day)} ${esc(b.invoiceNumber ?? "")}`, `Rs. ${b.total.toFixed(2)}`, "font-weight:bold;")}${b.items.map((i: any) => row(`&nbsp;&nbsp;${i.quantity} x ${esc(i.name)}`, i.amount.toFixed(2), "font-size:11px;")).join("")}`).join("");
-    const bf = breakfasts.map(b => row(`${esc(b.day)} breakfast x ${b.breakfastCount}`, "included")).join("");
-    printReceiptHtml(`<div style="font-family:monospace;font-size:12px;padding:16px;color:black;background:white;">
-      <div style="text-align:center;border-bottom:2px solid #1a1a1a;padding-bottom:8px;margin-bottom:8px;"><h2 style="font-size:15px;margin:0;">Legendary House Cafe & Barista Coffee School</h2><p style="font-size:11px;margin:2px 0;">Sulimha Durbar, Pimbahal, Nepal</p><p style="font-weight:bold;margin-top:4px;">GUEST FOLIO</p></div>
-      <p style="margin:2px 0;">Room ${esc(folio.room)} · ${esc(folio.guestName)}</p><p style="margin:2px 0;">${esc(folio.checkIn)} to ${esc(folio.checkOut)}</p>
-      <div style="border-top:1px dashed #999;margin:6px 0;padding-top:6px;">${lines || "<p>No extras.</p>"}</div>
-      ${bf ? `<div style="border-top:1px dashed #999;margin:6px 0;padding-top:6px;"><p style="margin:0 0 2px;">Breakfast (included, billed to Sulimha Durbar)</p>${bf}</div>` : ""}
-      <div style="border-top:1px dashed #999;padding-top:6px;">${row("EXTRAS TOTAL", `Rs. ${extras.reduce((t, b) => t + b.total, 0).toFixed(2)}`, "font-weight:bold;")}${row("STILL TO PAY", `Rs. ${owed.toFixed(2)}`, "font-weight:bold;font-size:14px;")}</div>
-      <div style="margin-top:24px;font-size:11px;"><div style="border-bottom:1px solid #1a1a1a;height:22px;width:55%;"></div><p>Guest signature</p></div></div>`);
-  };
+  // 3f: Print prints the guest's extras bill from the server (recorded in the stay's history)
+  const print = () => printGuestBill(folio.id).catch((e: any) => toast({ title: "Could not print the bill", description: e?.error, variant: "destructive" }));
 
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
@@ -272,7 +265,7 @@ function FolioDialog({ folio, onClose, onPaid }: { folio: any; onClose: () => vo
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={print}>Print folio</Button>
+          <Button variant="outline" onClick={print}>Print bill</Button>
           <Button variant="outline" onClick={onClose}>Close</Button>
         </DialogFooter>
       </DialogContent>
@@ -314,5 +307,79 @@ function SettingsDialog({ settings, onClose, onSaved }: { settings: any; onClose
         <DialogFooter><Button variant="outline" onClick={onClose}>Close</Button><Button onClick={save}>Save</Button></DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// 3f: the Guests view: one row per stay (name, phone, room, dates, guests, status), each opening the stay's folio.
+// Archive (admin, supervisor) only for a guest never billed; Promote to member (admin, supervisor, reception).
+function GuestsTab({ role, onOpen }: { role: string; onOpen: (stayId: number) => void }) {
+  const { toast } = useToast();
+  const [q, setQ] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [promote, setPromote] = useState<any | null>(null);
+  const canArchive = role === "admin" || role === "supervisor";
+  const canPromote = ["admin", "supervisor", "reception"].includes(role);
+  const load = useCallback(() => {
+    apiJson(`/stays/guests?q=${encodeURIComponent(q.trim())}${showArchived ? "&archived=1" : ""}`).then(setRows).catch((e: any) => toast({ title: "Could not load the guests", description: e?.error, variant: "destructive" }));
+  }, [q, showArchived]);
+  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+  const archive = async (r: any, on: boolean) => {
+    if (on && !confirm(`Archive ${r.name}? They are hidden from the lists; nothing is deleted.`)) return;
+    try { await apiJson(`/loyalty/customers/${r.customerId}/${on ? "archive" : "unarchive"}`, "POST"); toast({ title: on ? "Guest archived" : "Guest brought back" }); load(); }
+    catch (e: any) { toast({ title: "Not archived", description: e?.error, variant: "destructive" }); }
+  };
+  const status = (s: string) => s === "open" ? "Open" : s === "checked_out" ? "Checked out" : "Cancelled";
+  return (
+    <div className="space-y-3 mt-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <Input aria-label="Search guests" className="h-9 w-72" placeholder="Search by name, phone or room" value={q} onChange={e => setQ(e.target.value)} />
+        <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} /> Show archived</label>
+      </div>
+      <Card><CardContent className="p-0 overflow-x-auto">
+        <table className="w-full text-sm min-w-[760px]">
+          <thead className="text-xs text-muted-foreground bg-muted/40"><tr><th className="px-3 py-2 text-left">Guest</th><th className="px-3 py-2 text-left">Room</th><th className="px-3 py-2 text-left">Dates</th><th className="px-3 py-2 text-left">Guests</th><th className="px-3 py-2 text-left">Status</th><th /></tr></thead>
+          <tbody className="divide-y">
+            {rows === null && <tr><td colSpan={6} className="px-3 py-3 text-muted-foreground">Loading…</td></tr>}
+            {rows?.length === 0 && <tr><td colSpan={6} className="px-3 py-3 text-muted-foreground">No guests found.</td></tr>}
+            {rows?.map(r => (
+              <tr key={r.stayId} className={r.archived ? "opacity-60" : ""}>
+                <td className="px-3 py-1.5"><button className="font-medium hover:underline text-left" onClick={() => onOpen(r.stayId)}>{r.name}</button>
+                  <span className="block text-xs text-muted-foreground">{r.phone ?? "no phone"} · {r.kind === "hotel_guest" ? "hotel guest" : "loyalty member"}{r.archived ? " · archived" : ""}</span></td>
+                <td className="px-3 py-1.5">{r.room}</td>
+                <td className="px-3 py-1.5">{r.checkIn} to {r.checkOut}</td>
+                <td className="px-3 py-1.5">{r.adults} adult{r.adults === 1 ? "" : "s"}{r.children ? `, ${r.children} child${r.children === 1 ? "" : "ren"}` : ""}</td>
+                <td className="px-3 py-1.5">{status(r.status)}</td>
+                <td className="px-3 py-1.5 text-right space-x-1 whitespace-nowrap">
+                  <Button size="sm" variant="ghost" className="h-7" onClick={() => onOpen(r.stayId)}>Folio</Button>
+                  {canPromote && r.kind === "hotel_guest" && !r.archived && <Button size="sm" variant="outline" className="h-7" onClick={() => setPromote({ ...r, phoneIn: r.phone ?? "", emailIn: "" })}>Make member</Button>}
+                  {canArchive && !r.archived && (r.billed
+                    ? <span className="text-xs text-muted-foreground" title={r.archiveBlocked}>billed: cannot archive</span>
+                    : <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => archive(r, true)}>Archive</Button>)}
+                  {canArchive && r.archived && <Button size="sm" variant="ghost" className="h-7" onClick={() => archive(r, false)}>Bring back</Button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent></Card>
+      <Dialog open={!!promote} onOpenChange={o => !o && setPromote(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Make {promote?.name} a loyalty member</DialogTitle></DialogHeader>
+          {promote && <div className="space-y-3 py-1">
+            <p className="text-xs text-muted-foreground">A member needs a phone and an email. The guest keeps their stays, invoices and points.</p>
+            <div className="space-y-1"><Label>Phone *</Label><Input value={promote.phoneIn} onChange={e => setPromote({ ...promote, phoneIn: e.target.value })} /></div>
+            <div className="space-y-1"><Label>Email *</Label><Input value={promote.emailIn} onChange={e => setPromote({ ...promote, emailIn: e.target.value })} /></div>
+          </div>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPromote(null)}>Close</Button>
+            <Button disabled={!promote?.phoneIn?.trim() || !promote?.emailIn?.trim()} onClick={async () => {
+              try { await apiJson(`/stays/guests/${promote.customerId}/promote`, "POST", { phone: promote.phoneIn.trim(), email: promote.emailIn.trim() }); toast({ title: `${promote.name} is now a loyalty member` }); setPromote(null); load(); }
+              catch (e: any) { toast({ title: "Not changed", description: e?.error, variant: "destructive" }); }
+            }}>Make member</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

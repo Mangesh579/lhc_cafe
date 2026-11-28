@@ -137,7 +137,7 @@ describe("charging bills to the stay", () => {
     expect((await api("rec", "POST", `/stays/${stayId}/cancel`, { reason: "x" })).body.error).toMatch(/Close it instead/);
   });
 
-  it("check-out: one receipt, card on LHC HBL POS plus cash, settles the extras; no points; then reception closes", async () => {
+  it("check-out: one receipt, card on LHC HBL POS plus cash, settles the extras; the guest earns points on them (3f); then reception closes", async () => {
     const stay = (await api("rec", "GET", `/stays/${stayId}`)).body;
     const extra = (await api("acct", "GET", `/receivables/customers/${stay.customerId}`)).body.invoices[0];
     const card = await api("super", "POST", "/receipts", { customerId: stay.customerId, amount: 300, mode: "card_hbl", allocations: [{ orderId: extra.orderId, amount: 300 }] });
@@ -145,7 +145,8 @@ describe("charging bills to the stay", () => {
     expect(card.body.modeLabel).toBe("Card - LHC HBL POS");
     expect((await api("super", "POST", "/receipts", { customerId: stay.customerId, amount: 200, mode: "cash", allocations: [{ orderId: extra.orderId, amount: 200 }] })).status).toBe(201);
     const guest = (await ctx.db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.id, stay.customerId)))[0];
-    expect(guest.totalPoints).toBe(0);
+    // 3f (owner, 2026-11-28; was "no points on stay bills"): Rs 500 of extras paid gives 50 points
+    expect(guest.totalPoints).toBe(50);
     expect((await api("rec", "POST", `/stays/${stayId}/close`, {})).body).toEqual({ success: true, movedToSulimha: [] });
     expect((await api("rec", "GET", "/stays/rooms")).body.rooms[0].stay).toBeNull();
   });

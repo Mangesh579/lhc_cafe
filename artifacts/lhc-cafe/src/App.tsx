@@ -22,6 +22,7 @@ import Ledgers from "@/pages/ledgers";
 import Receivables from "@/pages/receivables";
 import Settlements from "@/pages/settlements";
 import Stays from "@/pages/stays";
+import StayFolio from "@/pages/stay-folio";
 import ChartOfAccounts from "@/pages/chart-of-accounts";
 import Reports from "@/pages/reports";
 import Suppliers from "@/pages/suppliers";
@@ -112,6 +113,7 @@ function Router() {
         <Route path="/receivables" component={Receivables} />
         <Route path="/settlements" component={Settlements} />
         <Route path="/stays" component={Stays} />
+        <Route path="/stays/:id" component={StayFolio} />
         <Route path="/chart-of-accounts" component={ChartOfAccounts} />
         <Route path="/reports" component={Reports} />
         <Route path="/suppliers" component={Suppliers} />

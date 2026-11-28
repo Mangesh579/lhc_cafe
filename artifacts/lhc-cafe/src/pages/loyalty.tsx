@@ -189,7 +189,7 @@ export default function Loyalty() {
 
   const filteredCustomers = customers?.filter(c => 
     c.name.toLowerCase().includes(search.toLowerCase()) || 
-    c.phone.includes(search)
+    (c.phone ?? "").includes(search)
   ) ?? [];
 
   const validatePhone = (phone: string): string | null => {

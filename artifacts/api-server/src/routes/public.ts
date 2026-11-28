@@ -8,6 +8,7 @@ import { applyPrepWaste } from "../lib/prepWaste";
 import { claimOrderRequest, completeOrderRequest } from "../lib/idempotency";
 import { itemCostFields } from "../lib/costing";
 import { loyaltyCustomersTable as qrCustomersTable } from "@workspace/db";
+import { promoteGuest } from "./loyalty";
 import { expandRecipeLines } from "../lib/ingredientUsage";
 import { Resend } from "resend";
 import type { Request, Response, NextFunction } from "express";
@@ -458,7 +459,7 @@ router.post("/loyalty/request-otp", requireCafeWifi, publicOrderRateLimiter, asy
     const [customer] = await db
       .select()
       .from(loyaltyCustomersTable)
-      .where(eq(loyaltyCustomersTable.phone, phone))
+      .where(and(eq(loyaltyCustomersTable.phone, phone), eq(loyaltyCustomersTable.kind, "member"), eq(loyaltyCustomersTable.archived, false)))
       .limit(1);
 
     if (!customer) {
@@ -607,7 +608,7 @@ router.post("/loyalty/verify-otp", requireCafeWifi, publicOrderRateLimiter, asyn
     const [customer] = await db
       .select()
       .from(loyaltyCustomersTable)
-      .where(eq(loyaltyCustomersTable.phone, phone))
+      .where(and(eq(loyaltyCustomersTable.phone, phone), eq(loyaltyCustomersTable.kind, "member"), eq(loyaltyCustomersTable.archived, false)))
       .limit(1);
 
     if (!customer) {
@@ -647,6 +648,14 @@ router.post("/loyalty/register", requireCafeWifi, publicOrderRateLimiter, async 
       .where(eq(loyaltyCustomersTable.phone, phone))
       .limit(1);
 
+    // 3f (owner, 2026-11-28): a hotel guest who signs up becomes a member and keeps their stays and points. The public
+    // page shows only the member's name, phone and points: never stays, rooms or invoices.
+    if (existingPhone?.kind === "hotel_guest") {
+      const r = await promoteGuest(db, existingPhone.id, phone, email, String(name).trim().slice(0, 120) || null, "QR sign-up");
+      if ("error" in r) { res.status(r.status).json({ error: r.error }); return; }
+      res.status(201).json({ success: true, customer: { id: r.customer.id, name: r.customer.name, phone: r.customer.phone, totalPoints: r.customer.totalPoints, loopNumber: r.customer.loopNumber ?? 1 } });
+      return;
+    }
     if (existingPhone) {
       res.status(400).json({ error: "A loyalty account already exists for this phone number." });
       return;
@@ -655,7 +664,7 @@ router.post("/loyalty/register", requireCafeWifi, publicOrderRateLimiter, async 
     const [existingEmail] = await db
       .select()
       .from(loyaltyCustomersTable)
-      .where(eq(loyaltyCustomersTable.email, email))
+      .where(and(eq(loyaltyCustomersTable.email, email), eq(loyaltyCustomersTable.kind, "member")))
       .limit(1);
 
     if (existingEmail) {
