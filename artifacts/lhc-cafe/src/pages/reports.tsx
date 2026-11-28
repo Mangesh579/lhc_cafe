@@ -11,6 +11,7 @@ import { amt, side, drcr, select, PeriodPicker, PeriodLine, Pager, DownloadButto
 import { TdsPayableTab } from "@/components/reports/TdsPayable";
 import { TdsReceivableTab } from "@/components/reports/TdsReceivable";
 import { TaxInvoicesTab } from "@/components/reports/TaxInvoices";
+import { VatReturnTab } from "@/components/reports/VatReturn";
 import { ProfitLossTab, BalanceSheetTab, StatementsTab, CompareTab, asAtOf } from "@/components/reports/statements";
 
 export default function Reports() {
@@ -58,6 +59,7 @@ export default function Reports() {
           <TabsTrigger value="tds">TDS payable</TabsTrigger>
           <TabsTrigger value="tdsr">TDS receivable</TabsTrigger>
           <TabsTrigger value="taxinv">Tax invoices</TabsTrigger>
+          <TabsTrigger value="vat">VAT return</TabsTrigger>
         </TabsList>
         <TabsContent value="daybook"><DayBook q={q} meta={meta} parties={parties} accounts={accounts} onEntry={open} /></TabsContent>
         <TabsContent value="ledger"><Ledger q={q} parties={parties} accounts={accounts} onEntry={open} /></TabsContent>
@@ -70,6 +72,7 @@ export default function Reports() {
         <TabsContent value="tds"><TdsPayableTab /></TabsContent>
         <TabsContent value="tdsr"><TdsReceivableTab /></TabsContent>
         <TabsContent value="taxinv"><TaxInvoicesTab /></TabsContent>
+        <TabsContent value="vat"><VatReturnTab /></TabsContent>
       </Tabs>
       <EntryDialog id={entry} onClose={() => setEntry(null)} onOpen={open} onConsumption={d => { setEntry(null); setConsumption(d); }} />
       <ConsumptionDialog day={consumption} onClose={() => setConsumption(null)} onOpen={id => { setConsumption(null); setEntry(id); }} />

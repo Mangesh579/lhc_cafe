@@ -1,6 +1,8 @@
 // Step 3d: the Nepali (BS) month close and the admin reopen of a locked day (docs/specs/step3-ledger.md sections 5 and 17).
 // A month closes only when it has ended, every day in it (from the ledger start) is posted and locked, and its month-end
 // checks agree or are acknowledged with a note. A closed month locks all its days; only the admin reopens it, with a reason.
+import { vatReturn } from "./reports/vatReturn";
+import { taxInvoiceList } from "./reports/taxInvoices";
 import { db, postingDaysTable, periodClosesTable, dayReopensTable, journalEntriesTable } from "@workspace/db";
 import { and, eq, gte, lte, desc, sql } from "drizzle-orm";
 import { ledgerSettings, trialBalance, LedgerError } from "./ledger";
@@ -60,6 +62,16 @@ export async function reviewMonth(year: number, month: number) {
   }
   if (notPosted.length) blockers.push(`Not posted yet: ${notPosted.slice(0, 6).join(", ")}${notPosted.length > 6 ? ` and ${notPosted.length - 6} more` : ""}.`);
   if (notLocked.length) blockers.push(`Posted but not locked yet: ${notLocked.slice(0, 6).join(", ")}${notLocked.length > 6 ? ` and ${notLocked.length - 6} more` : ""}.`);
+  // 5f: a month with VAT cannot close while its VAT books disagree with the ledger or its tax invoice numbers have gaps
+  if (r.toDay < today && !notPosted.length && !closed) {
+    const v = await vatReturn(year, month);
+    if (v.vatMonth || v.sales.length || v.purchases.length) {
+      if (!v.check.output.agrees) blockers.push(`VAT return: the sales book's VAT (Rs. ${v.check.output.documents.toFixed(2)}) does not equal the 2200 movement (Rs. ${v.check.output.ledger.toFixed(2)}).`);
+      if (!v.check.input.agrees) blockers.push(`VAT return: the purchase book's VAT (Rs. ${v.check.input.documents.toFixed(2)}) does not equal the 1450 movement (Rs. ${v.check.input.ledger.toFixed(2)}).`);
+      const ti = await taxInvoiceList(year, month);
+      if (!ti.gapFree) blockers.push(`Tax invoice numbers are missing: ${ti.gaps.slice(0, 6).join(", ")}${ti.gaps.length > 6 ? ` and ${ti.gaps.length - 6} more` : ""}.`);
+    }
+  }
   const checks = r.toDay < today ? await balanceChecksAt(r.toDay) : [];
   const tb = await trialBalance(db, r.toDay);
   const movement = await trialBalance(db, r.toDay, r.fromDay);

@@ -333,8 +333,42 @@ async function tdsReceivableDoc(q: Record<string, any>): Promise<ReportDoc> {
         { key: "money", label: "Money", type: "money" }, { key: "tds", label: "TDS", type: "money" }, { key: "certificate", label: "Certificate", type: "text", width: 22 }, { key: "running", label: "Running TDS", type: "money" }] }] };
 }
 
+// 5f: the VAT return (sales book, purchase book, summary)
+async function vatReturnDoc(q: Record<string, any>): Promise<ReportDoc> {
+  const m = String(q.month ?? "").match(/^(\d{4})-(\d{1,2})$/);
+  if (!m || +m[2] < 1 || +m[2] > 12) throw new ExportError(400, "Choose the BS month, like 2083-09.");
+  const { vatReturn } = await import("./vatReturn");
+  const r = await vatReturn(+m[1], +m[2]);
+  const book = (ls: any[], party: string) => [...ls.map(l => ({ cells: { date: l.day, ref: l.ref, against: l.against ?? "", party: nameCell(l.party ?? "", party, null), pan: l.pan ?? "", billNo: l.billNo ?? "",
+      taxable: l.taxable, nonTaxable: 0, export: 0, vat: l.vat, total: l.total, note: l.note ?? "" } })),
+    { style: "total" as const, cells: { party: "Total", taxable: ls.reduce((t, l) => t + l.taxable, 0), vat: ls.reduce((t, l) => t + l.vat, 0), total: ls.reduce((t, l) => t + l.total, 0) } }];
+  const cols = (party: string, bill: boolean) => [{ key: "date", label: "Date", type: "date" }, { key: "ref", label: bill ? "Voucher" : "Tax invoice / note", type: "text", width: 18 }, { key: "against", label: "Against", type: "text", width: 16 },
+    { key: "party", label: party, type: "text", width: 26 }, { key: "pan", label: "PAN", type: "text", width: 12 }, ...(bill ? [{ key: "billNo", label: "Bill no.", type: "text", width: 14 }] : []),
+    { key: "taxable", label: "Taxable", type: "money" }, { key: "nonTaxable", label: "Non-taxable", type: "money" }, { key: "export", label: "Export", type: "money" },
+    { key: "vat", label: "VAT", type: "money" }, { key: "total", label: "Total", type: "money" }, { key: "note", label: "Note", type: "text", width: 22 }] as any;
+  const sales = book(r.sales, "buyer"), purchases = book(r.purchases, "supplier");
+  const S = r.summary;
+  const summary = [
+    { cells: { item: "Output VAT (sales book)", amount: S.output } }, { cells: { item: "Less input VAT (purchase book)", amount: -S.input } },
+    { cells: { item: "Less credit brought forward", amount: -S.creditIn } },
+    { style: "total" as const, cells: { item: S.payable > 0 ? "VAT payable" : "Credit carried forward", amount: S.payable > 0 ? S.payable : S.carryOut } },
+  ];
+  const posted = r.posted;
+  return { title: "VAT return", fileReport: "VATReturn", filePeriod: `${r.year}-${String(r.month).padStart(2, "0")}`, periodText: periodText(r.label, r.from, r.to),
+    postedText: posted.postedUpTo ? `Posted up to ${bsWithAd(posted.postedUpTo)}` : "Posted up to: no day posted yet", warning: posted.warning, orientation: "landscape", zero: "dash",
+    pdfRows: sales.length + purchases.length + summary.length, extraLines: [r.due.text, r.filed ? `Filed: ${r.filed.voucherNo} on ${r.filed.day}` : "Not filed yet", ...(r.changedAfterFiling ? [r.changedAfterFiling.text] : [])],
+    sections: [
+      { title: "Sales book", rows: sales, columns: cols("Buyer", false),
+        notes: [r.check.output.agrees ? `The posted output VAT (Rs. ${money(r.check.output.documents)}) equals the 2200 movement.` : `The posted output VAT (Rs. ${money(r.check.output.documents)}) differs from the 2200 movement (Rs. ${money(r.check.output.ledger)}).`] },
+      { title: "Purchase book", rows: purchases, columns: cols("Supplier", true),
+        notes: [r.check.input.agrees ? `The posted input VAT (Rs. ${money(r.check.input.documents)}) equals the 1450 movement.` : `The posted input VAT (Rs. ${money(r.check.input.documents)}) differs from the 1450 movement (Rs. ${money(r.check.input.ledger)}).`] },
+      { title: "Summary", rows: summary, columns: [{ key: "item", label: "", type: "text", width: 40 }, { key: "amount", label: "Rs.", type: "money" }] as any },
+    ] };
+}
+
 export const EXPORTS: Record<string, (q: Record<string, any>) => Promise<ReportDoc>> = {
   "tds-payable": tdsPayableDoc,
+  "vat-return": vatReturnDoc,
   "tds-receivable": tdsReceivableDoc,
   "day-book": dayBookDoc, ledger: ledgerDoc, book: bookDoc, "trial-balance": trialBalanceDoc, "profit-loss": profitLossDoc, "balance-sheet": balanceSheetDoc,
   compare: compareDoc, customers: q => summaryDoc(q, "1300"), suppliers: q => summaryDoc(q, "2100"),

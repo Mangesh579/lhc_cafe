@@ -267,11 +267,20 @@ export function expenseEntry(e: ExpenseSource): Built {
 }
 
 // 5b: the tax payment voucher. A TDS deposit clears 2250 from the bank. (The VAT payment kind is built in 5f.)
-export type TaxPaymentSource = { paymentId: number; voucherNo: string; day: string; kind: string; amount: number; bankAccount: string; bsLabel: string; reference: string | null };
+export type TaxPaymentSource = { paymentId: number; voucherNo: string; day: string; kind: string; amount: number; bankAccount: string; bsLabel: string; reference: string | null;
+  vatOutput?: number; vatUsed?: number }; // 5f: a VAT filing clears the month's output VAT, uses input VAT and pays the rest
 export function taxPaymentEntry(t: TaxPaymentSource): Built {
   const bank = BANK_ACCOUNT[t.bankAccount];
   if (!bank) return { entry: null, problems: [{ level: "fix", code: "tax_payment_bank", message: `${t.voucherNo}: no bank recorded.`, ref: t.voucherNo }] };
-  if (t.kind !== "tds_deposit") return { entry: null, problems: [{ level: "fix", code: "tax_payment_kind", message: `${t.voucherNo}: a ${t.kind} is posted from step 5f.`, ref: t.voucherNo }] };
+  if (t.kind === "vat_payment") {
+    // 5f: Dr 2200 the output VAT cleared (input used + paid), Cr 1450 the input VAT used, Cr bank the VAT paid
+    const used = round2(t.vatUsed ?? 0), paid = round2(t.amount);
+    if (used < 0 || paid < 0) return { entry: null, problems: [{ level: "fix", code: "vat_payment", message: `${t.voucherNo}: a VAT filing below zero.`, ref: t.voucherNo }] };
+    if (used + paid < 0.005) return { entry: null, problems: [] }; // a nil return: nothing to post
+    return { entry: { voucherType: "TX", narration: `${t.voucherNo}: VAT return for ${t.bsLabel}${t.reference ? ` (${t.reference})` : ""}`, sourceType: "tax_payment", sourceId: t.paymentId, sourceRef: t.voucherNo, date: t.day,
+      lines: tidy([{ accountCode: OUTPUT_VAT, debit: round2(used + paid), credit: 0 }, ...(used > 0 ? [{ accountCode: "1450", debit: 0, credit: used }] : []), ...(paid > 0 ? [{ accountCode: bank, debit: 0, credit: paid }] : [])]) }, problems: [] };
+  }
+  if (t.kind !== "tds_deposit") return { entry: null, problems: [{ level: "fix", code: "tax_payment_kind", message: `${t.voucherNo}: an unknown tax payment kind ${t.kind}.`, ref: t.voucherNo }] };
   const a = round2(t.amount);
   if (a < 0.005) return { entry: null, problems: [] };
   return { entry: { voucherType: "TX", narration: `${t.voucherNo}: TDS deposit for ${t.bsLabel}${t.reference ? ` (${t.reference})` : ""}`, sourceType: "tax_payment", sourceId: t.paymentId, sourceRef: t.voucherNo, date: t.day,

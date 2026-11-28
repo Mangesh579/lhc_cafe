@@ -111,6 +111,16 @@ describe("switching VAT on", () => {
     expect(on.status, JSON.stringify(on.body)).toBe(200);
     expect(on.body).toMatchObject({ vatEnabled: true, vatStartDate: "2026-12-21" });
   });
+
+  it("5e-fix: while VAT is on, the start date cannot be changed or cleared (the same date is fine)", async () => {
+    for (const d of ["2026-12-30", "2026-12-22", null, ""]) {
+      const r = await api("admin", "PATCH", "/gl/settings", { vatStartDate: d });
+      expect(r.status, String(d)).toBe(400);
+      expect(r.body.error).toBe("VAT is on: switch it off before changing the start date.");
+    }
+    expect((await api("admin", "PATCH", "/gl/settings", { vatStartDate: "2026-12-21" })).status).toBe(200);
+    expect((await api("admin", "GET", "/gl/settings")).body).toMatchObject({ vatEnabled: true, vatStartDate: "2026-12-21" });
+  });
 });
 
 describe("sales after the switch-on date", () => {

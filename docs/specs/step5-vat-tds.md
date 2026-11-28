@@ -484,3 +484,103 @@ Migration 025. Nothing changes until the admin switches VAT on; every existing f
   - an Excel or PDF of the tax invoice list;
   - the tax invoice number on the credit note print;
   - VAT lines on the guest extras bill (each extra reprints as its own tax invoice from the Order Log).
+
+## 18. Part 5f plan: the VAT return and the VAT payment (approved as recommended 2026-11-28; built, see 18.8)
+Migration 026 (one index only). CBMS is not built.
+
+### 18.1 What exists (read 2026-11-28)
+- **tax_payments (020):** it already has kind 'vat_payment', vat_output, vat_input, amount (0 or more), the bank, a reference, and void.
+  - The TX voucher, the TDS deposit and the void route (routes/taxes.ts) exist from 5b.
+  - taxPaymentEntry posts only tds_deposit today, and refuses vat_payment ("posted from step 5f").
+- **The documents carry frozen VAT:**
+  - sales: orders.vat_amount, taxable_amount, tax_invoice_no and tax_invoice_at (5e);
+  - credit notes: vat_amount, taken from their invoice;
+  - purchases: purchase bills and expenses with input_vat_claimed (5d); debit notes follow their bill.
+- **The ledger:** sales credit 2200 and credit notes debit it; claimed bills and expenses debit 1450 and debit notes credit it.
+
+### 18.2 The VAT return for one BS month (Reports > VAT return; admin and accountant; GET only)
+- **Sales book:** every tax invoice whose tax invoice date is in the month (the 5e list), with number, date (BS and AD), buyer, PAN, taxable, VAT and total.
+  - **Credit notes** dated in the month on a tax invoice: negative lines, "CN-... on TI-...".
+  - **A cancelled invoice:** if it was cancelled in the same month, it shows with nil amounts (the cancel note is not listed separately). If it was cancelled in a later month, it shows in full in its own month and the cancel note is a negative line in the later month. See question 3.
+  - **A Wrong-customer move:** see question 2.
+- **Purchase book:** every purchase bill (by bill date) and expense (by expense date) with input_vat_claimed in the month, with supplier, PAN, bill number, taxable and VAT.
+  - **Debit notes** on claimed bills, dated in the month: negative lines.
+  - **A bill or expense voided:** in the same month, left out. In a later month, a negative line there (the same rule as question 3).
+- **Summary:**
+  - output VAT (the sales book);
+  - less input VAT (the purchase book);
+  - less the credit brought forward from the previous return;
+  - equals the VAT payable, or a credit carried forward.
+  - Due by the 25th of the next BS month, as a reminder.
+- **The check:** the sales book's VAT equals the month's 2200 movement, and the purchase book's VAT equals the month's 1450 movement. Both leave out the VAT payment vouchers and compare the posted days only, as the TDS registers do. The 2200 and 1450 balances at the month end are shown next to it.
+- **Carry-forward:**
+  - the credit brought into a month is the previous filed return's credit carried;
+  - carry out = max(0, credit in + input - output);
+  - payable = max(0, output - input - credit in).
+  - The chain starts in the month VAT was switched on.
+  - It is worked out from the filed returns, so no new column is needed.
+
+### 18.3 The VAT payment voucher (TX, kind vat_payment) = filing the month's return
+- **Who and when:** admin and accountant, for one BS month. The month must be closed (question 1), so its documents can no longer change. The months are filed in order. One active filing per month (migration 026: a unique index on active vat_payment by BS year and month).
+- **What it stores:** vat_output and vat_input (the month's book totals, frozen at filing), the amount paid (the payable), the bank, and the IRD reference.
+  - A payment above the payable is refused. The amount defaults to the payable and is never below zero.
+- **Entry:** Dr 2200 with the month's output VAT; Cr 1450 with the input VAT used, min(output, input + credit in); Cr bank with the payable. It balances because output = used + payable.
+- **A month with a credit** (input + credit in > output): Dr 2200 output, Cr 1450 output; no bank line, Rs 0 paid. The rest stays in 1450 and is carried forward.
+- **A month with nothing:** a nil filing (Rs 0, no lines), so every VAT month is filed and the chain stays in order (question 4).
+- **Balance Sheet and Trial Balance:** before payment, 2200 is a liability and 1450 an asset. The payment clears 2200 for the month and uses 1450. A credit carried stays as 1450 (Input VAT) under current assets.
+- **Void:** with a reason, and only the latest filing (a later month depends on it). It reverses the entry.
+
+### 18.4 Month close and late documents
+- **New month-close checks** when VAT was in force on any day of the month. These are blockers, not acknowledgements:
+  1. the sales book's VAT equals the 2200 movement;
+  2. the purchase book's VAT equals the 1450 movement;
+  3. the month's tax invoice numbers have no gaps;
+  4. no VAT problem (sale_vat, input_vat, input_vat_supplier) is open on any day.
+  - "Every day posted and locked" is already a blocker.
+- **A late credit note** (after the return was filed) is dated on its own day, which is in a later, open month. So it goes into that month's return as a negative line against its earlier invoice. A filed month is never rewritten.
+  - Documents cannot be dated in a closed month (the period lock).
+  - If the admin reopens a filed month and its figures change, the report shows "changed after filing: Rs X", and the difference is listed in the next open return as an adjustment.
+
+### 18.5 Exports
+- Excel and PDF through the 4c builders (lib/reports/exportDocs.ts), with the same header block (name, Sulimha Durbar, Patan, PAN 194139113), the "Posted up to" line, lakh grouping and the same limits.
+- Three sections: sales book, purchase book, summary. File LHC_VATReturn_2083-09.
+- The columns follow the accountant's IRD format when he gives it (question 5).
+
+### 18.6 Tests
+- **Books and ledger:** output and input totals equal the 2200 and 1450 movements. A credit note and a debit note reduce the month. A cancelled invoice (same month) is nil, and one cancelled in a later month goes negative there.
+- **Carry-forward:** a credit month carries into the next and is used there.
+- **The payment:** above the payable is refused. The voucher balances (Dr 2200 = Cr 1450 + Cr bank), for a credit month too.
+- **Filing rules:** refused for a month not closed and out of order; one filing per month; a nil month is filed with Rs 0.
+- **Late documents:** a late credit note goes into the next month and the filed month stays the same.
+- **Month close:** refused while a VAT book check fails.
+- **Statements:** the TB, P&L and Balance Sheet agree after the payment.
+- **Access:** staff and supervisor get 403 on the new routes.
+- **Exports:** the Excel and PDF file names.
+- **Migration:** 026 runs twice.
+- **Every earlier test passes.**
+
+### 18.7 Questions (recommended answers first)
+1. **File and pay only after the month is closed?** Recommended: yes. Closing locks the month, so the filed figures can never change. The deadline (the 25th of the next month) leaves time to close first.
+2. **Wrong customer (the sale moved to the right customer):** recommended, the VAT stays with the first tax invoice. The replacement is listed with nil amounts, "replaces TI-...", so the VAT counts once, as in the ledger.
+3. **A cancel or void:** recommended, in the same month it is nil (or left out). In a later month it is a negative line in that month.
+4. **Nil returns:** recommended, record a Rs 0 filing for a month with nothing payable, so every VAT month is filed in order.
+5. **The columns:** recommended, build the standard sales and purchase book columns now (with non-taxable and export columns at 0), and switch to the accountant's IRD layout when he gives it.
+6. **A credit that stays for months:** recommended, it only carries forward. A refund claim from IRD is outside the app.
+
+### 18.8 As built (2026-11-28)
+- **The owner's answers:** approved as recommended. File after the month is closed, in order. The VAT of a moved sale stays with the first invoice. A cancel in the same month is nil, a later one negative in its month. Nil returns are filed at Rs 0. Standard columns for now. A credit only carries forward.
+- **lib/reports/vatReturn.ts:**
+  - salesBook, purchaseBook, filedReturns (the credit carried along the filed returns), vatReturn (books, summary, the check against 2200 and 1450, the balances, the filing, unfiled earlier months, the due date);
+  - a void of a bill or expense in a later month is a negative line in that month; a void in the same month leaves it out.
+- **The filing** (POST /tax-payments kind vat_payment; GET /tax-payments/vat-suggest):
+  - refused when VAT was not in force that month, when the month is not closed, when an earlier VAT month is unfiled, when it is already filed (and the unique index), or when the books do not agree with the ledger;
+  - the amount defaults to the payable and may not be above it;
+  - it stores vat_output and vat_input, the month's book totals, frozen.
+  - **Posting** (taxPaymentEntry vat_payment): Dr 2200 (input used + paid), Cr 1450 (input used = min(output, input + credit in)), Cr bank (paid). A nil filing posts nothing.
+  - **Void:** only the latest filing.
+- **Month close:** for a VAT month whose days are all posted, the blockers are a sales or purchase book that differs from the 2200 or 1450 movement, and missing tax invoice numbers. Posting problems (sale_vat, input_vat, input_vat_supplier) already stop a day from posting, so an unposted day is the existing blocker.
+- **Reports > VAT return** shows the summary next to the 2200 and 1450 balances, the check, the filing and both books, with Excel and PDF (LHC_VATReturn_YYYY-MM; sales book, purchase book, summary; non-taxable and export columns at 0).
+- **Chart of Accounts > Tax payments > File a VAT return:** the month's figures, the reasons it cannot be filed yet, and the amount.
+- **Narrower than the plan:**
+  - when a filed month is reopened and changes, the return shows "Changed after filing" with the difference. The difference is not added to the next return as an adjustment line automatically: the accountant enters it (or files the corrected month after voiding the latest filing).
+  - a payment below the payable is allowed; what is left stays on 2200 as owed.
