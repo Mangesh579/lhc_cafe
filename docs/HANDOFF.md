@@ -195,7 +195,7 @@
   - **Email codes:** a new code can be asked for after 1 minute (3 an hour before a longer wait). A successful sign-in resets the count.
   - **Security fix:** redeeming points now needs the member's own sign-in. Before this, the page sent only a customer number.
 
-40. Step 5c, TDS receivable, 2026-11-28 (docs/specs/step5-vat-tds.md section 14). Migration 022 NOT yet run.
+40. Step 5c, TDS receivable, 2026-11-28 (docs/specs/step5-vat-tds.md section 14). Migration 022 run (recorded 2026-11-28).
   - **Record receipt** (admin and accountant, cash or bank only): "Tax withheld by the customer (TDS)" and the certificate reference. Money + TDS settle the invoices. The entry is Dr money, Dr 1460, Cr 1300.
   - **The certificate** can be added later from the receipt list ("Waiting for certificate" > add). That changes no posting.
   - **Customer page:** TDS withheld this fiscal year, and how many certificates are missing.
@@ -226,9 +226,10 @@
 - 019_hotel_guests.sql (recorded 2026-11-28, by the owner): loyalty_customers kind, archive and promotion columns, phone optional, member-only email rule; orders.paid_by; stay_events.
 - 020_vat_tds_ready.sql (recorded 2026-11-28, by the owner): VAT settings, tax_rates, tds_types, tax_payments, the VAT/PAN/TDS fields, accounts 1460 and 2270 (inactive).
 - 021_tds_payable.sql (recorded 2026-11-28, by the owner): ledger_settings.tds_base; confirmed_by and confirmed_at on tax_rates and tds_types; TDS indexes.
+- 022_tds_receivable.sql (recorded 2026-11-28, by the owner): customer_receipts.tds_reference_by and tds_reference_at; the TDS receivable register index.
 
 # Not yet applied on the server
-- 022_tds_receivable.sql: customer_receipts.tds_reference_by and tds_reference_at, and the register index. Run before deploy.sh.
+- None.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.
