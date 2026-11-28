@@ -159,7 +159,7 @@
     - check one P&L line by line against the screen;
     - check that the Excel cells add up with SUM and show lakh commas on the accountant's PC.
 
-36. Part 3f, hotel guests, the stay folio and the stay history, 2026-11-28 (docs/specs/stays-guests-3f.md). Needs migration 019 (not yet applied).
+36. Part 3f, hotel guests, the stay folio and the stay history, 2026-11-28 (docs/specs/stays-guests-3f.md). Migration 019 run (recorded 2026-11-28).
   - **Guests:** hotel guests are kept apart from loyalty members (kind). Check-in needs only the name. The Loyalty lists and the QR page show members only. A guest can be made a member (Stays > Guests > Make member, or a QR sign-up) and keeps everything.
   - **No delete:** customers are never deleted; an unbilled one can be archived, and a billed one cannot.
   - **Points:** a guest earns on paid extras, nothing on an included breakfast; Sulimha never earns.
@@ -186,9 +186,10 @@
 - 016_stock_adjustments.sql (recorded 2026-11-28, by the owner): inventory_logs.kind and unit_cost.
 - 017_report_indexes.sql (recorded 2026-11-28, by the owner): report indexes on journal_lines and journal_entries.
 - 018_report_settings.sql (recorded 2026-11-28, by the owner): report_settings (the highlight rule, 20% and Rs 1,000).
+- 019_hotel_guests.sql (recorded 2026-11-28, by the owner): loyalty_customers kind, archive and promotion columns, phone optional, member-only email rule; orders.paid_by; stay_events.
 
 # Not yet applied on the server
-- 019_hotel_guests.sql (2026-11-28): loyalty_customers kind, archive and promotion columns, phone optional, member-only email rule; orders.paid_by; stay_events. Run the read-only check of docs/specs/stays-guests-3f.md section 4.2 first, then back up, then the migration, before deploy.sh.
+- None.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.

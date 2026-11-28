@@ -1847,7 +1847,7 @@ None.
   - No journal, receivable or posted row changes.
 
 ### Migration
-- db/migrations/019_hotel_guests.sql. NOT run on the server yet. Idempotent (run twice in the tests).
+- db/migrations/019_hotel_guests.sql. Run on the server by the owner (recorded 2026-11-28). Idempotent (run twice in the tests).
 - The owner's read-only check output did not reach me with the approval. The migration does not need the email constraint's name (it finds the unique rule on email by its definition), but please run the read-only check of plan section 4.2 before it, to see who becomes a hotel guest.
 
 ### Tests
@@ -1887,3 +1887,6 @@ None.
   - **Nothing posted changes:** promotion, archive and running 019 twice change no order, receipt or journal figure, and a promoted guest stays a member.
   - **Migration 019 on existing data:** stayed-only becomes a guest; points, orders outside stays, Sulimha, promoted and never-stayed customers stay members; opened 5, closed 3, cancelled 1, all backfilled once.
 - Not run: the screens in a browser; the public QR page on the cafe Wi-Fi; anything against production.
+
+## 2026-11-28 (h): Migration 019 recorded as run
+- The owner ran db/migrations/019_hotel_guests.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 3f entry above. Docs only; no code, no SQL, nothing to deploy.
