@@ -22,7 +22,7 @@ import { DebitNoteDialog, DebitNotesTab, printDebitNote } from "@/components/Deb
 const SELECT = "h-9 rounded-md border border-input bg-background px-2 text-sm w-full";
 const PAID_VIA: Record<string, string> = { drawer: "Cash drawer", cheque: "Cheque", online: "Online transfer" };
 const BANK: Record<string, string> = { nabil: "Nabil Bank", hbl: "HBL" };
-const blankSupplier = { name: "", pan: "", address: "", phone: "", contactPerson: "", creditDays: "0", notes: "", supplierType: "goods", active: true };
+const blankSupplier = { name: "", pan: "", address: "", phone: "", contactPerson: "", creditDays: "0", notes: "", supplierType: "goods", active: true, vatRegistered: false, defaultTdsType: "" };
 
 export default function Suppliers() {
   const { user } = useAuth();
@@ -358,6 +358,9 @@ export default function Suppliers() {
               <div className="space-y-1 col-span-2"><Label>Address</Label><Input value={edit.address ?? ""} onChange={e => setEdit({ ...edit, address: e.target.value })} /></div>
               <div className="space-y-1"><Label>Credit days</Label><Input type="number" min="0" max="365" value={edit.creditDays} onChange={e => setEdit({ ...edit, creditDays: e.target.value })} /></div>
               <label className="flex items-center gap-2 mt-6"><input type="checkbox" checked={edit.active} onChange={e => setEdit({ ...edit, active: e.target.checked })} /> Active</label>
+              {/* 5a: VAT bills (input VAT from the switch-on date) and the TDS type used when LHC pays this supplier */}
+              <label className="flex items-center gap-2"><input type="checkbox" checked={!!edit.vatRegistered} onChange={e => setEdit({ ...edit, vatRegistered: e.target.checked })} /> VAT registered (issues VAT bills)</label>
+              <div className="space-y-1"><Label>TDS when paid</Label><SupplierTdsSelect value={edit.defaultTdsType ?? ""} onChange={v => setEdit({ ...edit, defaultTdsType: v })} /></div>
               <div className="space-y-1 col-span-2"><Label>Notes</Label><Input value={edit.notes ?? ""} onChange={e => setEdit({ ...edit, notes: e.target.value })} /></div>
             </div>
           )}
@@ -402,5 +405,17 @@ export default function Suppliers() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// 5a: the TDS types (Chart of Accounts > Taxes); only types in use can be chosen
+function SupplierTdsSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [types, setTypes] = useState<any[]>([]);
+  useEffect(() => { apiJson("/gl/tds-types").then(setTypes).catch(() => setTypes([])); }, []);
+  return (
+    <select className={SELECT} value={value} onChange={e => onChange(e.target.value)}>
+      <option value="">None (goods supplier)</option>
+      {types.filter(t => t.active || t.code === value).map(t => <option key={t.code} value={t.code}>{t.label} ({Number(t.rate)}%)</option>)}
+    </select>
   );
 }

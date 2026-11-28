@@ -115,6 +115,16 @@ router.patch("/receivables/customers/:id/terms", authenticate, async (req: AuthR
   res.json({ success: true });
 });
 
+// 5a: a customer's PAN (a business customer such as Sulimha Durbar), printed on its tax invoices once VAT is on
+router.patch("/receivables/customers/:id/pan", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res, ADMIN_ROLES, "Only the admin or the accountant can change a customer's PAN.")) return;
+  const pan = String(req.body?.pan ?? "").replace(/[\s-]/g, "");
+  if (pan && !/^\d{9}$/.test(pan)) { res.status(400).json({ error: "A PAN is 9 digits, or empty." }); return; }
+  const [row] = await db.update(loyaltyCustomersTable).set({ pan: pan || null }).where(eq(loyaltyCustomersTable.id, idOf(req.params.id))).returning({ id: loyaltyCustomersTable.id, pan: loyaltyCustomersTable.pan });
+  if (!row) { res.status(404).json({ error: "Customer not found" }); return; }
+  res.json(row);
+});
+
 // ── Credit terms for everyone: default days and default limit (a customer's own terms override them) ──
 router.get("/receivables/settings", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!can(req, res, VIEW_ROLES)) return;

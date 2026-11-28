@@ -1923,3 +1923,79 @@ None.
   - **Archived phone:** the refusal message; ?archived=1 for a supervisor but not staff; unarchive refused for staff and allowed for a supervisor; then back in the list.
   - **The pickers' search:** finds Sulimha (with its kind) and a hotel guest.
 - Not run: the screens in a browser; the public QR page on the cafe Wi-Fi; anything against production.
+
+## 2026-11-28 (j): Step 5a, VAT and TDS settings and fields (no change while VAT is off)
+
+### Summary
+- **The plan:** docs/specs/step5-vat-tds.md. The owner answered its 16 questions (section 11; CLAUDE.md "Step 5 decisions"). Part 5a prepares everything; nothing posts differently.
+- **Settings** (Chart of Accounts > settings, admin): "VAT registered from" (today or later only) and the VAT number (LHC's 9-digit PAN).
+  - VAT cannot be switched on yet: PATCH /gl/settings answers "VAT cannot be switched on yet: output VAT on sales is built in step 5e...".
+  - VAT bills stay refused as before.
+- **A latent bug, fixed:** ledger_settings.vat_enabled was added by migration 014 but never put in the Drizzle schema. ledgerSettings() could not read it, and the old "Switch on" link could not save it. It is in the schema now. VAT was off throughout, so nothing was affected.
+- **Editable rates** (new Chart of Accounts > Taxes tab, admin and accountant):
+  - **VAT:** one row, 13%. Rates can carry effective dates, and the rate in force follows a document's date (lib/taxes.ts vatRateOn).
+  - **TDS types**, seeded with the researched (UNVERIFIED) values:
+    - service fee, VAT bill 1.5%;
+    - service fee, PAN bill 15%;
+    - contract 1.5% above NPR 50,000;
+    - salary 1%;
+    - rent 10%, inactive until the accountant decides (answer 14).
+  - New types can be added; every row has a rate, a threshold, the Act section, who it is for, effective dates and an in-use switch.
+- **Suppliers:** "VAT registered (issues VAT bills)" and "TDS when paid" (a TDS type in use).
+- **Purchase bills:** a bill with VAT is stored as a VAT bill, one without as a PAN bill. A PAN bill with VAT, or a VAT bill without VAT, is refused. The form shows which it is.
+- **Expenses:** bill type (none, PAN bill, VAT bill), the VAT inside the amount, and the supplier's PAN. VAT needs a VAT bill; a VAT bill needs its VAT and the PAN; the VAT must be less than the amount. Edits are logged in the expense history.
+- **Customers:** an optional PAN (Receivables > customer > PAN > Change; admin and accountant), for Sulimha Durbar's tax invoices once VAT is on.
+- **New tables** (used by later parts): tax_payments (5b and 5f); TDS columns on supplier payments and customer receipts (5b, 5c).
+- **New accounts:** 1460 TDS receivable (advance tax), active; 2270 Income tax payable, inactive.
+
+### Files
+- New:
+  - db/migrations/020_vat_tds_ready.sql;
+  - api-server: src/lib/taxes.ts, src/__tests__/vatTds5a.test.ts;
+  - lhc-cafe: src/components/TaxesTab.tsx;
+  - docs/specs/step5-vat-tds.md.
+- Changed:
+  - lib/db schema: ledger.ts, purchases.ts, expenses.ts, payments.ts, loyalty.ts;
+  - api-server: src/lib/ledger.ts, src/lib/purchaseRules.ts, src/lib/purchasePosting.ts, src/routes/gl.ts, src/routes/purchases.ts, src/routes/expenses.ts, src/routes/receivables.ts;
+  - lhc-cafe: src/pages/chart-of-accounts.tsx, src/pages/suppliers.tsx, src/pages/purchase-bill.tsx, src/pages/expenses.tsx, src/pages/receivables.tsx;
+  - CLAUDE.md, docs/HANDOFF.md.
+
+### Tables
+- ledger_settings: + vat_start_date, vat_number (vat_enabled from 014, now in the schema).
+- New: tax_rates, tds_types, tax_payments.
+- suppliers: + vat_registered, default_tds_type.
+- purchase_bills: + bill_type (default 'pan', with a check).
+- expenses: + bill_type, vat_amount, supplier_pan, tds_type, tds_rate, tds_amount.
+- supplier_payments: + tds_type, tds_rate, tds_amount.
+- customer_receipts: + tds_amount, tds_reference.
+- loyalty_customers: + pan.
+- accounts: + 1460, 2270 (inactive).
+- No existing row's values change.
+
+### Migration
+- db/migrations/020_vat_tds_ready.sql. NOT run on the server yet. Idempotent (run twice in the tests).
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 52 files, 529 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- **No change while VAT is off:** every one of the 519 existing tests passes unchanged, including the 3b and 3c posting tests line by line.
+- New, vatTds5a (10):
+  - **Migration 020:** the seeds (VAT 13; the five TDS types with rent inactive; 1460 active and 2270 inactive), run twice.
+  - **VAT settings:**
+    - the accountant is refused (403);
+    - a past date and a short VAT number are refused;
+    - "194 139 113" is saved as 194139113;
+    - switching on is refused;
+    - vat-status is still off.
+  - **VAT rate:** edited with dates; a bad rate or bad dates refused; a second rate from 2027-07-01; the rate in force on 2027-03-01 is 13 and on 2027-08-01 is 12; staff gets 403.
+  - **TDS types:** the PAN-bill rate edited and noted; rent switched on; a new type; duplicate (409) and bad code refused; staff gets 403. Plus the validators alone.
+  - **Suppliers:** VAT registered with a TDS type in use; an unknown type refused.
+  - **Purchase bills:** a bill with VAT stored as a VAT bill, one without as a PAN bill; a PAN bill with VAT and a VAT bill without VAT refused.
+  - **Expenses:**
+    - VAT without a VAT bill, a VAT bill without a PAN, and VAT not less than the amount are refused;
+    - a VAT bill is saved, and its VAT edit is logged;
+    - a plain expense has no type and no VAT.
+  - **Customer PAN:** staff refused, a bad PAN refused, saved for Sulimha.
+- Not run: the screens in a browser; anything against production.

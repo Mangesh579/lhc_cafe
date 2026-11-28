@@ -2,7 +2,8 @@
 // Admin and accountant only; the admin alone changes the start date and confirms the opening balances (the owner's decision).
 import { Router } from "express";
 import type { Response } from "express";
-import { db, accountsTable, expenseAccountMapTable, expensesTable, journalEntriesTable, journalLinesTable, ledgerSettingsTable, loyaltyCustomersTable, suppliersTable, menuCategoriesTable } from "@workspace/db";
+import { db, accountsTable, expenseAccountMapTable, expensesTable, journalEntriesTable, journalLinesTable, ledgerSettingsTable, loyaltyCustomersTable, suppliersTable, menuCategoriesTable, taxRatesTable, tdsTypesTable } from "@workspace/db";
+import { validateTaxRate, validateTdsType } from "../lib/taxes";
 import { and, eq, gte, lte, desc, asc, sql, isNull, inArray } from "drizzle-orm";
 import { authenticate, type AuthRequest } from "../middlewares/auth";
 import { nepalDay, isDay } from "../lib/ledgerData";
@@ -57,7 +58,25 @@ router.patch("/gl/settings", authenticate, async (req: AuthRequest, res: Respons
   }
   if (b.vatEnabled !== undefined) {
     if (roleOf(req) !== "admin") { res.status(403).json({ error: "Only the admin switches VAT on (after VAT registration)." }); return; }
-    set.vatEnabled = b.vatEnabled === true;
+    // 5a: VAT can be prepared (date, number, rates) but not switched on until output VAT is built (step 5e)
+    if (b.vatEnabled === true) { res.status(400).json({ error: "VAT cannot be switched on yet: output VAT on sales is built in step 5e. Set the date and the VAT number now; switch it on after 5e." }); return; }
+    set.vatEnabled = false;
+  }
+  // 5a (owner, 2026-11-28): the switch-on date is today or later, never a past date; the VAT number is LHC's 9-digit PAN
+  if (b.vatStartDate !== undefined) {
+    if (roleOf(req) !== "admin") { res.status(403).json({ error: "Only the admin sets the VAT registration date." }); return; }
+    if (b.vatStartDate === null || b.vatStartDate === "") set.vatStartDate = null;
+    else {
+      if (!isDay(b.vatStartDate)) { res.status(400).json({ error: "Enter the VAT registration date as a valid date." }); return; }
+      if (b.vatStartDate < nepalDay(new Date())) { res.status(400).json({ error: "The VAT date must be today or later. An earlier registration date is corrected by the accountant with a JV." }); return; }
+      set.vatStartDate = b.vatStartDate;
+    }
+  }
+  if (b.vatNumber !== undefined) {
+    if (roleOf(req) !== "admin") { res.status(403).json({ error: "Only the admin sets the VAT number." }); return; }
+    const n = String(b.vatNumber ?? "").replace(/[\s-]/g, "");
+    if (n && !/^\d{9}$/.test(n)) { res.status(400).json({ error: "The VAT number is the 9-digit PAN." }); return; }
+    set.vatNumber = n || null;
   }
   if (b.lockAfterDays !== undefined) {
     const n = Number(b.lockAfterDays);
@@ -205,6 +224,52 @@ router.get("/gl/trial-balance", authenticate, async (req: AuthRequest, res: Resp
   if (!can(req, res)) return;
   const to = isDay(req.query.to) ? req.query.to : nepalDay(new Date());
   res.json({ to, ...(await trialBalance(db, to)) });
+});
+
+// ── Step 5a: the VAT rate and the TDS types (editable by the admin and accountant; researched values to start) ──
+router.get("/gl/tax-rates", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  res.json(await db.select().from(taxRatesTable).orderBy(asc(taxRatesTable.id)));
+});
+router.post("/gl/tax-rates", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  const v = validateTaxRate(req.body);
+  if ("error" in v) { res.status(400).json({ error: v.error }); return; }
+  const [row] = await db.insert(taxRatesTable).values({ tax: "vat", rate: String(v.rate), effectiveFrom: v.effectiveFrom, effectiveTo: v.effectiveTo, note: v.note, setBy: userOf(req) }).returning();
+  res.status(201).json(row);
+});
+router.patch("/gl/tax-rates/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  const v = validateTaxRate(req.body);
+  if ("error" in v) { res.status(400).json({ error: v.error }); return; }
+  const [row] = await db.update(taxRatesTable).set({ rate: String(v.rate), effectiveFrom: v.effectiveFrom, effectiveTo: v.effectiveTo, note: v.note, setBy: userOf(req), updatedAt: new Date() })
+    .where(eq(taxRatesTable.id, idOf(req.params.id))).returning();
+  if (!row) { res.status(404).json({ error: "Rate not found" }); return; }
+  res.json(row);
+});
+router.get("/gl/tds-types", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  res.json(await db.select().from(tdsTypesTable).orderBy(asc(tdsTypesTable.id)));
+});
+router.post("/gl/tds-types", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  const v: any = validateTdsType(req.body, true);
+  if ("error" in v) { res.status(400).json({ error: v.error }); return; }
+  const [dup] = await db.select({ id: tdsTypesTable.id }).from(tdsTypesTable).where(eq(tdsTypesTable.code, v.code));
+  if (dup) { res.status(409).json({ error: `A TDS type with the code ${v.code} already exists.` }); return; }
+  const [row] = await db.insert(tdsTypesTable).values({ ...v, rate: String(v.rate), threshold: v.threshold == null ? null : String(v.threshold), setBy: userOf(req) }).returning();
+  res.status(201).json(row);
+});
+router.patch("/gl/tds-types/:id", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  const v: any = validateTdsType(req.body, false);
+  if ("error" in v) { res.status(400).json({ error: v.error }); return; }
+  const set: Record<string, unknown> = { ...v, setBy: userOf(req), updatedAt: new Date() };
+  if (v.rate !== undefined) set.rate = String(v.rate);
+  if (v.threshold !== undefined) set.threshold = v.threshold == null ? null : String(v.threshold);
+  const [row] = await db.update(tdsTypesTable).set(set).where(eq(tdsTypesTable.id, idOf(req.params.id))).returning();
+  if (!row) { res.status(404).json({ error: "TDS type not found" }); return; }
+  res.json(row);
 });
 
 // ── Opening balances (draft until the owner confirms) ──

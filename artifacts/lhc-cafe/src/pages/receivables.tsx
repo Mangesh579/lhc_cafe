@@ -263,6 +263,14 @@ export default function Receivables() {
           </div>
           <Card><CardContent className="p-4 flex flex-wrap gap-x-8 gap-y-2 text-sm">
             <div><p className="text-xs text-muted-foreground">Customer</p><p className="font-semibold">{detail.customer.name} {(detail.customer.kind) === "hotel_guest" && <span className="ml-1 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">hotel guest</span>} <span className="text-muted-foreground font-normal">{detail.customer.phone}</span></p></div>
+            {/* 5a: a business customer's PAN (e.g. Sulimha Durbar), printed on its tax invoices once VAT is on */}
+            <div><p className="text-xs text-muted-foreground">PAN</p><p className="font-semibold">{detail.customer.pan ?? "—"}
+              {canAdmin && <button type="button" className="ml-2 text-xs font-normal underline text-primary" onClick={async () => {
+                const v = window.prompt(`PAN of ${detail.customer.name} (9 digits; empty to remove):`, detail.customer.pan ?? "");
+                if (v === null) return;
+                try { await apiJson(`/receivables/customers/${detail.customer.id}/pan`, "PATCH", { pan: v }); toast({ title: "PAN saved" }); setDetail(await apiJson(`/receivables/customers/${detail.customer.id}`)); }
+                catch (e: any) { fail(e, "PAN not saved"); }
+              }}>Change</button>}</p></div>
             <div><p className="text-xs text-muted-foreground">Balance</p><p className="font-semibold">{rs(detail.balance?.balance ?? 0)}</p></div>
             <div><p className="text-xs text-muted-foreground">Credit limit</p><p className="font-semibold">{detail.customer.creditLimit != null ? rs(detail.customer.creditLimit) : detail.defaultCreditLimit != null ? `${rs(detail.defaultCreditLimit)} (default)` : "None"}</p></div>
             <div><p className="text-xs text-muted-foreground">Credit days</p><p className="font-semibold">{detail.customer.creditDays ?? `${detail.defaultCreditDays} (default)`}</p></div>

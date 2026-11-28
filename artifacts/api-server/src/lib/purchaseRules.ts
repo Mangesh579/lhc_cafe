@@ -51,6 +51,7 @@ export type BillInput = {
   terms: "cash" | "credit"; paidVia: (typeof PAID_VIA)[number] | null; paymentReference: string | null; paidFromAccount: (typeof BANK_ACCOUNTS)[number] | null;
   creditDays: number; dueDate: string; costMethod: "average" | "last"; notes: string | null;
   lines: BillLine[]; subtotal: number; vatAmount: number; total: number;
+  billType: "pan" | "vat"; // 5a: a VAT bill (from a VAT-registered supplier) or a PAN bill
 };
 
 // Checks a purchase bill. ctx.today is the Nepal day; bills may be backdated within the current fiscal year.
@@ -114,15 +115,20 @@ export function validateBill(body: any, ctx: { today: string; fiscalYearOf: (day
   if (zero >= 0) return { error: `Line ${zero + 1}: the amount must be above 0.` };
   const subtotal = round2(lines.reduce((s, l) => s + l.amount, 0));
   const vatAmount = round2(lines.reduce((s, l) => s + l.vatAmount, 0));
+  // 5a: a VAT bill shows its VAT; a PAN bill has none (an older caller that sends no bill type gets one from its VAT)
+  if (body?.billType !== undefined && body.billType !== "vat" && body.billType !== "pan") return { error: "The bill type is a VAT bill or a PAN bill." };
+  if (body?.billType === "vat" && !(vatAmount > 0)) return { error: "A VAT bill shows its VAT: enter it per line or for the whole bill." };
+  if (body?.billType === "pan" && vatAmount > 0) return { error: "A PAN bill has no VAT. Choose VAT bill, or remove the VAT." };
   return {
     supplierId, pan, billNumber, billNumberKey: billNumberKey(billNumber), billDate, terms, paidVia, paymentReference, paidFromAccount,
     creditDays, dueDate: dueDateOf(billDate, creditDays), costMethod, notes: clean(body?.notes, 300),
     lines, subtotal, vatAmount, total: round2(subtotal + vatAmount),
+    billType: body?.billType === "vat" || (body?.billType === undefined && vatAmount > 0) ? "vat" : "pan",
   };
 }
 
 // Supplier master entry
-export function validateSupplier(body: any): { name: string; pan: string; address: string | null; phone: string | null; contactPerson: string | null; creditDays: number; notes: string | null; supplierType: "goods" | "service"; active: boolean } | { error: string } {
+export function validateSupplier(body: any): { name: string; pan: string; address: string | null; phone: string | null; contactPerson: string | null; creditDays: number; notes: string | null; supplierType: "goods" | "service"; active: boolean; vatRegistered: boolean; defaultTdsType: string | null } | { error: string } {
   const name = clean(body?.name, 120);
   if (!name) return { error: "Enter the supplier's name." };
   const pan = normalizePan(body?.pan);
@@ -133,5 +139,7 @@ export function validateSupplier(body: any): { name: string; pan: string; addres
   return {
     name, pan, address: clean(body?.address, 200), phone: clean(body?.phone, 40), contactPerson: clean(body?.contactPerson, 80),
     creditDays, notes: clean(body?.notes, 500), supplierType, active: body?.active === undefined ? true : !!body.active,
+    // 5a: issues VAT bills; the TDS type used when LHC pays this supplier (5b)
+    vatRegistered: body?.vatRegistered === true, defaultTdsType: clean(body?.defaultTdsType, 30),
   };
 }

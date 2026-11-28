@@ -3,6 +3,8 @@
 // Money (bill amounts, balances, prices) is served to the admin and the accountant only.
 import { Router } from "express";
 import { lockGuard } from "../lib/periodLock";
+import { tdsTypesTable } from "@workspace/db";
+const tdsTypeExists = async (code: string) => (await db.select({ id: tdsTypesTable.id }).from(tdsTypesTable).where(eq(tdsTypesTable.code, code))).length > 0;
 import type { Response } from "express";
 import {
   db, suppliersTable, ingredientSuppliersTable, purchaseBillsTable, purchaseBillItemsTable, ingredientPriceHistoryTable,
@@ -65,6 +67,7 @@ router.post("/suppliers", authenticate, async (req: AuthRequest, res: Response):
   if (!can(req, res, FIN)) return;
   const v = validateSupplier(req.body);
   if ("error" in v) { res.status(400).json({ error: v.error }); return; }
+  if (v.defaultTdsType && !(await tdsTypeExists(v.defaultTdsType))) { res.status(400).json({ error: "Choose a TDS type from the list." }); return; }
   const [dup] = await db.select({ id: suppliersTable.id, name: suppliersTable.name }).from(suppliersTable).where(eq(suppliersTable.pan, v.pan));
   if (dup) { res.status(409).json({ error: `PAN ${v.pan} is already used by ${dup.name}.` }); return; }
   try {
@@ -78,6 +81,7 @@ router.patch("/suppliers/:id", authenticate, async (req: AuthRequest, res: Respo
   const id = idOf(req.params.id);
   const v = validateSupplier(req.body);
   if ("error" in v) { res.status(400).json({ error: v.error }); return; }
+  if (v.defaultTdsType && !(await tdsTypeExists(v.defaultTdsType))) { res.status(400).json({ error: "Choose a TDS type from the list." }); return; }
   const [dup] = await db.select({ id: suppliersTable.id, name: suppliersTable.name }).from(suppliersTable).where(and(eq(suppliersTable.pan, v.pan), sql`${suppliersTable.id} <> ${id}`));
   if (dup) { res.status(409).json({ error: `PAN ${v.pan} is already used by ${dup.name}.` }); return; }
   try {

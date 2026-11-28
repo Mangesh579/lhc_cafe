@@ -92,6 +92,8 @@ export default function PurchaseBill() {
         supplierId: Number(supplierId), pan, billNumber, billDate, terms, creditDays: parseInt(creditDays) || 0,
         paidVia: terms === "cash" ? paidVia : undefined, paymentReference: terms === "cash" ? reference : undefined,
         paidFromAccount: terms === "cash" && paidVia !== "drawer" ? bankAccount : undefined,
+        // 5a: a bill with VAT is a VAT bill (its VAT goes to Input VAT from the VAT switch-on date; until then it is part of the cost)
+        billType: vat > 0 ? "vat" : "pan",
         costMethod, notes, billVat: vatMode === "bill" ? (parseFloat(billVat) || 0) : undefined,
         lines: lines.filter(l => l.inventoryItemId).map(l => ({ inventoryItemId: Number(l.inventoryItemId), quantity: parseFloat(l.quantity), amount: parseFloat(l.amount), vatAmount: vatMode === "line" ? (parseFloat(l.vatAmount) || 0) : undefined })),
       });
@@ -149,6 +151,7 @@ export default function PurchaseBill() {
             <select className="h-8 rounded-md border border-input bg-background px-2 text-xs" value={vatMode} onChange={e => setVatMode(e.target.value as any)}>
               <option value="none">None</option><option value="bill">One amount for the bill</option><option value="line">Per line</option>
             </select>
+            <span className="text-muted-foreground">{vat > 0 ? "VAT bill: Input VAT once LHC is VAT registered; until then part of the cost" : "PAN bill"}</span>
           </div>
         </div>
         <div className="divide-y">
