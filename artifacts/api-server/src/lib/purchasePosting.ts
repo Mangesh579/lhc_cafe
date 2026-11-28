@@ -8,6 +8,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { costAfterPurchase, isLatestPurchase, type BillInput } from "./purchaseRules";
 import { nextVoucherNumber } from "./fiscal";
+import { claimsInputVat } from "./taxes";
 import { round2 } from "./payments";
 
 type Db = any;
@@ -48,6 +49,10 @@ export async function createPurchaseBill(dbx: Db, input: BillInput, opts: { user
       throw new PurchaseError(400, `The cash drawer for ${input.billDate} is closed. Ask the admin to reopen it, or choose cheque or online.`);
     }
 
+    // 5d: input VAT is claimed (frozen on the bill) only on a VAT bill dated on or after the VAT switch-on date
+    const claimed = await claimsInputVat({ billType: input.billType, vatAmount: input.vatAmount, day: input.billDate }, tx);
+    if (claimed && !supplier.vatRegistered) throw new PurchaseError(400, `Tick VAT registered on the supplier first: ${supplier.name} is not marked VAT registered, so its VAT bill cannot claim input VAT.`);
+
     const at = new Date(`${input.billDate}T06:00:00Z`);
     const pjNumber = await nextVoucherNumber(tx, "PJ", "PJ", at);
     const [bill] = await tx.insert(purchaseBillsTable).values({
@@ -56,7 +61,7 @@ export async function createPurchaseBill(dbx: Db, input: BillInput, opts: { user
       terms: input.terms, paidVia: input.paidVia, paymentReference: input.paymentReference, paidFromAccount: input.paidFromAccount,
       creditDays: input.creditDays, dueDate: input.dueDate, costMethod: input.costMethod,
       subtotal: String(input.subtotal), vatAmount: String(input.vatAmount), total: String(input.total), billType: input.billType ?? "pan",
-      notes: input.notes, createdBy: opts.user,
+      inputVatClaimed: claimed, notes: input.notes, createdBy: opts.user,
     }).returning();
 
     for (const line of input.lines) {
@@ -67,16 +72,18 @@ export async function createPurchaseBill(dbx: Db, input: BillInput, opts: { user
       const [comp] = await tx.select().from(ingredientComponentsTable).where(eq(ingredientComponentsTable.parentItemId, item.id)).limit(1);
       if (comp) throw new PurchaseError(400, `${item.name} is made from other ingredients. Buy its basic ingredients instead.`);
 
+      // 5d: with input VAT claimed the stock costs the amount before VAT (the VAT is in 1450); otherwise VAT is cost
+      const cost = claimed ? line.amount : line.lineTotal;
       const stockBefore = num(item.currentStock);
       const stockAfter = stockBefore + line.quantity;
       const oldCost = item.costPerUnit != null ? num(item.costPerUnit) : null;
       const latest = isLatestPurchase(input.billDate, item.lastPurchaseDate);
       // An older (backdated) bill never sets the cost to its own price: it is not the latest price
-      const costAfter = costAfterPurchase({ stockBefore, oldCost, quantity: line.quantity, lineTotal: line.lineTotal, method: latest ? input.costMethod : "average" });
+      const costAfter = costAfterPurchase({ stockBefore, oldCost, quantity: line.quantity, lineTotal: cost, method: latest ? input.costMethod : "average" });
 
       await tx.update(inventoryItemsTable).set({
         currentStock: String(stockAfter), costPerUnit: n4(costAfter),
-        ...(latest ? { lastPurchasePrice: String(line.lineTotal), lastPurchaseQty: n4(line.quantity), lastPurchaseDate: input.billDate, lastSupplier: supplier.name } : {}),
+        ...(latest ? { lastPurchasePrice: String(cost), lastPurchaseQty: n4(line.quantity), lastPurchaseDate: input.billDate, lastSupplier: supplier.name } : {}),
       }).where(eq(inventoryItemsTable.id, item.id));
       await tx.insert(inventoryLogsTable).values({
         inventoryItemId: item.id, changeAmount: String(line.quantity), stockBefore: String(stockBefore), stockAfter: String(stockAfter),
@@ -92,7 +99,7 @@ export async function createPurchaseBill(dbx: Db, input: BillInput, opts: { user
       const [exp] = await tx.insert(expensesTable).values({
         expenseDate: input.billDate, type: "direct", category: expenseCategoryFor(item.department), subcategory: item.category ?? null,
         description: `${item.name}: ${line.quantity} ${item.unit} purchased (${pjNumber}, bill ${input.billNumber})${input.paidFromAccount ? `, paid by ${input.paidVia === "cheque" ? "cheque" : "online transfer"} ${input.paymentReference} from ${BANK_NAME[input.paidFromAccount]}` : ""}`,
-        vendor: supplier.name, amount: String(line.lineTotal),
+        vendor: supplier.name, amount: String(cost),
         paymentMethod: input.terms === "credit" ? "credit" : EXPENSE_METHOD[input.paidVia!],
         paidFromDrawer: input.paidVia === "drawer", billNumber: input.billNumber,
         inventoryItemId: item.id, purchaseQuantity: n4(line.quantity), purchaseBillId: bill.id, purchaseBillItemId: bi.id,
@@ -102,7 +109,7 @@ export async function createPurchaseBill(dbx: Db, input: BillInput, opts: { user
       await tx.update(purchaseBillItemsTable).set({ expenseId: exp.id }).where(eq(purchaseBillItemsTable.id, bi.id));
       await tx.insert(ingredientPriceHistoryTable).values({
         inventoryItemId: item.id, supplierId: supplier.id, billId: bill.id, billItemId: bi.id, billDate: input.billDate,
-        quantity: n4(line.quantity), unit: item.unit, rate: n4(line.rate), landedUnitCost: n4(line.lineTotal / line.quantity),
+        quantity: n4(line.quantity), unit: item.unit, rate: n4(line.rate), landedUnitCost: n4(cost / line.quantity),
       });
       // Link the supplier to the ingredient if not linked yet (preferred if the ingredient has none)
       const [pref] = await tx.select({ id: ingredientSuppliersTable.id }).from(ingredientSuppliersTable)

@@ -176,12 +176,18 @@ function inventoryLines(lines: { department: string; lineTotal: number }[], side
   return out;
 }
 
-export type BillSource = { billId: number; pjNumber: string; billNumber: string; day: string; supplierId: number; supplierName: string; terms: string; paidVia: string | null; paidFromAccount: string | null; total: number; lines: { department: string; lineTotal: number }[] };
+export type BillSource = { billId: number; pjNumber: string; billNumber: string; day: string; supplierId: number; supplierName: string; terms: string; paidVia: string | null; paidFromAccount: string | null; total: number; lines: { department: string; lineTotal: number }[];
+  inputVat?: { claimed: boolean; billType: string; vat: number; supplierVatRegistered: boolean } }; // 5d: lines then carry the amount before VAT
+export const INPUT_VAT = "1450";
 
 // A purchase bill increases stock, never cost (step 2 spec section 13). VAT stays in the line cost while VAT is off.
 export function purchaseBillEntry(b: BillSource): Built {
   const problems: Problem[] = [];
-  const stock = inventoryLines(b.lines, "debit", b.pjNumber, problems);
+  // 5d: a bill that claims input VAT: stock at the amount before VAT, the VAT to 1450
+  const iv = b.inputVat?.claimed ? b.inputVat : null;
+  if (iv && (iv.billType !== "vat" || !(iv.vat > 0))) problems.push({ level: "fix", code: "input_vat", message: `${b.pjNumber}: marked as claiming input VAT but it is not a VAT bill with VAT. Void it and enter it again.`, ref: b.pjNumber });
+  if (iv && !iv.supplierVatRegistered) problems.push({ level: "fix", code: "input_vat_supplier", message: `${b.pjNumber}: claims input VAT but ${b.supplierName} is not ticked VAT registered. Tick it on the supplier, or void and re-enter the bill.`, ref: b.pjNumber });
+  const stock = [...inventoryLines(b.lines, "debit", b.pjNumber, problems), ...(iv && iv.vat > 0 ? [{ accountCode: INPUT_VAT, debit: round2(iv.vat), credit: 0 }] : [])];
   const linesTotal = round2(stock.reduce((s, l) => s + l.debit, 0));
   if (stock.length && Math.abs(linesTotal - b.total) >= 0.005) {
     const big = stock.reduce((a, c) => (c.debit > a.debit ? c : a));
@@ -212,12 +218,13 @@ export function supplierPaymentEntry(p: PaymentSource): Built {
       ...(tds > 0 ? [{ accountCode: TDS_PAYABLE, debit: 0, credit: tds, supplierId: p.supplierId, memo: `TDS ${p.tdsType ?? ""}`.trim() }] : [])] }, problems: [] };
 }
 
-export type DebitNoteSource = { noteId: number; noteNo: string; day: string; supplierId: number; total: number; lines: { department: string; lineTotal: number }[] };
+export type DebitNoteSource = { noteId: number; noteNo: string; day: string; supplierId: number; total: number; lines: { department: string; lineTotal: number }[];
+  inputVat?: { claimed: boolean; vat: number } }; // 5d: a return on a claimed bill: lines carry the amount before VAT, the VAT back out of 1450
 
 // A purchase return lowers what is owed and the stock
 export function debitNoteEntry(n: DebitNoteSource): Built {
   const problems: Problem[] = [];
-  const stock = inventoryLines(n.lines, "credit", n.noteNo, problems);
+  const stock = [...inventoryLines(n.lines, "credit", n.noteNo, problems), ...(n.inputVat?.claimed && n.inputVat.vat > 0 ? [{ accountCode: INPUT_VAT, debit: 0, credit: round2(n.inputVat.vat) }] : [])];
   if (problems.length) return { entry: null, problems };
   const lines = tidy([{ accountCode: PAYABLE, debit: round2(n.total), credit: 0, supplierId: n.supplierId }, ...stock]);
   if (!balanced(lines)) return { entry: null, problems: [{ level: "fix", code: "unbalanced", message: `${n.noteNo}: lines do not add up to the note.`, ref: n.noteNo }] };
@@ -225,7 +232,8 @@ export function debitNoteEntry(n: DebitNoteSource): Built {
 }
 
 export type ExpenseSource = { expenseId: number; voucherNo: string | null; day: string; category: string; accountCode: string | null; amount: number; paymentMethod: string; paidFromDrawer: boolean; bankAccount: string | null; billNumber: string | null;
-  tdsAmount?: number; tdsType?: string | null; payeePan?: string | null; payeeSupplierId?: number | null };
+  tdsAmount?: number; tdsType?: string | null; payeePan?: string | null; payeeSupplierId?: number | null;
+  inputVat?: { claimed: boolean; billType: string | null; vat: number } }; // 5d: the VAT inside the amount goes to 1450
 
 // An expense through expense_account_map. Petty cash with no bill posts the same way, flagged for the accountant's review.
 export function expenseEntry(e: ExpenseSource): Built {
@@ -243,9 +251,13 @@ export function expenseEntry(e: ExpenseSource): Built {
   // 5b: TDS withheld: the expense at the gross, the bank pays the net, 2250 owes the tax (the payee on the line)
   const tds = round2(e.tdsAmount ?? 0);
   if (tds > 0 && e.paidFromDrawer) problems.push({ level: "fix", code: "tds_drawer", message: `${ref}: TDS on petty cash from the drawer.`, ref });
+  // 5d: input VAT claimed: the expense at the amount less VAT, the VAT to 1450
+  const iv = e.inputVat?.claimed ? e.inputVat : null;
+  if (iv && (iv.billType !== "vat" || !(iv.vat > 0) || iv.vat >= e.amount)) problems.push({ level: "fix", code: "input_vat", message: `${ref}: marked as claiming input VAT but it is not a VAT bill with VAT below the amount. Correct the bill type or VAT on the expense.`, ref });
+  const vat = iv ? round2(iv.vat) : 0;
   if (problems.some(p => p.level === "fix") || !credit) return { entry: null, problems };
   return { entry: { voucherType: "EX", narration: `${ref}: ${e.category}${e.billNumber ? `, bill ${e.billNumber}` : e.paidFromDrawer ? ", no bill" : ""}${tds > 0 ? `, TDS Rs. ${tds.toFixed(2)} withheld` : ""}`, sourceType: "expense", sourceId: e.expenseId, sourceRef: ref, date: e.day,
-    lines: [{ accountCode: e.accountCode!, debit: round2(e.amount), credit: 0 }, { accountCode: credit, debit: 0, credit: round2(e.amount - tds) },
+    lines: [{ accountCode: e.accountCode!, debit: round2(e.amount - vat), credit: 0 }, ...(vat > 0 ? [{ accountCode: INPUT_VAT, debit: vat, credit: 0 }] : []), { accountCode: credit, debit: 0, credit: round2(e.amount - tds) },
       ...(tds > 0 ? [{ accountCode: TDS_PAYABLE, debit: 0, credit: tds, supplierId: e.payeeSupplierId ?? null, memo: `TDS ${e.tdsType ?? ""} · PAN ${e.payeePan ?? ""}`.trim() }] : [])] }, problems };
 }
 

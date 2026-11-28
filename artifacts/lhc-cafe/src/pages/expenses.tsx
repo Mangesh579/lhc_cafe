@@ -275,7 +275,8 @@ export default function Expenses() {
                           {r.attachmentCount > 0 && <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Paperclip className="w-3 h-3" /> {r.attachmentCount} receipt{r.attachmentCount === 1 ? "" : "s"}</div>}
                         </td>
                         <td className="px-4 py-3 text-xs">{methodLabel(r.paymentMethod)}</td>
-                        <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">{money(parseFloat(r.amount))}{r.tdsType && parseFloat(r.tdsAmount) > 0 && <div className="text-xs font-normal text-muted-foreground">TDS {money(parseFloat(r.tdsAmount))} · net {money(parseFloat(r.amount) - parseFloat(r.tdsAmount))}</div>}</td>
+                        <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">{money(parseFloat(r.amount))}{r.tdsType && parseFloat(r.tdsAmount) > 0 && <div className="text-xs font-normal text-muted-foreground">TDS {money(parseFloat(r.tdsAmount))} · net {money(parseFloat(r.amount) - parseFloat(r.tdsAmount))}</div>}
+                          {parseFloat(r.vatAmount ?? 0) > 0 && <div className={`text-xs font-normal ${r.inputVatClaimed ? "text-emerald-700" : "text-muted-foreground"}`}>{r.inputVatClaimed ? `Input VAT ${money(parseFloat(r.vatAmount))} (claimable)` : "VAT stays in cost"}</div>}</td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           {r.status === "active" && r.purchaseBillId && <span className="text-xs text-muted-foreground">From a purchase bill (Suppliers)</span>}
                           {r.status === "active" && !r.purchaseBillId && (

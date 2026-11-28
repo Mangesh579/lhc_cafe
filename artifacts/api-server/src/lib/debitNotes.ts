@@ -122,7 +122,7 @@ export async function createDebitNote(dbx: Db, body: any, ctx: DnCtx, opts: { us
       const [exp] = await tx.insert(expensesTable).values({
         expenseDate: h.noteDate, type: "direct", category: orig?.category ?? expenseCategoryFor(l.department), subcategory: orig?.subcategory ?? null,
         description: `Returned ${l.quantity} ${l.unit} ${l.itemName} to ${bill.supplierName} (${noteNo}, bill ${bill.billNumber})`,
-        vendor: bill.supplierName, amount: String(-l.lineTotal), paymentMethod: "credit", paidFromDrawer: false, billNumber: noteNo,
+        vendor: bill.supplierName, amount: String(-((bill as any).inputVatClaimed ? l.amount : l.lineTotal)), paymentMethod: "credit", paidFromDrawer: false, billNumber: noteNo,
         inventoryItemId: l.inventoryItemId, purchaseQuantity: n4(-l.quantity), purchaseBillId: billId, purchaseBillItemId: l.billItemId, debitNoteId: note.id,
         isRecurring: false, createdBy: opts.user,
       } as any).returning();

@@ -9,7 +9,7 @@ import { authenticate, requireAdminOrAccountant, type AuthRequest } from "../mid
 import { isDrawerClosed } from "../lib/ledgerData";
 import { nextVoucherNumber } from "../lib/fiscal";
 import { lockGuard } from "../lib/periodLock";
-import { expenseTaxFields } from "../lib/taxes";
+import { expenseTaxFields, claimsInputVat } from "../lib/taxes";
 import { expenseTds, TdsError, type TdsResult } from "../lib/tds";
 const tdsOut = (t: TdsResult) => ({ tdsWarning: t.warning, tdsAggregate: t.aggregate, tdsBelowThreshold: t.belowThreshold, tdsBase: t.base });
 
@@ -176,6 +176,9 @@ router.post("/expenses", authenticate, requireAdminOrAccountant, async (req: Aut
   if ("error" in tax) { res.status(400).json({ error: tax.error }); return; }
   const user = req.user?.username ?? "user";
   const fromDrawer = b.paymentMethod === "cash" && !!b.paidFromDrawer;
+  // 5d: petty cash without a bill never has VAT; a VAT bill dated while VAT is in force claims input VAT (frozen here)
+  if (fromDrawer && !clean(b.billNumber, 60) && tax.vatAmount > 0) { res.status(400).json({ error: "Petty cash without a bill has no VAT. Enter the bill number, or remove the VAT." }); return; }
+  const inputVatClaimed = await claimsInputVat({ billType: tax.billType, vatAmount: tax.vatAmount, day: b.expenseDate });
   // 5b: TDS withheld (the payee's PAN; never petty cash; a contract only above its threshold, 10-day total)
   let tds: TdsResult;
   try { tds = await expenseTds(db, { tdsType: b.tdsType, amount: round2(amount), vatAmount: tax.vatAmount, billType: tax.billType, supplierPan: tax.supplierPan, paidFromDrawer: fromDrawer, day: b.expenseDate }); }
@@ -188,7 +191,7 @@ router.post("/expenses", authenticate, requireAdminOrAccountant, async (req: Aut
       description: clean(b.description, 500), vendor: clean(b.vendor, 120), amount: String(round2(amount)),
       paymentMethod: METHODS.includes(b.paymentMethod) ? b.paymentMethod : "cash",
       paidFromDrawer: fromDrawer, billNumber: clean(b.billNumber, 60), voucherNo, bankAccount,
-      billType: tax.billType, vatAmount: String(tax.vatAmount), supplierPan: tax.supplierPan,
+      billType: tax.billType, vatAmount: String(tax.vatAmount), supplierPan: tax.supplierPan, inputVatClaimed,
       tdsType: tds.tdsType, tdsRate: tds.tdsRate == null ? null : String(tds.tdsRate), tdsAmount: String(tds.tdsAmount),
       isRecurring: !!b.isRecurring, frequency: b.isRecurring ? (FREQUENCIES.includes(b.frequency) ? b.frequency : "monthly") : null,
       createdBy: user,
@@ -271,6 +274,12 @@ router.patch("/expenses/:id", authenticate, requireAdminOrAccountant, async (req
     }
   }
   if (changes.length === 0) { res.json(ex); return; }
+  // 5d: the input VAT flag follows the document only when its date, bill type or VAT changes (never the live settings)
+  if (set.expenseDate !== undefined || set.billType !== undefined || set.vatAmount !== undefined) {
+    const claimed = await claimsInputVat({ billType: (set.billType !== undefined ? set.billType : (ex as any).billType) as string | null,
+      vatAmount: Number(set.vatAmount ?? (ex as any).vatAmount ?? 0), day: (set.expenseDate as string) ?? ex.expenseDate });
+    if (claimed !== !!(ex as any).inputVatClaimed) { track("input VAT", (ex as any).inputVatClaimed ? "claimed" : "in cost", claimed ? "claimed" : "in cost"); set.inputVatClaimed = claimed; }
+  }
   const [row] = await db.update(expensesTable).set(set).where(eq(expensesTable.id, id)).returning();
   await logChange(id, "edited", changes.join("; "), user);
   res.json(row);

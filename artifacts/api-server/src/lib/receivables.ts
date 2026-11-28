@@ -21,7 +21,7 @@ export async function creditDefaults(ex: Exec = db): Promise<CreditDefaults> {
 
 export type CreditInvoice = {
   orderId: number; invoiceNumber: string | null; customerId: number | null; customerName: string | null; customerPhone: string | null;
-  day: string; at: string; billTotal: number; creditAmount: number; creditNotes: number; receivable: number;
+  day: string; at: string; billTotal: number; vatAmount: number; creditAmount: number; creditNotes: number; receivable: number;
   allocated: number; outstanding: number; dueDate: string; daysOverdue: number;
   stay: StayInfo | null; stayText: string; // a hotel stay bill: room, guest and breakfasts
 };
@@ -62,7 +62,7 @@ export async function creditInvoices(filter: { customerId?: number; orderIds?: n
     id: ordersTable.id, invoiceNumber: ordersTable.invoiceNumber, customerId: ordersTable.loyaltyCustomerId,
     customerName: loyaltyCustomersTable.name, customerPhone: loyaltyCustomersTable.phone,
     creditDays: loyaltyCustomersTable.creditDays, creditLimit: loyaltyCustomersTable.creditLimit,
-    totalAmount: ordersTable.totalAmount, paymentMethod: ordersTable.paymentMethod,
+    totalAmount: ordersTable.totalAmount, vatAmount: ordersTable.vatAmount, paymentMethod: ordersTable.paymentMethod,
     paidAt: ordersTable.paidAt, backdatedAt: ordersTable.backdatedAt, createdAt: ordersTable.createdAt,
   }).from(ordersTable)
     .leftJoin(loyaltyCustomersTable, eq(ordersTable.loyaltyCustomerId, loyaltyCustomersTable.id))
@@ -90,7 +90,7 @@ export async function creditInvoices(filter: { customerId?: number; orderIds?: n
     const dueDate = dueDateOf(day, terms.creditDays);
     return {
       orderId: r.id, invoiceNumber: r.invoiceNumber, customerId: r.customerId, customerName: r.customerName ?? null, customerPhone: r.customerPhone ?? null,
-      day, at: at.toISOString(), billTotal: round2(num(r.totalAmount)), creditAmount, creditNotes: cn,
+      day, at: at.toISOString(), billTotal: round2(num(r.totalAmount)), vatAmount: round2(num(r.vatAmount)), creditAmount, creditNotes: cn,
       receivable: round2(creditAmount - cn), allocated, outstanding,
       dueDate, daysOverdue: outstanding > 0 ? Math.max(0, daysBetween(dueDate, today)) : 0,
       stay: stays.get(r.id) ?? null, stayText: stayText(stays.get(r.id) ?? null),

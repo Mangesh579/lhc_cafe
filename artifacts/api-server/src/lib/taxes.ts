@@ -1,7 +1,7 @@
 // Step 5a: the tax settings (docs/specs/step5-vat-tds.md, owner's answers 2026-11-28). Every rate and threshold is an
 // editable row (tax_rates, tds_types); the starting values are researched and UNVERIFIED until the accountant confirms them.
 // The validators are pure; the readers take the rate in force on a document's date.
-import { db, taxRatesTable, tdsTypesTable } from "@workspace/db";
+import { db, taxRatesTable, tdsTypesTable, ledgerSettingsTable } from "@workspace/db";
 import { and, eq, asc } from "drizzle-orm";
 
 const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -56,6 +56,18 @@ export function expenseTaxFields(b: any, amount: number): { billType: string | n
   if (billType === "vat" && !(vat > 0)) return { error: "A VAT bill shows its VAT: enter it." };
   if (billType === "vat" && !panRaw) return { error: "A VAT bill needs the supplier's PAN/VAT number." };
   return { billType, vatAmount: Math.round(vat * 100) / 100, supplierPan: panRaw || null };
+}
+
+// 5d: VAT is in force on a day when it is switched on, its start date is set, and the day is on or after that date.
+// Input VAT (5d), output VAT (5e) and the VAT return (5f) all use this, and only when a document is made or its
+// date, bill type or VAT changes; posting reads the flag stored on the document.
+export async function vatActiveOn(day: string, ex: any = db): Promise<boolean> {
+  const [s] = await ex.select({ on: ledgerSettingsTable.vatEnabled, from: ledgerSettingsTable.vatStartDate }).from(ledgerSettingsTable).where(eq(ledgerSettingsTable.id, 1));
+  return !!(s?.on && s.from && isDay(day) && day >= s.from);
+}
+// A document claims input VAT when it is a VAT bill with VAT, dated while VAT is in force
+export async function claimsInputVat(o: { billType: string | null | undefined; vatAmount: number; day: string }, ex: any = db): Promise<boolean> {
+  return o.billType === "vat" && o.vatAmount > 0.004 && await vatActiveOn(o.day, ex);
 }
 
 // The VAT rate in force on a day (null when there is none)

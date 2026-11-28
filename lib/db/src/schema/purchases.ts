@@ -69,6 +69,7 @@ export const purchaseBillsTable = pgTable("purchase_bills", {
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   billType: text("bill_type").notNull().default("pan"), // 5a: pan | vat (a VAT bill's VAT goes to 1450 from the switch-on date, 5d)
+  inputVatClaimed: boolean("input_vat_claimed").notNull().default(false), // 5d (migration 023): frozen when the bill is made
 }, (t) => ({
   onePj: uniqueIndex("purchase_bills_pj_idx").on(t.pjNumber),
   noDuplicate: uniqueIndex("purchase_bills_no_duplicate_idx").on(t.supplierPan, t.billNumberKey).where(sql`status = 'active'`),

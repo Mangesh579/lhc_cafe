@@ -2227,3 +2227,97 @@ Plan: docs/specs/step5-vat-tds.md sections 4b, 5, 6, 8 and 11 (answers 11 and 12
 
 ## 2026-11-28 (o): Migration 022 recorded as run
 - The owner ran db/migrations/022_tds_receivable.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 5c entry above. Docs only; no code, no SQL, nothing to deploy.
+
+## 2026-11-28 (p): Step 5d, input VAT
+Plan: docs/specs/step5-vat-tds.md sections 3, 5, 8 and 11 (answers 2 and 9); as built in section 15.
+
+### Delivered
+- **vatActiveOn(day)** in lib/taxes.ts (vat_enabled, vat_start_date set, the day on or after it), and claimsInputVat (a VAT bill with VAT, on such a day). 5e and 5f will use the same helper.
+- **The flag is frozen per document** (migration 023): purchase_bills.input_vat_claimed and expenses.input_vat_claimed. Posting reads only the stored flag.
+  - **Bills:** set when made; a bill is never edited (void and re-enter).
+  - **Expenses:** recomputed only when the date, bill type or VAT changes (logged). An edit after posting re-posts at the next revision with the new flag, so an expense moved across the switch-on date follows its new date.
+  - **Opening bills** never claim; **debit notes** follow their bill.
+- **Purchase bills:**
+  - a bill that would claim needs the supplier ticked VAT registered ("Tick VAT registered on the supplier first"); before the switch-on date this is not checked, as before;
+  - a claimed bill's stock costs the amount before VAT (cost per unit average or last, last purchase price, price history, its cost record on Expenses);
+  - posting: Dr 1400/1410 net, Dr 1450 VAT, Cr 2100, cash or bank with the total.
+- **Debit notes on a claimed bill:** Dr 2100 with the total, Cr 1400/1410 net, Cr 1450 with the returned VAT. Unclaimed: as before.
+- **Expenses:**
+  - claimed: Dr expense net, Dr 1450 VAT, Cr cash or bank with the amount less TDS, Cr 2250 TDS;
+  - petty cash from the drawer with no bill number cannot have VAT.
+- **Posting problems** (fix): input_vat (claimed but not a VAT bill with VAT) and input_vat_supplier (the supplier is no longer ticked VAT registered).
+- **Screens:**
+  - the purchase bill (Suppliers > bill) and the expense list say "Input VAT Rs X (claimable)" or "VAT stays in cost";
+  - the drill-down of a bill, a debit note or an expense shows the same.
+- **Nothing changes while VAT is off.** VAT cannot be switched on until 5e, so every existing flag stays false.
+
+### Files
+- **New:**
+  - db/migrations/023_input_vat.sql;
+  - api-server: __tests__/inputVat5d.test.ts.
+- **Changed:**
+  - lib/db schema/purchases.ts and expenses.ts;
+  - api-server: lib/taxes.ts, lib/purchasePosting.ts, lib/debitNotes.ts, lib/postingRules.ts, lib/glPosting.ts, lib/reports/drilldown.ts, routes/expenses.ts;
+  - lhc-cafe: pages/suppliers.tsx, pages/expenses.tsx.
+
+### Migration
+- db/migrations/023_input_vat.sql. **Not yet run on the server.** Idempotent; it ran twice in the tests and kept every flag.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 57 files, 575 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- **No existing test changed;** all 559 passed with VAT off before the new tests were added.
+- New, inputVat5d (11). VAT is set on directly in the test database, from 19 Dec 2026:
+  - **vatActiveOn:** false on the 18th, true from the 19th.
+  - **A VAT bill after:** Dr 1400 1,000, Dr 1450 130, Cr 2100 1,130. Rice costs Rs 100, not 113, in the price history and the cost record too.
+  - **Unclaimed:** the same bill dated the 18th (Dr 1410 565), and a PAN bill after (Dr 1400 800), with the stock in full.
+  - **Stock:** 1,800 and 678 in all three cases, equal to 1400 and 1410.
+  - **The supplier tick:** a claiming VAT bill from an unticked supplier is refused (allowed on the 18th). An opening bill never claims.
+  - **An expense with VAT and TDS:** Dr 7100 10,000, Dr 1450 1,300, Cr 1210 11,150, Cr 2250 150, balanced. Before the switch-on date the VAT stays in the expense. Petty cash without a bill and with VAT is refused.
+  - **Debit notes:** on the claimed bill, Dr 2100 226, Cr 1400 200, Cr 1450 26; on the unclaimed bill, Dr 2100 113, Cr 1410 113.
+  - **An edit after posting:** moving an expense from the 18th to the 19th re-posts at the next revision with the VAT claimed.
+  - **Moving the VAT date later:** it posts nothing new and keeps every flag. An unrelated edit keeps the flag; changing the VAT re-reads the rule.
+  - **Statements:** the TB balances, the P&L agrees, the BS balances with 1450 (1,534), and the supplier statements agree.
+  - **Drill-down and migration:** the drill-down shows the claimable VAT; migration 023 runs twice and keeps the flags.
+- Not run: the screens in a browser; anything against production.
+
+### Decisions and open questions
+- **Claude's choice:** the "VAT registered" refusal applies only to a bill that would claim input VAT. Existing VAT bills from unticked suppliers, while VAT is off, are still allowed (and existing tests rely on it).
+
+## 2026-11-28 (q): The default TDS rate customers withhold
+### Delivered
+- **The setting:** ledger_settings.tds_receivable_rate (default 15.00, check 0 to 100), with tds_receivable_rate_confirmed_by and confirmed_at (empty = UNVERIFIED).
+  - PATCH /gl/settings {tdsReceivableRate} edits it; a different rate clears the confirmation.
+  - POST /gl/settings/tds-receivable-rate/confirm confirms it. Admin and accountant only.
+- **Chart of Accounts > Taxes:** "Default TDS rate withheld by customers (15% while LHC is not VAT registered, 1.5% after registration). UNVERIFIED until the accountant confirms.", with Change and Confirm.
+- **Record receipt:**
+  - a "TDS withheld by the customer" tick pre-fills the TDS as rate x the taxable amount of the invoices being settled (the whole amount while VAT is off; the amount before VAT once an invoice carries VAT);
+  - it follows the invoices until typed over, and the typed figure is kept;
+  - under the field: "Default 15% - change in Settings";
+  - a soft warning appears when the figure is above the default rate and more than Rs 1,000 above the pre-fill.
+  - Only the amount typed is saved; posting is unchanged. This replaces the 5c hint line.
+- **Where the rules live:** lib/tdsPrefill.ts in api-server (tested); the frontend re-exports it. The open-invoice list now carries each invoice's VAT.
+
+### Files
+- **New:**
+  - db/migrations/024_tds_receivable_rate.sql;
+  - api-server: lib/tdsPrefill.ts, __tests__/tdsReceivableRate.test.ts;
+  - lhc-cafe: src/lib/tdsPrefill.ts (re-export).
+- **Changed:**
+  - lib/db schema/ledger.ts;
+  - api-server: routes/gl.ts, lib/receivables.ts (vatAmount on credit invoices);
+  - lhc-cafe: pages/receivables.tsx, components/TaxesTab.tsx.
+
+### Migration
+- db/migrations/024_tds_receivable_rate.sql. **Not yet run on the server.** Idempotent; a second run keeps the value.
+
+### Tests
+- New, tdsReceivableRate (5):
+  - 15% and UNVERIFIED at first;
+  - confirming records who; the same rate keeps the confirmation; a new rate clears it; bad rates are refused;
+  - staff and supervisor get 403 on changing and confirming;
+  - migration 024 runs twice;
+  - the pre-fill equals rate x the settled amount (with and without VAT); typing over it is kept; the warning rule.
+- Existing receipts and every existing test are unchanged.

@@ -82,6 +82,10 @@ export const ledgerSettingsTable = pgTable("ledger_settings", {
   vatStartDate: date("vat_start_date"),
   vatNumber: text("vat_number"),
   tdsBase: text("tds_base").notNull().default("excl_vat"), // 5b (migration 021): excl_vat | incl_vat; the accountant confirms
+  // migration 024: the default TDS rate customers withhold (a pre-fill on Record receipt only); null confirmation = UNVERIFIED
+  tdsReceivableRate: numeric("tds_receivable_rate", { precision: 5, scale: 2 }).notNull().default("15.00"),
+  tdsReceivableRateConfirmedBy: text("tds_receivable_rate_confirmed_by"),
+  tdsReceivableRateConfirmedAt: timestamp("tds_receivable_rate_confirmed_at"),
   updatedBy: text("updated_by"),
   updatedAt: timestamp("updated_at"),
 });

@@ -383,6 +383,8 @@ export default function Suppliers() {
                 ))}
               </tbody></table>
               <p className="text-right">Subtotal {rs(billDetail.subtotal)}{billDetail.vatAmount > 0 ? ` · VAT ${rs(billDetail.vatAmount)}` : ""} · <strong>Total {rs(billDetail.total)}</strong></p>
+              {/* 5d: input VAT is claimed only on a VAT bill dated on or after the VAT switch-on date */}
+              {Number(billDetail.vatAmount) > 0 && <p className={`text-right text-xs ${billDetail.inputVatClaimed ? "text-emerald-700" : "text-muted-foreground"}`}>{billDetail.inputVatClaimed ? `Input VAT ${rs(billDetail.vatAmount)} (claimable); the stock costs the amount before VAT` : "VAT stays in cost"}</p>}
               {billDetail.status === "active" && <p className="text-right">Paid {rs(billDetail.paid)}{billDetail.debitNotes > 0 ? ` · Returned ${rs(billDetail.debitNotes)}` : ""} · <strong>Balance {rs(billDetail.balance)}</strong>{billDetail.overdue && <span className="text-red-600"> · {billDetail.daysOverdue} days late</span>}</p>}
               {(billDetail.debitNoteList ?? []).length > 0 && (
                 <div className="border rounded p-2 text-xs space-y-1"><p className="font-semibold uppercase tracking-wider text-muted-foreground">Returns</p>

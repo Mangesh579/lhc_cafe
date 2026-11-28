@@ -83,6 +83,15 @@ router.patch("/gl/settings", authenticate, async (req: AuthRequest, res: Respons
     if (b.tdsBase !== "excl_vat" && b.tdsBase !== "incl_vat") { res.status(400).json({ error: "The TDS base is the amount before VAT (excl_vat) or the whole amount (incl_vat)." }); return; }
     set.tdsBase = b.tdsBase;
   }
+  // The default TDS rate customers withhold (a pre-fill on Record receipt only): 0 to 100; a change needs confirming again
+  if (b.tdsReceivableRate !== undefined) {
+    const r = Number(b.tdsReceivableRate);
+    if (b.tdsReceivableRate === null || b.tdsReceivableRate === "" || !Number.isFinite(r) || r < 0 || r > 100) { res.status(400).json({ error: "The default TDS rate is a percentage from 0 to 100." }); return; }
+    const cur = await ledgerSettings(db);
+    const rate = Math.round(r * 100) / 100;
+    set.tdsReceivableRate = rate.toFixed(2);
+    if (Number((cur as any).tdsReceivableRate ?? 15) !== rate) { set.tdsReceivableRateConfirmedBy = null; set.tdsReceivableRateConfirmedAt = null; }
+  }
   if (b.lockAfterDays !== undefined) {
     const n = Number(b.lockAfterDays);
     if (n !== 2 && n !== 3) { res.status(400).json({ error: "A posted day locks after 2 or 3 days (accountant's rule)." }); return; }
@@ -282,6 +291,13 @@ router.patch("/gl/tds-types/:id", authenticate, async (req: AuthRequest, res: Re
   const [row] = await db.update(tdsTypesTable).set(set).where(eq(tdsTypesTable.id, idOf(req.params.id))).returning();
   if (!row) { res.status(404).json({ error: "TDS type not found" }); return; }
   res.json(row);
+});
+
+// The accountant (or the admin) confirms the default TDS rate customers withhold
+router.post("/gl/settings/tds-receivable-rate/confirm", authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!can(req, res)) return;
+  await db.update(ledgerSettingsTable).set({ tdsReceivableRateConfirmedBy: userOf(req), tdsReceivableRateConfirmedAt: new Date() }).where(eq(ledgerSettingsTable.id, 1));
+  res.json(await ledgerSettings(db));
 });
 
 // 5b: the accountant (or the admin) confirms a researched rate against IRD
