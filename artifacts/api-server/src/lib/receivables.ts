@@ -111,7 +111,8 @@ export async function customerBalances(customerId?: number, ex: Exec = db): Prom
   const e = ex as typeof db;
   const defaults = await creditDefaults(ex);
   const invoices = await creditInvoices(customerId ? { customerId } : {}, ex);
-  const rec = await e.select({ customerId: customerReceiptsTable.customerId, total: sql<string>`SUM(${customerReceiptsTable.amount})` })
+  // 5c: a receipt settles the money received plus the TDS the customer withheld
+  const rec = await e.select({ customerId: customerReceiptsTable.customerId, total: sql<string>`SUM(${customerReceiptsTable.amount} + ${customerReceiptsTable.tdsAmount})` })
     .from(customerReceiptsTable)
     .where(and(eq(customerReceiptsTable.status, "active"), ...(customerId ? [eq(customerReceiptsTable.customerId, customerId)] : [])))
     .groupBy(customerReceiptsTable.customerId);

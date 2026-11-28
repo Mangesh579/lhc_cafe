@@ -61,7 +61,7 @@ async function noteSources(where: any) {
 async function receiptSources(where: any) {
   const rows = await db.select().from(customerReceiptsTable).where(where);
   return rows.map(r => ({ id: r.id, day: r.receiptDate, postable: r.status === "active",
-    built: receiptEntry({ receiptId: r.id, voucherNo: r.voucherNo, day: r.receiptDate, mode: r.mode, amount: round2(num(r.amount)), bankAccount: (r as any).bankAccount ?? null, customerId: r.customerId }) }));
+    built: receiptEntry({ receiptId: r.id, voucherNo: r.voucherNo, day: r.receiptDate, mode: r.mode, amount: round2(num(r.amount)), bankAccount: (r as any).bankAccount ?? null, customerId: r.customerId, tdsAmount: round2(num(r.tdsAmount)) }) }));
 }
 
 async function settlementSources(where: any) {
@@ -306,7 +306,7 @@ export async function receivablesAsOf(day: string) {
   const plus = (c: number | null, v: number) => { if (c == null) return; m.set(c, round2((m.get(c) ?? 0) + v)); };
   for (const i of await creditInvoices()) if ((reissueDay.get(i.orderId) ?? i.day) <= day) plus(i.customerId, i.creditAmount);
   for (const n of await db.select().from(creditNotesTable).where(and(eq(creditNotesTable.status, "active"), lte(creditNotesTable.noteDate, day)))) plus(n.customerId, -num(n.total));
-  for (const r of await db.select().from(customerReceiptsTable).where(and(eq(customerReceiptsTable.status, "active"), lte(customerReceiptsTable.receiptDate, day)))) plus(r.customerId, -num(r.amount));
+  for (const r of await db.select().from(customerReceiptsTable).where(and(eq(customerReceiptsTable.status, "active"), lte(customerReceiptsTable.receiptDate, day)))) plus(r.customerId, -(num(r.amount) + num(r.tdsAmount))); // 5c: money + TDS
   return m;
 }
 

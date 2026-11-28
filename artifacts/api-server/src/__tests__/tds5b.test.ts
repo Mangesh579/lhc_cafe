@@ -156,6 +156,7 @@ describe("the TDS deposit (TX) and the report", () => {
     expect((await api("acct", "POST", "/tax-payments", { month: "2083-09", paymentDate: "2026-12-25", bankAccount: "nabil", amount: -1 })).body.error).toMatch(/below zero/);
     const d = await api("acct", "POST", "/tax-payments", { month: "2083-09", paymentDate: "2026-12-25", bankAccount: "nabil", reference: "eTDS-123" });
     expect(d.status, JSON.stringify(d.body)).toBe(201);
+    ids.deposit = d.body.id;
     expect(d.body).toMatchObject({ voucherNo: expect.stringMatching(/^TX/), amount: "8675.00", kind: "tds_deposit" });
     setNow("2026-12-26T06:00:00Z"); // the 25th has ended
     const tx = await entryOf("2026-12-25", "tax_payment", d.body.id); // (a posted day's review lists entries without their lines)
@@ -185,6 +186,13 @@ describe("the TDS deposit (TX) and the report", () => {
       const closed = await api("acct", "POST", "/tax-payments", { month: "2083-09", paymentDate: "2026-12-26", bankAccount: "nabil", amount: 10 });
       expect(closed.body.error).toMatch(/month is closed/);
     } finally { await ctx.client.query(`UPDATE period_closes SET status = 'reopened', reopened_by = 'admin', reopened_at = now(), reopen_reason = 'test' WHERE bs_year = 2083 AND bs_month = 9`); }
+    // 5c (A): nothing is left to deposit, so a further Rs 10 is refused (a fine or interest is an expense)
+    const tooMuch = await api("acct", "POST", "/tax-payments", { month: "2083-09", paymentDate: "2026-12-26", bankAccount: "hbl", amount: 10 });
+    expect(tooMuch.status).toBe(400);
+    expect(tooMuch.body.error).toBe("That is more than the TDS still to deposit (Rs 0.00). Record a fine or interest as an expense.");
+    // voiding the deposit makes Rs 8,675 due again: Rs 8,676 is refused, Rs 10 is allowed
+    expect((await api("acct", "POST", `/tax-payments/${ids.deposit}/void`, { reason: "re-entered below" })).status).toBe(200);
+    expect((await api("acct", "POST", "/tax-payments", { month: "2083-09", paymentDate: "2026-12-26", bankAccount: "hbl", amount: 8676 })).body.error).toMatch(/still to deposit \(Rs 8675\.00\)/);
     const extra = await api("acct", "POST", "/tax-payments", { month: "2083-09", paymentDate: "2026-12-26", bankAccount: "hbl", amount: 10 });
     expect(extra.status).toBe(201);
     expect((await api("acct", "POST", `/tax-payments/${extra.body.id}/void`, {})).body.error).toMatch(/reason/);

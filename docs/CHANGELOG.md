@@ -2138,3 +2138,89 @@ Plan: docs/specs/step5-vat-tds.md sections 4a, 5, 6 and 8, the owner's answers i
 
 ### Open
 - The email code has no limit on wrong guesses, only the general public rate limit (30 requests a minute per address). Unchanged; a limit of 5 wrong tries per code is a small follow-up if wanted.
+
+## 2026-11-28 (n): Step 5c, TDS receivable (and a 5b fix)
+Plan: docs/specs/step5-vat-tds.md sections 4b, 5, 6, 8 and 11 (answers 11 and 12); as built in section 14.
+
+### A. 5b fix
+- **Deposit limit:** POST /tax-payments refuses an amount above the TDS still to deposit for the BS month (withheld less deposited): "That is more than the TDS still to deposit (Rs X). Record a fine or interest as an expense."
+- **Two known limits** are written in the plan and in CLAUDE.md, for the accountant to confirm:
+  - contract TDS has no catch-up on earlier payments;
+  - a debit note does not adjust TDS already withheld (a JV instead).
+
+### B. 5c
+- **What a receipt means:** customer_receipts.amount is the money received, and tds_amount is extra. The receipt settles both. Allocations cover the total, and "unallocated" is computed on it.
+- **Every place that sums receipts:**
+  - **changed to money + TDS:**
+    - lib/receivables.ts customerBalances (Receivables, the POS credit warning, opening balances, conversion);
+    - lib/glPosting.ts receivablesAsOf (the daily and month-end Receivables checks, the 4b statement agreement);
+    - routes/receivables.ts: unallocated, the customer ledger, the allocation limits on POST /receipts and /receipts/:id/allocate;
+    - lib/postingRules.ts receiptEntry;
+    - the 4b statement label;
+    - the drill-down.
+  - **kept as money only, on purpose** (TDS is not money): lib/ledgerData.ts receiptsBetween, so the drawer, Collections, the payment-mode ledgers, Settlements and the daily cash and sales checks.
+- **Rules:**
+  - TDS is 0 or more, no more than the part allocated to invoices, and only on cash or bank receipts (never card or QR);
+  - only the admin and accountant enter it (supervisors and the head barista get 403 with TDS, and still record plain receipts);
+  - the amount is never edited: void and re-enter.
+- **The certificate:** the reference can be entered on the receipt or later with PATCH /receivables/receipts/:id/tds-reference (admin and accountant). That records who and when (migration 022) and changes no posting. Without it, the receipt shows "Waiting for certificate".
+- **Posting:** Dr cash, bank or machine (money), Dr 1460 (TDS, customer on the line), Cr 1300 (money + TDS, customer on the line). A void reverses it. Problem codes receipt_tds and receipt_tds_mode.
+- **Points:** they follow the allocations, so the TDS part counts as paid. Sulimha never earns. No code change was needed.
+- **Report:** Reports > TDS receivable (one BS month, admin and accountant, GET only):
+  - by customer, with date, receipt, invoices settled, money, TDS, the certificate or "waiting for certificate", and a running total;
+  - totals;
+  - the 1460 check for the posted days;
+  - the year-end note;
+  - Excel and PDF (LHC_TDSReceivable_YYYY-MM).
+- **Screens:**
+  - Receivables > Record receipt: the TDS and certificate fields with the hint line;
+  - the receipt list: TDS, settled, certificate or "Waiting for certificate", with add or change;
+  - the customer page: TDS this fiscal year and certificates missing;
+  - the voucher print: the TDS and settled lines;
+  - Reports > TDS receivable.
+- **Small fix:** GET /receivables/customers/:id now returns the customer's PAN and kind. The PAN line added in 5a always showed "—".
+
+### Files
+- **New:**
+  - db/migrations/022_tds_receivable.sql;
+  - api-server: lib/reports/tdsReceivable.ts, __tests__/tds5c.test.ts;
+  - lhc-cafe: components/reports/TdsReceivable.tsx.
+- **Changed:**
+  - lib/db schema/payments.ts;
+  - api-server: lib/receivableRules.ts, lib/receivables.ts, lib/postingRules.ts, lib/glPosting.ts, lib/reports/statements.ts, lib/reports/drilldown.ts, lib/reports/exportDocs.ts, routes/receivables.ts, routes/reports.ts, routes/taxes.ts, __tests__/tds5b.test.ts;
+  - lhc-cafe: pages/receivables.tsx, pages/reports.tsx.
+
+### Tables
+- customer_receipts: + tds_reference_by, tds_reference_at.
+- Index customer_receipts_tds_idx.
+- No existing row's values change. Existing receipts have tds_amount 0, so their entries and figures are unchanged.
+
+### Migration
+- db/migrations/022_tds_receivable.sql. **Not yet run on the server.** Idempotent (run twice in the tests). Run it before deploy.sh: the new code reads the two columns.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 55 files, 559 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- **One existing test changed:** tds5b "refused in a locked day and in a closed month". It recorded an extra Rs 10 deposit after everything was deposited, which the 5b fix now refuses on purpose. The test now expects that refusal. It voids the deposit, checks that Rs 8,676 is refused when Rs 8,675 is due, and then records and voids the Rs 10 as before.
+- New, tds5c (10):
+  - **The Sulimha example:** Rs 8,000 of breakfast invoices, Rs 120 withheld and Rs 7,880 by bank. Both invoices are fully settled, the balance is 0, and no points.
+  - **Refused:** card (LHC and Sulimha machines) and QR with TDS; TDS on an advance; TDS above the allocated part; TDS below zero; allocations above money + TDS.
+  - **403:** a supervisor or head barista with TDS (a plain receipt by the head barista still works).
+  - **Waiting for certificate**, and the advance case: Rs 600 + 10 with Rs 400 allocated leaves Rs 210 unallocated.
+  - **Points:** Asha earns on the whole Rs 1,000 and Rs 400, and a hotel guest on paid extras.
+  - **The entries,** with the customer on the 1460 and 1300 lines; the Receivables day check agrees.
+  - **The certificate added later:** no new journal entry and nothing late. Staff, supervisor and head barista get 403.
+  - **A void after posting** reverses the receipt; the invoice is owed again and the points go back.
+  - **Everything agrees:** the Receivables screen, the customer ledger, the 4b statement (with its agreement) and 1300 in the Trial Balance (400); 1460 is 140.
+  - **Statements:** the Balance Sheet shows 1460 and balances; the P&L agrees.
+  - **The register:** its total equals 1460's movement, with the certificates, the running total, the waiting flag, the year-end note and both exports.
+  - **Access:** staff and supervisor get 403 on the new routes.
+  - **Migration:** 022 runs twice.
+- Not run: the screens in a browser; anything against production.
+
+### Decisions and open questions
+- **Claude's interpretation:** TDS may not exceed the invoices the receipt settles. "Not above the settled total" is always true, so this reads "more TDS than invoices is refused".
+- **Claude's interpretation:** card and QR receipts carry no TDS (both are machine money, settled to LHC's bank).
+- **Hint line:** it uses the service_vat type's rate (1.5%) on the allocated invoices. Once VAT is on (5e), it must leave out the VAT.

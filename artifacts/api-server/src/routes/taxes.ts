@@ -47,6 +47,7 @@ router.post("/tax-payments", authenticate, async (req: AuthRequest, res: Respons
   const suggested = await tdsToDeposit(mm.y, mm.m);
   const amount = b.amount === undefined || b.amount === null || b.amount === "" ? suggested.toDeposit : paisa(Number(b.amount));
   if (!Number.isFinite(amount) || amount < 0) { res.status(400).json({ error: "The amount cannot be below zero." }); return; }
+  if (amount - suggested.toDeposit >= 0.005) { res.status(400).json({ error: `That is more than the TDS still to deposit (Rs ${suggested.toDeposit.toFixed(2)}). Record a fine or interest as an expense.` }); return; }
   if (amount === 0) { res.status(400).json({ error: `Nothing to deposit for ${bsMonthRange(mm.y, mm.m).label} (withheld Rs. ${suggested.withheld.toFixed(2)}, deposited Rs. ${suggested.deposited.toFixed(2)}).` }); return; }
   const user = req.user?.username ?? "user";
   const row = await db.transaction(async (tx) => {

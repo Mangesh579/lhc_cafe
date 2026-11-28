@@ -37,6 +37,8 @@ export const customerReceiptsTable = pgTable("customer_receipts", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   tdsAmount: numeric("tds_amount", { precision: 12, scale: 2 }).notNull().default("0"), // 5a: TDS the customer withheld (used from 5c)
   tdsReference: text("tds_reference"),
+  tdsReferenceBy: text("tds_reference_by"), // 5c: who entered the certificate reference, and when (migration 022)
+  tdsReferenceAt: timestamp("tds_reference_at", { withTimezone: true }),
 }, (t) => ({
   byCustomer: index("customer_receipts_customer_idx").on(t.customerId),
   byDate: index("customer_receipts_date_idx").on(t.receiptDate),

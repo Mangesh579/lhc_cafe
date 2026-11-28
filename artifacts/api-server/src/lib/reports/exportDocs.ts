@@ -311,8 +311,31 @@ async function tdsPayableDoc(q: Record<string, any>): Promise<ReportDoc> {
     ] };
 }
 
+// 5c: the TDS receivable register
+async function tdsReceivableDoc(q: Record<string, any>): Promise<ReportDoc> {
+  const m = String(q.month ?? "").match(/^(\d{4})-(\d{1,2})$/);
+  if (!m || +m[2] < 1 || +m[2] > 12) throw new ExportError(400, "Choose the BS month, like 2083-09.");
+  const { tdsReceivableReport } = await import("./tdsReceivable");
+  const r = await tdsReceivableReport(+m[1], +m[2]);
+  const rows: XRow[] = [];
+  for (const c of r.byCustomer) {
+    for (const l of r.lines.filter(x => x.customerId === c.customerId)) rows.push({ cells: { date: l.day, voucher: l.voucher, customer: nameCell(l.customer, "customer", l.customerId), invoices: l.invoices.join(", "), money: l.money, tds: l.tds, certificate: l.certificate ?? "waiting for certificate", running: l.running } });
+    rows.push({ style: "subtotal", cells: { customer: `${c.customer}: ${c.receipts} receipt(s)`, money: c.money, tds: c.tds } });
+  }
+  rows.push({ style: "total", cells: { customer: "Total", money: r.totals.money, tds: r.totals.tds, certificate: r.totals.waiting ? `${r.totals.waiting} waiting` : "" } });
+  const posted = r.posted;
+  return { title: "TDS receivable", fileReport: "TDSReceivable", filePeriod: `${r.year}-${String(r.month).padStart(2, "0")}`, periodText: periodText(r.label, r.from, r.to),
+    postedText: posted.postedUpTo ? `Posted up to ${bsWithAd(posted.postedUpTo)}` : "Posted up to: no day posted yet", warning: posted.warning, orientation: "landscape", zero: "dash",
+    pdfRows: rows.length, extraLines: [r.yearEndNote],
+    sections: [{ title: "TDS withheld by customers", rows,
+      notes: [r.check.agrees ? `The posted TDS (Rs. ${money(r.check.documents)}) equals the 1460 debits from receipts in the ledger.` : `The posted TDS (Rs. ${money(r.check.documents)}) differs from the 1460 debits from receipts in the ledger (Rs. ${money(r.check.ledger)}).`],
+      columns: [{ key: "date", label: "Date", type: "date" }, { key: "voucher", label: "Receipt", type: "text", width: 16 }, { key: "customer", label: "Customer", type: "text", width: 28 }, { key: "invoices", label: "Invoices settled", type: "text", width: 30 },
+        { key: "money", label: "Money", type: "money" }, { key: "tds", label: "TDS", type: "money" }, { key: "certificate", label: "Certificate", type: "text", width: 22 }, { key: "running", label: "Running TDS", type: "money" }] }] };
+}
+
 export const EXPORTS: Record<string, (q: Record<string, any>) => Promise<ReportDoc>> = {
   "tds-payable": tdsPayableDoc,
+  "tds-receivable": tdsReceivableDoc,
   "day-book": dayBookDoc, ledger: ledgerDoc, book: bookDoc, "trial-balance": trialBalanceDoc, "profit-loss": profitLossDoc, "balance-sheet": balanceSheetDoc,
   compare: compareDoc, customers: q => summaryDoc(q, "1300"), suppliers: q => summaryDoc(q, "2100"),
   "customer-statement": q => statementDoc(q, "customer"), "supplier-statement": q => statementDoc(q, "supplier"),

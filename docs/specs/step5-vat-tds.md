@@ -305,3 +305,41 @@ Official sources found, but their text could not be read by the tools used (the 
   - lib/glRules.ts allows a supplier on 2250 and a customer on 1460.
 - **Confirmation:** a change of rate, threshold or dates clears it. Unconfirmed documents warn but are allowed.
 - **Report:** the check compares the TDS of the documents of the posted days with the 2250 credits less debits of the month, leaving out tax payments.
+
+- **Two known limits of 5b (for the accountant to confirm):**
+  1. Contract TDS applies only to the current payment, when the same PAN's 10-day total crosses the threshold. There is no catch-up on the earlier payments.
+  2. A debit note on a bill whose payment carried TDS does not adjust the TDS. The accountant corrects it with a JV.
+- **A deposit cannot be more than is still to deposit (5c-A):** POST /tax-payments refuses an amount above what was withheld less what was deposited for that BS month: "That is more than the TDS still to deposit (Rs X). Record a fine or interest as an expense."
+
+## 14. Part 5c as built (2026-11-28; see docs/CHANGELOG.md)
+- **Migration 022:** customer_receipts.tds_reference_by and tds_reference_at (who entered the certificate, and when). It also adds an index for the register. tds_amount and tds_reference came with 020.
+- **What a receipt means:**
+  - customer_receipts.amount is the money received, and tds_amount is extra;
+  - the receipt settles amount + tds_amount;
+  - allocations to invoices cover that total, and "unallocated" is that total less the allocations.
+- **Rules:**
+  - TDS is 0 or more, and no more than the part of the receipt allocated to invoices (a certificate is for invoices paid, never for an advance);
+  - only on cash or bank receipts, never card or QR (machine money, LHC's own through the settlement);
+  - only the admin and accountant enter it; supervisors and the head barista still record plain receipts;
+  - the amount is never edited: void the receipt and enter it again.
+- **The certificate:** PATCH /receivables/receipts/:id/tds-reference (admin and accountant) records who and when. It changes no posting, so a posted or locked day does not stop it. Without a reference, the receipt is "waiting for certificate".
+- **Posting:** Dr cash, bank or machine with the money; Dr 1460 with the TDS (customer on the line); Cr 1300 with money + TDS (customer on the line). A void reverses it. New problem codes: receipt_tds (below zero) and receipt_tds_mode (TDS on a card or QR receipt).
+- **Points:** they follow the allocations, so the TDS part counts as paid. Hotel guests and members follow the normal rule; Sulimha never earns.
+- **Every place that sums receipts:**
+  - **using money + TDS:**
+    - customerBalances (Receivables, the POS credit warning, opening balances, conversion);
+    - receivablesAsOf (the day and month-end Receivables checks, the 4b statement agreement);
+    - receiptsWithAllocations (unallocated);
+    - the customer ledger; the allocation limits; receiptEntry;
+    - the 4b statement (from the 1300 lines; its label reads "Receipt (TDS withheld Rs X)");
+    - the drill-down.
+  - **using money only, on purpose:** receiptsBetween and what uses it (the cash drawer, Collections and payment-mode ledgers, Settlements, the daily sales and cash checks).
+- **Report:** Reports > TDS receivable, for one BS month:
+  - by customer: date, receipt, invoices settled, money, TDS, the certificate or "waiting for certificate", and a running total;
+  - totals;
+  - a check that the month's 1460 movement from receipts equals the register for the posted days;
+  - the year-end note "At year end the accountant sets 1460 against income tax with a JV (2270 when active)". The JV itself is not built.
+  - Excel and PDF.
+- **The customer page** in Receivables shows the TDS withheld this fiscal year and how many certificates are missing.
+- **The hint:** on Record receipt, "<rate>% of the taxable amount would be Rs X" uses the service_vat TDS type's rate on the invoices allocated. It is never filled in. Shortcut: the taxable amount is the allocated total, which equals the amount before VAT while VAT is off; it must leave out VAT once 5e switches VAT on.
+- **The Sulimha example** (TDS base excl_vat, VAT off): 10 breakfasts x Rs 800 = Rs 8,000; 1.5% = Rs 120; paid Rs 7,880. The entry is Dr 1200 7,880, Dr 1460 120, Cr 1300 8,000, and both invoices are fully settled.

@@ -195,6 +195,14 @@
   - **Email codes:** a new code can be asked for after 1 minute (3 an hour before a longer wait). A successful sign-in resets the count.
   - **Security fix:** redeeming points now needs the member's own sign-in. Before this, the page sent only a customer number.
 
+40. Step 5c, TDS receivable, 2026-11-28 (docs/specs/step5-vat-tds.md section 14). Migration 022 NOT yet run.
+  - **Record receipt** (admin and accountant, cash or bank only): "Tax withheld by the customer (TDS)" and the certificate reference. Money + TDS settle the invoices. The entry is Dr money, Dr 1460, Cr 1300.
+  - **The certificate** can be added later from the receipt list ("Waiting for certificate" > add). That changes no posting.
+  - **Customer page:** TDS withheld this fiscal year, and how many certificates are missing.
+  - **Report:** Reports > TDS receivable for a BS month (by customer, running total, the 1460 check, the year-end note), with Excel and PDF.
+  - **5b fix:** a TDS deposit can no longer be more than what is still to deposit.
+  - **Small fix:** the customer page now gets the PAN and the kind from the server (the 5a PAN line always showed "—").
+
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).
 - 002_credit_rules_billno.sql (2026-11-24, by the owner): credit_settings, credit_notes, credit_note_items, orders.loyalty_paid_basis, expenses.bill_number.
@@ -220,7 +228,7 @@
 - 021_tds_payable.sql (recorded 2026-11-28, by the owner): ledger_settings.tds_base; confirmed_by and confirmed_at on tax_rates and tds_types; TDS indexes.
 
 # Not yet applied on the server
-- None.
+- 022_tds_receivable.sql: customer_receipts.tds_reference_by and tds_reference_at, and the register index. Run before deploy.sh.
 
 # Known limits
 - **Tests:** the database tests run on PGlite (in-memory PostgreSQL), so `pnpm test` needs no server. On Windows, tests and builds need ESBUILD_BINARY_PATH (pnpm-workspace.yaml strips esbuild's Windows binary). scripts/src/seed.ts fails typecheck (bcryptjs and pg missing from scripts/package.json), unrelated.

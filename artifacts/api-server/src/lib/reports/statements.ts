@@ -123,6 +123,8 @@ async function statementLines(code: "1300" | "2100", partyId: number, from: stri
   const gl: any = await generalLedger(code, from, to, code === "1300" ? { customerId: partyId, page } : { supplierId: partyId, page });
   const noteIds = gl.lines.filter((l: any) => l.sourceType === "credit_note").map((l: any) => l.sourceId);
   const noteKind = new Map(noteIds.length ? (await rows(sql`SELECT id, kind FROM credit_notes WHERE id IN (${sql.join(noteIds.map((i: number) => sql`${i}`), sql`, `)})`)).map(r => [Number(r.id), r.kind]) : []);
+  const rcIds = gl.lines.filter((l: any) => l.sourceType === "receipt").map((l: any) => l.sourceId);
+  const rcTds = new Map<number, number>(rcIds.length ? (await rows(sql`SELECT id, tds_amount FROM customer_receipts WHERE tds_amount > 0 AND id IN (${sql.join(rcIds.map((i: number) => sql`${i}`), sql`, `)})`)).map(r => [Number(r.id), num(r.tds_amount)]) : []);
   const billKind = new Map<number, string>();
   const billIds = gl.lines.filter((l: any) => l.sourceType === "purchase_bill").map((l: any) => l.sourceId);
   if (billIds.length) for (const r of await rows(sql`SELECT id, kind FROM purchase_bills WHERE id IN (${sql.join(billIds.map((i: number) => sql`${i}`), sql`, `)})`)) billKind.set(Number(r.id), r.kind);
@@ -131,6 +133,7 @@ async function statementLines(code: "1300" | "2100", partyId: number, from: stri
     if (l.sourceType === "credit_note" && noteKind.get(l.sourceId) === "reissue") what = "Re-issue (moved to another customer)";
     if (l.sourceType === "credit_note" && noteKind.get(l.sourceId) === "cancel") what = "Credit note (invoice cancelled)";
     if (l.sourceType === "purchase_bill" && billKind.get(l.sourceId) === "opening") what = "Opening bill";
+    if (l.sourceType === "receipt" && rcTds.get(l.sourceId)) what = `Receipt (TDS withheld Rs ${rcTds.get(l.sourceId)!.toLocaleString("en-IN", { minimumFractionDigits: 2 })})`; // 5c
     if (l.sourceType === "supplier_payment" && code === "2100") what = "Payment";
     if (l.kind === "reversal") what = `Correction: ${what} reversed`;
     else if (l.kind === "correction") what = `${what} (corrected)`;

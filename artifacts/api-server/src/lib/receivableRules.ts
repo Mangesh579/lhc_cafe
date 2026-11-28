@@ -119,6 +119,18 @@ export type OpenInvoice = { orderId: number; customerId: number | null; outstand
 
 // Checks how a receipt is split over invoices.
 // available: what is still unallocated on the receipt. invoices: open credit invoices by order id.
+// 5c: TDS a customer withholds (docs/specs/step5-vat-tds.md 4b). The receipt settles the money plus the TDS. The TDS is
+// only on money paid by cash or bank (card and QR money is LHC's own, through the machine and its settlement), and it
+// can be no more than the invoices the receipt settles (the certificate is for invoices paid, never for an advance).
+export const TDS_RECEIPT_MODES = ["cash", "bank"];
+export function receiptTdsError(mode: string, tds: number, allocated: number): string | null {
+  if (!Number.isFinite(tds) || tds < 0) return "The TDS withheld must be 0 or more.";
+  if (tds === 0) return null;
+  if (!TDS_RECEIPT_MODES.includes(mode)) return "TDS withheld is only for money paid by cash or bank. Card and QR receipts come through LHC's machines and carry no TDS.";
+  if (tds - allocated >= 0.005) return `The TDS (Rs. ${tds.toFixed(2)}) is more than the invoices this receipt settles (Rs. ${allocated.toFixed(2)}). Allocate the invoices the certificate covers.`;
+  return null;
+}
+
 export function validateAllocations(
   input: unknown, available: number, customerId: number, invoices: Map<number, OpenInvoice>,
 ): { allocations: { orderId: number; amount: number }[]; total: number } | { error: string } {
