@@ -218,7 +218,7 @@
   - **Reports > Tax invoices:** the month's tax invoices with the gap check. A cancelled invoice keeps its number.
   - **Nothing changes until VAT is switched on.**
 
-44. Step 5f, the VAT return and the VAT payment, 2026-11-28 (docs/specs/step5-vat-tds.md section 18). Migration 026 NOT yet run.
+44. Step 5f, the VAT return and the VAT payment, 2026-11-28 (docs/specs/step5-vat-tds.md section 18). Migration 026 run (recorded 2026-11-28).
   - **Reports > VAT return** (one BS month): the sales book, the purchase book, the summary (payable or credit carried), the check against 2200 and 1450, Excel and PDF.
   - **Filing:** Chart of Accounts > Tax payments > File a VAT return, for a closed month, in order. Dr 2200, Cr 1450, Cr bank. A credit or nil month is filed at Rs 0.
   - **Month close:** a VAT month cannot close while its VAT books disagree with the ledger or tax invoice numbers are missing.
@@ -251,9 +251,10 @@
 - 023_input_vat.sql (recorded 2026-11-28, by the owner): purchase_bills.input_vat_claimed and expenses.input_vat_claimed (default false).
 - 024_tds_receivable_rate.sql (recorded 2026-11-28, by the owner): ledger_settings.tds_receivable_rate (15.00) and its confirmation columns.
 - 025_output_vat.sql (recorded 2026-11-28, by the owner): orders.vat_rate, taxable_amount, tax_invoice_no (unique), tax_invoice_at.
+- 026_vat_return.sql (recorded 2026-11-28, by the owner): one active VAT filing per BS month (unique index on tax_payments).
 
 # Not yet applied on the server
-- 026_vat_return.sql: one active VAT filing per BS month (unique index). Run before deploy.sh.
+- None.
 
 # Known limits
 - **VAT follows the payment day (5e, known rule):** a sale backdated to before the VAT start date but paid after VAT is switched on gets VAT, because its VAT, like its posting, follows the day it is paid. While VAT is on, the VAT start date cannot be changed (switch VAT off first).
