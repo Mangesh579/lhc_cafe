@@ -18,7 +18,8 @@ router.get("/accounts", authenticate, async (_req: AuthRequest, res): Promise<vo
 router.get("/accounts/customers", authenticate, async (req, res): Promise<void> => {
   const q = String(req.query.search ?? "").trim();
   const rows = await db
-    .select({ id: loyaltyCustomersTable.id, name: loyaltyCustomersTable.name, phone: loyaltyCustomersTable.phone })
+    // every customer: members, hotel guests and Sulimha Durbar (Record receipt and Wrong customer pick from here)
+    .select({ id: loyaltyCustomersTable.id, name: loyaltyCustomersTable.name, phone: loyaltyCustomersTable.phone, kind: loyaltyCustomersTable.kind, archived: loyaltyCustomersTable.archived })
     .from(loyaltyCustomersTable)
     .where(q ? or(ilike(loyaltyCustomersTable.name, `%${q}%`), ilike(loyaltyCustomersTable.phone, `%${q}%`)) : undefined)
     .orderBy(loyaltyCustomersTable.name)

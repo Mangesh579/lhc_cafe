@@ -11,7 +11,7 @@ import { creditInvoices } from "../lib/receivables";
 import { validateCheckIn, breakfastCost } from "../lib/stayRules";
 import { round2 } from "../lib/payments";
 import { reissueInvoice } from "./receivables";
-import { stayEvent, billedCounts, isBilled } from "../lib/stayEvents";
+import { stayEvent, billedCountsMany, isBilled } from "../lib/stayEvents";
 import { promoteGuest } from "./loyalty";
 
 const router = Router();
@@ -89,8 +89,7 @@ router.get("/stays/guests", authenticate, async (req: AuthRequest, res: Response
   const rows = await db.select({ s: roomStaysTable, room: cafeTablesTable.name, c: loyaltyCustomersTable }).from(roomStaysTable)
     .innerJoin(loyaltyCustomersTable, eq(loyaltyCustomersTable.id, roomStaysTable.customerId)).leftJoin(cafeTablesTable, eq(cafeTablesTable.id, roomStaysTable.tableId))
     .where(conds.length ? and(...conds) : undefined).orderBy(desc(roomStaysTable.checkIn), desc(roomStaysTable.id)).limit(300);
-  const billed = new Map<number, Awaited<ReturnType<typeof billedCounts>>>();
-  for (const id of new Set(rows.map(r => r.c.id))) billed.set(id, await billedCounts(db, id));
+  const billed = await billedCountsMany(db, rows.map(r => r.c.id)); // one grouped query, however many guests
   res.json(rows.map(r => {
     const b = billed.get(r.c.id)!;
     return { stayId: r.s.id, room: r.room, checkIn: r.s.checkIn, checkOut: r.s.checkOut, adults: r.s.adults, children: r.s.children, status: r.s.status,

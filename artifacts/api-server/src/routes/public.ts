@@ -651,7 +651,8 @@ router.post("/loyalty/register", requireCafeWifi, publicOrderRateLimiter, async 
     // 3f (owner, 2026-11-28): a hotel guest who signs up becomes a member and keeps their stays and points. The public
     // page shows only the member's name, phone and points: never stays, rooms or invoices.
     if (existingPhone?.kind === "hotel_guest") {
-      const r = await promoteGuest(db, existingPhone.id, phone, email, String(name).trim().slice(0, 120) || null, "QR sign-up");
+      // 3f-fix: keep the name staff entered (it is on the guest's invoices and statements); take only the email
+      const r = await promoteGuest(db, existingPhone.id, phone, email, null, "QR sign-up");
       if ("error" in r) { res.status(r.status).json({ error: r.error }); return; }
       res.status(201).json({ success: true, customer: { id: r.customer.id, name: r.customer.name, phone: r.customer.phone, totalPoints: r.customer.totalPoints, loopNumber: r.customer.loopNumber ?? 1 } });
       return;

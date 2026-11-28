@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { apiJson } from "@/lib/expenseApi";
 import { Plus, Search, Star, DollarSign, ShoppingBag, Edit2, History, Sparkles, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { allCountries } from "country-telephone-data";
@@ -54,6 +55,21 @@ function CountryCodeSelect({ value, onChange }: { value: string; onChange: (v: s
 export default function Loyalty() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  // 3f-fix: archived members (admin, supervisor) and Bring back
+  const canArchive = ["admin", "supervisor"].includes((user?.role as string | undefined) ?? "");
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedList, setArchivedList] = useState<any[]>([]);
+  const loadArchived = async () => {
+    try { setArchivedList(await apiJson("/loyalty/customers?archived=1")); } catch { setArchivedList([]); }
+  };
+  const unarchive = async (c: any) => {
+    try {
+      await apiJson(`/loyalty/customers/${c.id}/unarchive`, "POST");
+      toast({ title: `${c.name} is back on the list` });
+      queryClient.invalidateQueries({ queryKey: getListLoyaltyCustomersQueryKey() });
+      await loadArchived();
+    } catch (e: any) { toast({ title: "Not brought back", description: e?.error, variant: "destructive" }); }
+  };
   const [search, setSearch] = useState("");
   const [deleteCustomer, setDeleteCustomer] = useState<any>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -67,11 +83,13 @@ export default function Loyalty() {
         method: "DELETE",
         headers: { Authorization: `Bearer ${localStorage.getItem("lhc_token")}` },
       });
-      if (!r.ok) throw new Error();
+      // 3f: nothing is deleted; an unbilled customer is archived, a billed one is refused with the reason
+      if (!r.ok) { const d = await r.json().catch(() => null); throw new Error(d?.error ?? "Could not archive the customer"); }
       queryClient.invalidateQueries({ queryKey: getListLoyaltyCustomersQueryKey() });
-      toast({ title: "Customer deleted" });
+      toast({ title: "Customer archived", description: "Hidden from the lists; nothing is deleted. Bring them back under Archived." });
       setDeleteCustomer(null);
-    } catch { toast({ title: "Failed to delete customer", variant: "destructive" }); }
+      if (showArchived) await loadArchived();
+    } catch (e: any) { toast({ title: "Not archived", description: e?.message, variant: "destructive" }); }
     finally { setDeleteLoading(false); }
   };
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -549,13 +567,29 @@ export default function Loyalty() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {canArchive && (
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showArchived} onChange={e => { setShowArchived(e.target.checked); if (e.target.checked) loadArchived(); }} /> Archived</label>
+          {showArchived && (
+            <Card><CardContent className="p-0">
+              {archivedList.length === 0 ? <p className="px-4 py-3 text-sm text-muted-foreground">No archived members.</p> : (
+                <ul className="divide-y text-sm">{archivedList.map(c => (
+                  <li key={c.id} className="flex items-center justify-between px-4 py-2">
+                    <span>{c.name} <span className="text-muted-foreground">{c.phone}</span>{c.archivedBy ? <span className="text-xs text-muted-foreground"> · archived by {c.archivedBy}</span> : null}</span>
+                    <Button size="sm" variant="outline" onClick={() => unarchive(c)}>Bring back</Button>
+                  </li>))}</ul>
+              )}
+            </CardContent></Card>
+          )}
+        </div>
+      )}
             <Dialog open={!!deleteCustomer} onOpenChange={o => !o && setDeleteCustomer(null)}>
         <DialogContent className="sm:max-w-sm">
-          <DialogHeader><DialogTitle>Delete Customer</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">Delete <strong>{deleteCustomer?.name}</strong>? This permanently removes their loyalty account, points, and history.</p>
+          <DialogHeader><DialogTitle>Archive customer</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Archive <strong>{deleteCustomer?.name}</strong>? They are hidden from the lists; nothing is deleted. A customer who has bills, receipts or credit notes cannot be archived.</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteCustomer(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDeleteCustomer} disabled={deleteLoading}>Delete</Button>
+            <Button variant="destructive" onClick={handleDeleteCustomer} disabled={deleteLoading}>Archive</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

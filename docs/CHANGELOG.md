@@ -1890,3 +1890,36 @@ None.
 
 ## 2026-11-28 (h): Migration 019 recorded as run
 - The owner ran db/migrations/019_hotel_guests.sql on the server. Recorded in CLAUDE.md, docs/HANDOFF.md and the 3f entry above. Docs only; no code, no SQL, nothing to deploy.
+
+## 2026-11-28 (i): Part 3f-fix
+
+### Summary
+1. **A QR sign-up never renames a hotel guest.** routes/public.ts now calls promoteGuest with no name: the name staff entered stays, because it is on the guest's invoices and statements. Only the email is taken (and the phone, which matched).
+2. **The Guests view counts bills in one grouped query.** GET /stays/guests used billedCounts once per guest (four queries each). It now uses billedCountsMany (lib/stayEvents.ts): one UNION ALL query grouped by customer over orders, receipts, credit notes and journal lines. The output is the same.
+3. **An archived customer's phone on the Loyalty page.** POST /loyalty/customers with the phone of an archived customer answers "This customer is archived. Ask the admin or a supervisor to bring them back."
+   - **New list:** GET /loyalty/customers?archived=1 lists archived members, for the admin and supervisors only; anyone else gets the normal list.
+   - **Loyalty page:** an "Archived" filter (admin, supervisor) shows them, with "Bring back" (POST /loyalty/customers/:id/unarchive).
+   - **The trash button now says what it does:** "Archive customer ... nothing is deleted". A billed customer's refusal shows its reason (since 3f it archives; it never deleted).
+4. **Checked: the Receivables pickers.** Record receipt (pages/receivables.tsx) and Wrong customer (components/InvoiceActions.tsx) search GET /accounts/customers, not the loyalty list. That search covers every customer: members, hotel guests, Sulimha Durbar and archived ones. So both still find Sulimha and a hotel guest who owes money, and nothing was broken. The search now also returns each customer's kind and archived flag. Note: that search route is open to any logged-in role (unchanged; it returns names and phones only).
+
+### Files
+- api-server:
+  - src/routes/public.ts, src/lib/stayEvents.ts (billedCountsMany), src/routes/stays.ts, src/routes/loyalty.ts, src/routes/accounts.ts;
+  - src/__tests__/guests3f.test.ts (+4).
+- lhc-cafe: src/pages/loyalty.tsx.
+- Docs: docs/CHANGELOG.md, docs/HANDOFF.md.
+
+### Tables and migration
+None.
+
+### Tests
+- Run on the dev machine:
+  - `pnpm test`: 51 files, 519 tests pass;
+  - typecheck clean for api-server, lhc-cafe and the libs;
+  - both artifacts build.
+- New in guests3f:
+  - **QR sign-up:** typed as "Typed On The Phone", the guest stays "Krishna (desk)", now a member with the email; their invoice and the Receivables customer show the old name.
+  - **30 guests:** billedCountsMany equals billedCounts for every one; the route's billed flags match; and the route runs the same number of database queries for 30 guests as for 3 (counted on the PGlite client).
+  - **Archived phone:** the refusal message; ?archived=1 for a supervisor but not staff; unarchive refused for staff and allowed for a supervisor; then back in the list.
+  - **The pickers' search:** finds Sulimha (with its kind) and a hotel guest.
+- Not run: the screens in a browser; the public QR page on the cafe Wi-Fi; anything against production.

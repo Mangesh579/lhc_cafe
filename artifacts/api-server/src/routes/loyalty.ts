@@ -15,7 +15,9 @@ router.get("/loyalty/customers", authenticate, async (req: AuthRequest, res): Pr
     return;
   }
   const sid = await sulimhaId(db);
-  const conds = [eq(loyaltyCustomersTable.kind, "member"), eq(loyaltyCustomersTable.archived, false), ...(sid ? [ne(loyaltyCustomersTable.id, sid)] : []),
+  // 3f-fix: ?archived=1 lists the archived members instead (admin and supervisor), for Unarchive on the Loyalty page
+  const archived = req.query.archived === "1" && ["admin", "supervisor"].includes((req.user?.role as string | undefined) ?? "");
+  const conds = [eq(loyaltyCustomersTable.kind, "member"), eq(loyaltyCustomersTable.archived, archived), ...(sid ? [ne(loyaltyCustomersTable.id, sid)] : []),
     ...(phone ? [ilike(loyaltyCustomersTable.phone, `%${phone}%`)] : [])];
   res.json(await db.select().from(loyaltyCustomersTable).where(and(...conds)).orderBy(loyaltyCustomersTable.name));
 });
@@ -25,6 +27,7 @@ router.post("/loyalty/customers", authenticate, async (req, res): Promise<void> 
   if (!name || !phone) { res.status(400).json({ error: "Name and phone required" }); return; }
 
   const [existingPhone] = await db.select().from(loyaltyCustomersTable).where(eq(loyaltyCustomersTable.phone, phone));
+  if (existingPhone?.archived) { res.status(400).json({ error: "This customer is archived. Ask the admin or a supervisor to bring them back.", archivedCustomerId: existingPhone.id }); return; }
   if (existingPhone?.kind === "hotel_guest") { res.status(400).json({ error: `This phone belongs to hotel guest ${existingPhone.name}. Make them a member from Stays > Guests (Promote), so they keep their stays.` }); return; }
   if (existingPhone) { res.status(400).json({ error: "A loyalty account with this phone number already exists." }); return; }
 

@@ -165,6 +165,7 @@
   - **Points:** a guest earns on paid extras, nothing on an included breakfast; Sulimha never earns.
   - **The folio page** (/stays/:id): the bills with who added and settled them, the history, Take payment, and Print bill (the guest's extras for that stay; reception may print it).
   - **The history** (stay_events) is insert-only and written with each change.
+  - **3f-fix (2026-11-28):** a QR sign-up keeps the guest's name; the Guests view counts bills in one query; adding a member with an archived customer's phone says to bring them back; the Loyalty page has an Archived filter with Bring back (admin, supervisor). The Receivables pickers (Record receipt, Wrong customer) were checked and still find Sulimha and hotel guests.
 
 # Applied on the server
 - 001_payments_credit.sql (2026-11-22, by the owner).

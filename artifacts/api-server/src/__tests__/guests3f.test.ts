@@ -378,3 +378,75 @@ describe("migration 019 on existing data", () => {
   });
 });
 void hotelSettingsTable;
+
+// ── 3f-fix ──
+describe("3f-fix: a QR sign-up keeps the name staff entered", () => {
+  it("the guest's name, invoice and statement are unchanged; only the email is taken", async () => {
+    const [g] = await ctx.db.insert(loyaltyCustomersTable).values({ name: "Krishna (desk)", phone: "9888888888", kind: "hotel_guest" }).returning();
+    const [o] = await ctx.db.insert(ordersTable).values({ totalAmount: "300", paymentMethod: "credit", paymentStatus: "paid", orderStatus: "completed", loyaltyCustomerId: g.id, invoiceNumber: "2083/84-09999", paidAt: new Date(), createdBy: "waiter1" } as any).returning();
+    await ctx.client.query(`INSERT INTO order_payments (order_id, mode, amount, paid_at) VALUES (${o.id}, 'credit', 300, now())`);
+    const r = await fetch(`${base}/public/loyalty/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Typed On The Phone", phone: "9888888888", email: "krishna@example.com" }) });
+    expect(r.status).toBe(201);
+    const c = await customer(g.id);
+    expect(c).toMatchObject({ name: "Krishna (desk)", kind: "member", email: "krishna@example.com", promotedBy: "QR sign-up" });
+    expect((await api("acct", "GET", `/receivables/invoices/${o.id}`)).body.customerName).toBe("Krishna (desk)");
+    expect((await api("acct", "GET", `/receivables/customers/${g.id}`)).body.customer.name).toBe("Krishna (desk)");
+  });
+});
+
+describe("3f-fix: the Guests view counts bills in one grouped query", () => {
+  it("30 guests: the same answers as billedCounts, and the same number of queries as for 3", async () => {
+    const { billedCounts, billedCountsMany } = await import("../lib/stayEvents");
+    const made: number[] = [];
+    for (let i = 0; i < 30; i++) {
+      const [c] = await ctx.db.insert(loyaltyCustomersTable).values({ name: `Bulk Guest ${String(i).padStart(2, "0")}`, kind: "hotel_guest" }).returning();
+      made.push(c.id);
+      await ctx.db.insert(roomStaysTable).values({ tableId: rooms["103"], customerId: c.id, checkIn: "2026-11-20", checkOut: "2026-11-21", status: "checked_out", createdBy: "rec" });
+      if (i % 3 === 0) await ctx.db.insert(ordersTable).values({ totalAmount: "100", paymentMethod: "cash", paymentStatus: "paid", orderStatus: "completed", loyaltyCustomerId: c.id } as any);
+      if (i % 5 === 0) await ctx.client.query(`INSERT INTO customer_receipts (voucher_no, customer_id, receipt_date, mode, amount, created_by) VALUES ('RV-BULK-${i}', ${c.id}, '2026-11-20', 'cash', 10, 'x')`);
+    }
+    const many = await billedCountsMany(ctx.db, made);
+    for (const id of made) expect(many.get(id), `customer ${id}`).toEqual(await billedCounts(ctx.db, id));
+    const rows = (await api("super", "GET", "/stays/guests?q=Bulk%20Guest")).body;
+    expect(rows).toHaveLength(30);
+    for (const r of rows) {
+      const b = await billedCounts(ctx.db, r.customerId);
+      expect(r.billed, r.name).toBe(b.orders + b.receipts + b.creditNotes + b.journalLines > 0);
+    }
+    // the number of database queries does not grow with the guests
+    const count = async (q: string) => {
+      const spy = vi.spyOn(ctx.client, "query");
+      try { expect((await api("super", "GET", `/stays/guests?q=${q}`)).status).toBe(200); return spy.mock.calls.length; } finally { spy.mockRestore(); }
+    };
+    const thirty = await count("Bulk%20Guest"), three = await count("Bulk%20Guest%200");
+    expect(three).toBeGreaterThan(0);
+    expect(thirty).toBe(three);
+  });
+});
+
+describe("3f-fix: an archived customer's phone on the Loyalty page", () => {
+  it("adding a member with it is refused with a clear message; the admin and supervisors list and bring back archived members", async () => {
+    const add = await api("staff", "POST", "/loyalty/customers", { name: "Gita", phone: "9899999999", email: "gita@example.com" });
+    expect(add.status).toBe(201);
+    expect((await api("super", "POST", `/loyalty/customers/${add.body.id}/archive`)).status).toBe(200);
+    const again = await api("staff", "POST", "/loyalty/customers", { name: "Gita again", phone: "9899999999" });
+    expect(again.status).toBe(400);
+    expect(again.body.error).toBe("This customer is archived. Ask the admin or a supervisor to bring them back.");
+    expect((await api("super", "GET", "/loyalty/customers?archived=1")).body.map((c: any) => c.id)).toContain(add.body.id);
+    expect((await api("staff", "GET", "/loyalty/customers?archived=1")).body.map((c: any) => c.id)).not.toContain(add.body.id); // staff gets the normal list
+    expect((await api("staff", "POST", `/loyalty/customers/${add.body.id}/unarchive`)).status).toBe(403);
+    expect((await api("super", "POST", `/loyalty/customers/${add.body.id}/unarchive`)).status).toBe(200);
+    expect((await api("staff", "GET", "/loyalty/customers")).body.map((c: any) => c.id)).toContain(add.body.id);
+  });
+});
+
+describe("3f-fix: the Receivables pickers still find Sulimha and hotel guests", () => {
+  it("Record receipt and Wrong customer search /accounts/customers: every customer, with its kind", async () => {
+    const s = (await api("acct", "GET", "/accounts/customers?search=Sulimha")).body;
+    expect(s.find((c: any) => c.id === sulimha)).toMatchObject({ name: "Sulimha Durbar", kind: "member" });
+    const g = (await api("acct", "GET", "/accounts/customers?search=Points%20Guest")).body;
+    expect(g.length).toBeGreaterThan(0);
+    const guest = (await api("acct", "GET", "/accounts/customers?search=Sita")).body;
+    expect(guest.some((c: any) => c.kind === "hotel_guest")).toBe(true);
+  });
+});
